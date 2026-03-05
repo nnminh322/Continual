@@ -6,6 +6,8 @@ from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.trainer import *
 from transformers.trainer_utils import IntervalStrategy  # explicit for transformers 5.x
 from transformers.trainer_callback import TrainerCallback
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 import numpy as np
 
 from cl_collator import SUPPORTED_DECODER_MODELS, check_model
