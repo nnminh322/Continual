@@ -418,6 +418,8 @@ def load_cl_dataset(data_dir, task_config_dir, max_num_instances_per_task,
     datasets>=4.0 no longer supports loading from a local script via load_dataset(script.py, ...).
     """
     from cl_dataset import CLInstructions, CLConfig
+    
+    # Create config to parse task configs
     config = CLConfig(
         data_dir=data_dir,
         task_config_dir=task_config_dir,
@@ -425,8 +427,13 @@ def load_cl_dataset(data_dir, task_config_dir, max_num_instances_per_task,
         max_num_instances_per_eval_task=max_num_instances_per_eval_task,
         num_examples=num_examples,
     )
-    builder = CLInstructions(config=config)
-    split_generators = builder._split_generators(None)  # dl_manager unused for local files
+    
+    # Create builder instance and manually set config (datasets 4.x compatibility)
+    builder = CLInstructions()
+    builder.config = config
+    
+    # Generate splits
+    split_generators = builder._split_generators(None)
     split_names = ["train", "validation", "test"]
     dataset_dict = {}
     for split_name, split_gen in zip(split_names, split_generators):
