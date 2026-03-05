@@ -13,7 +13,10 @@ from cl_dataset import ANSWER_PREFIX
 from llama_inflora import LlamaAttention
 # from llama13b_inflora import LlamaFlashAttention2
 # from t5_inflora import T5Attention
-import ipdb
+try:
+    import ipdb
+except ImportError:
+    pass
 
 
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
@@ -56,7 +59,7 @@ class DenserEvalCallback(TrainerCallback):
             control.should_log = True
 
         # Evaluate
-        if args.evaluation_strategy == IntervalStrategy.STEPS and state.global_step in log_eval_steps:
+        if args.eval_strategy == IntervalStrategy.STEPS and state.global_step in log_eval_steps:
             control.should_evaluate = True
 
         # Save

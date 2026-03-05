@@ -9,15 +9,23 @@ import numpy as np
 
 from cl_collator import SUPPORTED_DECODER_MODELS, check_model
 from cl_dataset import ANSWER_PREFIX
-import cupy as cp
-from torch.utils.dlpack import to_dlpack, from_dlpack
-from cupy import fromDlpack
+try:
+    import cupy as cp
+    from torch.utils.dlpack import to_dlpack, from_dlpack
+    from cupy import fromDlpack
+    HAS_CUPY = True
+except ImportError:
+    HAS_CUPY = False
+    print("[WARNING] CuPy not available. SVD operations will use PyTorch fallback.")
 
 # from t5_olora import T5Attention
 from llama_gainlora_inflora import LlamaAttention
 # from llama13b_inflorap1 import LlamaFlashAttention2
 # from llama13b_inflorap1_1 import LlamaFlashAttention2 as LlamaFlashAttention2_1
-import ipdb
+try:
+    import ipdb
+except ImportError:
+    pass
 from copy import deepcopy
 
 
@@ -61,7 +69,7 @@ class DenserEvalCallback(TrainerCallback):
             control.should_log = True
 
         # Evaluate
-        if args.evaluation_strategy == IntervalStrategy.STEPS and state.global_step in log_eval_steps:
+        if args.eval_strategy == IntervalStrategy.STEPS and state.global_step in log_eval_steps:
             control.should_evaluate = True
 
         # Save

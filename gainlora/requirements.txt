@@ -27,7 +27,10 @@ loralib==0.1.2
 # Optimization & training
 deepspeed==0.11.2
 optimum==1.13.2
-cupy-cuda12x==12.1.0
+# cupy-cuda12x: optional, needed only for SVD-based GPM.
+# Has HAS_CUPY fallback in trainers if not installed.
+# Install separately: pip install cupy-cuda12x>=13.0.0
+# cupy-cuda12x>=13.0.0
 
 # Data processing
 pandas==2.2.2

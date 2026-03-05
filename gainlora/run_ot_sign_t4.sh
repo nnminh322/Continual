@@ -61,7 +61,7 @@ COMMON_FLAGS="--predict_with_generate \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
-   --evaluation_strategy steps \
+   --eval_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \

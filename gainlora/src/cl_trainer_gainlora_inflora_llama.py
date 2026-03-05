@@ -9,10 +9,18 @@ import numpy as np
 
 from cl_collator import SUPPORTED_DECODER_MODELS, check_model
 from cl_dataset import ANSWER_PREFIX
-import cupy as cp
-from torch.utils.dlpack import to_dlpack, from_dlpack
-from cupy import fromDlpack
-import ipdb
+try:
+    import cupy as cp
+    from torch.utils.dlpack import to_dlpack, from_dlpack
+    from cupy import fromDlpack
+    HAS_CUPY = True
+except ImportError:
+    HAS_CUPY = False
+    print("[WARNING] CuPy not available. SVD operations will use PyTorch fallback.")
+try:
+    import ipdb
+except ImportError:
+    pass
 from copy import deepcopy
 
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
@@ -55,7 +63,7 @@ class DenserEvalCallback(TrainerCallback):
             control.should_log = True
 
         # Evaluate
-        if args.evaluation_strategy == IntervalStrategy.STEPS and state.global_step in log_eval_steps:
+        if args.eval_strategy == IntervalStrategy.STEPS and state.global_step in log_eval_steps:
             control.should_evaluate = True
 
         # Save
