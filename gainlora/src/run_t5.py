@@ -28,6 +28,10 @@ from typing import Optional
 import math
 import torch
 from torch import nn
+
+# Add src directory to path for local imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 try:
     import ipdb
 except ImportError:

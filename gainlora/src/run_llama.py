@@ -53,7 +53,13 @@ from assets import task_config, lora_state_dict_A, lora_state_dict_B, lora_state
 from cl_trainer_gainlora_inflora_llama import DenserEvalCallback, skip_instructions
 from compute_metrics import compute_metrics, compute_grouped_metrics
 
-import ipdb
+# Add src directory to path for local imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    import ipdb
+except ImportError:
+    pass  # ipdb not required
 
 # off wandb
 os.environ['WANDB_DISABLED'] = "True"
@@ -61,8 +67,11 @@ os.environ['WANDB_DISABLED'] = "True"
 logger = logging.getLogger(__name__)
 CURRENT_DIR = os.path.dirname(__file__)
 
-local_data_path = "/home/work/nltk_data"
-nltk.data.path.append(local_data_path)
+local_data_path = os.environ.get("NLTK_DATA", os.path.expanduser("~/nltk_data"))
+if os.path.exists(local_data_path):
+    nltk.data.path.append(local_data_path)
+else:
+    nltk.download("punkt")
 
 @dataclass
 class ModelArguments:
