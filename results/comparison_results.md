@@ -1,0 +1,170 @@
+# GainLoRA vs OT-SIGN Results — Direct Comparison
+
+> **Cách đọc:** AP↑ (cao hơn tốt hơn) | FT↓ (thấp hơn tốt hơn)  
+> Số trong bảng đều là **rougeL (%)** cho superni / **exact_match (%)** cho long.  
+> Lấy kết quả từ `compute_ap_ft.py` sau mỗi lần chạy xong 15 tasks.
+
+---
+
+## Table 1: T5-Large — SuperNI Benchmark (Orders 1 & 2)
+
+| Method | Order 1 AP↑ | Order 1 FT↓ | Order 2 AP↑ | Order 2 FT↓ |
+|--------|-------------|-------------|-------------|-------------|
+| LFPT5* | 39.03 | 10.87 | 29.70 | 20.72 |
+| EWC | 15.32 | 26.78 | 18.19 | 30.28 |
+| TaSL | 27.51 | 18.53 | 28.05 | 17.39 |
+| KIFLoRA | 28.33 | 16.44 | 30.31 | 16.27 |
+| SeqLoRA | 7.30 | 47.60 | 7.03 | 47.97 |
+| IncLoRA | 12.33 | 41.93 | 16.65 | 36.56 |
+| C-LoRA | 22.69 | 24.25 | 32.81 | 11.60 |
+| O-LoRA | 26.37 | 19.15 | 32.83 | 11.99 |
+| InfLoRA | 39.78 | 7.64 | 39.57 | 8.93 |
+| **GainLoRA (InfLoRA)** | **46.21** | **2.40** | **46.44** | **2.61** |
+| **OT-SIGN+GainLoRA (ours)** | | | | |
+
+## Table 2: T5-Large — Long Benchmark (Orders 3 & 4)
+
+| Method | Order 3 AP↑ | Order 3 FT↓ | Order 4 AP↑ | Order 4 FT↓ |
+|--------|-------------|-------------|-------------|-------------|
+| EPI* | — | — | 75.19 | 0.77 |
+| MIGU+FT | — | — | 71.30 | 11.39 |
+| EWC | 43.24 | 23.66 | 46.25 | 32.90 |
+| TaSL | 71.37 | 6.20 | 73.11 | 6.52 |
+| KIFLoRA | 72.19 | 3.10 | 73.72 | 4.75 |
+| SeqLoRA | 49.46 | 27.60 | 33.81 | 45.53 |
+| IncLoRA | 61.19 | 13.63 | 62.46 | 15.92 |
+| C-LoRA | 66.83 | 8.64 | 61.86 | 14.18 |
+| O-LoRA | 70.98 | 3.69 | 71.21 | 4.03 |
+| InfLoRA | 75.15 | 4.19 | 75.79 | 3.47 |
+| **GainLoRA (InfLoRA)** | **78.01** | **0.77** | **77.54** | **1.20** |
+| **OT-SIGN+GainLoRA (ours)** | | | | |
+
+---
+
+## Per-Task Breakdown — Order 1 (fill after running)
+
+Chạy lệnh sau để lấy số điền vào:
+```bash
+python src/compute_ap_ft.py \
+  --output_base logs_and_outputs/ot_sign_order1_t5large/outputs \
+  --task_order "task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification" \
+  --method_name "OT-SIGN+GainLoRA Order1"
+```
+
+| # | Task | GainLoRA Peak | GainLoRA Final | OT-SIGN Peak | OT-SIGN Final |
+|---|------|--------------|---------------|-------------|--------------|
+| 1 | task1572_samsum_summary | | | | |
+| 2 | task363_sst2_polarity_classification | | | | |
+| 3 | task1290_xsum_summarization | | | | |
+| 4 | task181_outcome_extraction | | | | |
+| 5 | task002_quoref_answer_generation | | | | |
+| 6 | task1510_evalution_relation_extraction | | | | |
+| 7 | task639_multi_woz_user_utterance_generation | | | | |
+| 8 | task1729_personachat_generate_next | | | | |
+| 9 | task073_commonsenseqa_answer_generation | | | | |
+| 10 | task1590_diplomacy_text_generation | | | | |
+| 11 | task748_glucose_reverse_cause_event_detection | | | | |
+| 12 | task511_reddit_tifu_long_text_summarization | | | | |
+| 13 | task591_sciq_answer_generation | | | | |
+| 14 | task1687_sentiment140_classification | | | | |
+| 15 | task875_emotion_classification | | | | |
+| | **AP / FT** | **46.21 / 2.40** | | | |
+
+## Per-Task Breakdown — Order 2
+
+```bash
+python src/compute_ap_ft.py \
+  --output_base logs_and_outputs/ot_sign_order2_t5large/outputs \
+  --task_order "task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification" \
+  --method_name "OT-SIGN+GainLoRA Order2"
+```
+
+| # | Task | GainLoRA Peak | GainLoRA Final | OT-SIGN Peak | OT-SIGN Final |
+|---|------|--------------|---------------|-------------|--------------|
+| 1 | task748_glucose_reverse_cause_event_detection | | | | |
+| 2 | task073_commonsenseqa_answer_generation | | | | |
+| 3 | task1590_diplomacy_text_generation | | | | |
+| 4 | task639_multi_woz_user_utterance_generation | | | | |
+| 5 | task1572_samsum_summary | | | | |
+| 6 | task1687_sentiment140_classification | | | | |
+| 7 | task591_sciq_answer_generation | | | | |
+| 8 | task363_sst2_polarity_classification | | | | |
+| 9 | task1510_evalution_relation_extraction | | | | |
+| 10 | task1729_personachat_generate_next | | | | |
+| 11 | task181_outcome_extraction | | | | |
+| 12 | task511_reddit_tifu_long_text_summarization | | | | |
+| 13 | task002_quoref_answer_generation | | | | |
+| 14 | task1290_xsum_summarization | | | | |
+| 15 | task875_emotion_classification | | | | |
+| | **AP / FT** | **46.44 / 2.61** | | | |
+
+## Per-Task Breakdown — Order 3 (Long)
+
+```bash
+python src/compute_ap_ft.py \
+  --output_base logs_and_outputs/ot_sign_order3_t5large/outputs \
+  --task_order "yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic" \
+  --method_name "OT-SIGN+GainLoRA Order3"
+```
+
+| # | Task | GainLoRA Peak | GainLoRA Final | OT-SIGN Peak | OT-SIGN Final |
+|---|------|--------------|---------------|-------------|--------------|
+| 1 | yelp | | | | |
+| 2 | amazon | | | | |
+| 3 | mnli | | | | |
+| 4 | cb | | | | |
+| 5 | copa | | | | |
+| 6 | qqp | | | | |
+| 7 | rte | | | | |
+| 8 | imdb | | | | |
+| 9 | sst2 | | | | |
+| 10 | dbpedia | | | | |
+| 11 | agnews | | | | |
+| 12 | yahoo | | | | |
+| 13 | multirc | | | | |
+| 14 | boolq | | | | |
+| 15 | wic | | | | |
+| | **AP / FT** | **78.01 / 0.77** | | | |
+
+## Per-Task Breakdown — Order 4 (Long)
+
+```bash
+python src/compute_ap_ft.py \
+  --output_base logs_and_outputs/ot_sign_order4_t5large/outputs \
+  --task_order "mnli,cb,wic,copa,qqp,boolq,rte,imdb,yelp,amazon,sst2,dbpedia,agnews,multirc,yahoo" \
+  --method_name "OT-SIGN+GainLoRA Order4"
+```
+
+| # | Task | GainLoRA Peak | GainLoRA Final | OT-SIGN Peak | OT-SIGN Final |
+|---|------|--------------|---------------|-------------|--------------|
+| 1 | mnli | | | | |
+| 2 | cb | | | | |
+| 3 | wic | | | | |
+| 4 | copa | | | | |
+| 5 | qqp | | | | |
+| 6 | boolq | | | | |
+| 7 | rte | | | | |
+| 8 | imdb | | | | |
+| 9 | yelp | | | | |
+| 10 | amazon | | | | |
+| 11 | sst2 | | | | |
+| 12 | dbpedia | | | | |
+| 13 | agnews | | | | |
+| 14 | multirc | | | | |
+| 15 | yahoo | | | | |
+| | **AP / FT** | **77.54 / 1.20** | | | |
+
+---
+
+## Quick Harvest (chạy sau khi xong cả 4 orders)
+
+```bash
+# Chạy 4 lệnh này để lấy đủ số cho cả 2 bảng:
+python src/compute_ap_ft.py --output_base logs_and_outputs/ot_sign_order1_t5large/outputs --task_order "task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification" --save
+
+python src/compute_ap_ft.py --output_base logs_and_outputs/ot_sign_order2_t5large/outputs --task_order "task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification" --save
+
+python src/compute_ap_ft.py --output_base logs_and_outputs/ot_sign_order3_t5large/outputs --task_order "yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic" --save
+
+python src/compute_ap_ft.py --output_base logs_and_outputs/ot_sign_order4_t5large/outputs --task_order "mnli,cb,wic,copa,qqp,boolq,rte,imdb,yelp,amazon,sst2,dbpedia,agnews,multirc,yahoo" --save
+```

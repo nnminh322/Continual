@@ -1,0 +1,735 @@
+Gated Integration of Low-Rank Adaptation
+for Continual Learning of Large Language Models
+Yan-Shuo Liang, Jia-Rui Chen and Wu-Jun Li∗
+National Key Laboratory for Novel Software Technology,
+School of Computer Science, Nanjing University, P. R. China
+{liangys,jiaruichen2005}@smail.nju.edu.cn, liwujun@nju.edu.cn
+Abstract
+Continual learning (CL), which requires the model to learn multiple tasks sequentially, is crucial for large language models (LLMs). Recently, low-rank adaptation (LoRA), one of the most representative parameter-efficient fine-tuning (PEFT)
+methods, has gained increasing attention in CL of LLMs. However, most existing CL methods based on LoRA typically expand a new LoRA branch to learn
+each new task and force the new and old LoRA branches to influence old tasks
+equally, potentially leading to forgetting. In this work, we propose a new method,
+called gated integration of low-rank adaptation (GainLoRA), for CL of LLMs.
+GainLoRA expands a new LoRA branch for each new task and introduces gating
+modules to integrate the new and old LoRA branches. Furthermore, GainLoRA
+leverages the new gating module to minimize the influence from the new LoRA
+branch to old tasks, effectively mitigating forgetting and improving the model’s
+overall performance. Experimental results on CL benchmarks demonstrate that
+GainLoRA outperforms existing state-of-the-art methods. Code is available at
+https://github.com/liangyanshuo/gainlora.
+1 Introduction
+Continual learning (CL), which requires the model to learn multiple tasks sequentially, is crucial
+for large language models (LLMs) [48]. Specifically, although existing LLMs have demonstrated
+strong performance for a wide range of tasks [4, 8, 53, 54, 73] with extensive pre-trained knowledge
+and further fine-tuning strategies, they may lose knowledge acquired from old tasks when learning
+multiple tasks sequentially. This phenomenon, known as catastrophic forgetting [36, 41, 59, 61],
+highlights the need for developing effective CL methods for LLMs. Existing CL methods can be
+categorized into two main categories. The first category [45] assumes that task identities are available
+during inference, while the second category [32, 75] tackles a more difficult and practical setting
+where task identities are unavailable during inference.
+Recently, low-rank adaptation (LoRA) [21], one of the most representative parameter-efficient finetuning (PEFT) methods, has gained increasing attention in the CL of LLMs [3, 61]. Specifically,
+by reparameterizing pre-trained weights in a low-rank form, LoRA updates only a limited number
+of parameters to adapt LLMs to a downstream task, making the fine-tuning process much more
+efficient than updating all parameters of LLMs [17]. This efficiency also benefits CL, making LoRA
+increasingly popular in CL of LLMs.
+Most existing CL methods based on LoRA [32, 75] typically expand a new LoRA branch for learning
+each new task while freezing all old LoRA branches. In this way, they avoid forgetting caused by
+directly updating the LoRA parameters of old tasks. However, to handle the practical CL scenario
+∗Wu-Jun Li is the corresponding author.
+39th Conference on Neural Information Processing Systems (NeurIPS 2025).
+arXiv:2505.15424v2 [cs.CL] 26 Oct 2025
+where task identities are unavailable at inference time, existing methods [32, 50, 61] based on LoRA
+integrate new and old LoRA branches through a simple addition. Consequently, they force the new
+and old LoRA branches to influence old tasks equally, which means that the new LoRA branch
+may cause a relatively large change in the model’s output on old tasks. This leads to forgetting and
+degrades the model’s overall performance in CL.
+In this work, we propose a new method, called gated integration of low-rank adaptation (GainLoRA),
+for CL of LLMs. The contributions of GainLoRA are listed as follows:
+• GainLoRA expands a new LoRA branch to learn each new task and introduces gating
+modules to integrate the new and old LoRA branches.
+• GainLoRA leverages the new gating module to minimize the influence from the new LoRA
+branch to old tasks, effectively mitigating forgetting and improving the model’s overall
+performance.
+• Experimental results on CL benchmarks show that GainLoRA outperforms existing state-ofthe-art CL methods.
+2 Related Work and Preliminaries
+2.1 Related Work
+Parameter-Efficient Fine-Tuning Parameter-efficient fine-tuning (PEFT) methods tune a limited
+number of parameters to adapt a pre-trained model for downstream tasks, showing much higher efficiency than tuning all the parameters of the pre-trained model, especially for LLMs [72]. For example,
+Adapter [20] modifies the model architecture by introducing trainable modules into Transformer layers and tunes these modules for downstream tasks. Prompt-tuning [26] and Prefix-tuning [27] insert
+learnable tokens into the input and tune them for downstream tasks. Low-rank adaptation (LoRA) [21]
+reparameterizes the original model parameters with low-rank matrices and tunes these matrices for
+downstream tasks. Although tuning significantly fewer parameters than full fine-tuning, PEFT
+can achieve comparable performance to full fine-tuning across a wide range of natural language
+processing (NLP) tasks [16, 21, 37, 70].
+Continual Learning There are three main types of CL methods, categorized as regularizationbased methods, memory-based methods, and expansion-based methods. Regularization-based methods [23, 24, 29] incorporate a regularization term to mitigate catastrophic forgetting. Memory-based
+methods [10, 31, 34, 52, 75] utilize memory mechanisms to preserve knowledge from old tasks.
+Expansion-based methods [22, 28, 30, 46] mitigate catastrophic forgetting by introducing new
+parameters for learning new tasks while typically freezing old parameters.
+Many CL methods [1, 29, 30] are designed to train models from scratch. Recent studies [32, 45,
+56, 61, 67] have shown that leveraging PEFT strategies to fine-tune pre-trained models enables CL
+methods to achieve superior performance across tasks. For example, some methods [42, 45, 67, 75]
+use prompt-tuning for continual learning. They either maintain independent prompts for each task or
+maintain a prompt pool and perform query-key matching to learn new tasks. There are also many
+methods [32, 49, 61, 75] adopting LoRA for continual learning. Most of these methods expand a new
+LoRA branch to handle each new task while freezing old LoRA branches to mitigate catastrophic
+forgetting. However, they force the new and old LoRA branches to influence old tasks equally,
+potentially leading to forgetting.
+2.2 Preliminaries
+Problem Definition We follow existing CL works [61, 75] to formalize the problem definition for
+CL of LLMs. Specifically, in CL, a sequence of tasks {T1, T2, ..., TT } is presented to the model
+sequentially, where T denotes the total number of tasks. The t-th task Tt consists of a training
+dataset Dt. For any given sample (xt, yt) ∈ Dt, xt denotes an input sentence and yt denotes the
+corresponding output. When learning the t-th new task, the model is required to mitigate catastrophic
+forgetting of the t − 1 previously learned tasks.
+Similar to existing CL works for LLMs [3, 75], we consider a more challenging CL setting with three
+key challenges: (1) the model is presented with a sequence of tasks spanning various types, such
+2
+!" #
+!
+!$ #
+❄
+!"%$ #
+❄ …
+&$ &"%$ &"
+'
+Imposing 
+constraints
+Ini/aliza/on 
+constraints
+Upda/ng 
+constraints
+… &$ &"%$ &"
+Old Branches New Branch
+Language Models
+Answer: A
+…
+Pre-trained 
+Weights
+(
+("
+)
+*
+: Addi/on : Mul/plica/on
+1. Expanding a 
+new LoRA branch
+3. Upda/ng new 
+branch to learn 
+new task
+("
+'
++"%$
+,"%$
++$
+,$
++"
+,"
+2. Integra/ng new and 
+old LoRA branches 
+❄
+❄
+❄
+❄
+❄
+❄: Frozen 
+Someone who had a very bad flight might 
+be given a trip in this to make up for it?
+Op*on: (A)first class (B)propi/ous 
+(C)reputable (D)one (E)sufficient
+Someone who had a very bad flight might 
+be given a trip in this to make up for it?
+Op*on: (A)first class (B)propi/ous 
+(C)reputable (D)one (E)sufficient
+(a) Expandable LoRA Architecture in GainLoRA (b) Ga/ng Modules in GainLoRA
+Figure 1: (a) shows the expandable LoRA architecture of our GainLoRA for learning the t-th new
+task. (b) shows that for each task Ti
+, GainLoRA uses an independent gating module gi(·) to generate
+integration coefficient ai
+.
+as dialogue generation, information extraction and so on; (2) the model is not provided with task
+identities at inference time; (3) the model must learn without access to real or synthetic samples from
+previously learned tasks.
+Low-Rank Adaptation LoRA [21] is a widely adopted PEFT method used for fine-tuning various
+pre-trained models, particularly LLMs. Specifically, let W ∈ R
+dout×din represent a pre-trained
+weight in LLMs, where din and dout are the input and output dimensions, respectively. LoRA
+introduces an additional branch consisting of two matrices, A ∈ R
+dout×r
+and B ∈ R
+r×din , where
+r ≪ min(din, dout). LoRA then modifies the forward propagation of this layer as
+e = (W + AB)h.
+Here, h and e denote the input and output, respectively. A is initialized to 0, and B is initialized
+with a Gaussian distribution. During fine-tuning for downstream tasks, the pre-trained weight W
+remains frozen, and only the parameters A and B are fine-tuned.
+3 Methodology
+Our GainLoRA employs an expandable LoRA architecture, which is illustrated in Figure 1 (a).
+Specifically, before learning the t-th task (1 ≤ t ≤ T), GainLoRA first expands the LoRA architecture
+by introducing the t-th new branch with matrices At ∈ R
+dout×r
+and Bt ∈ R
+r×din . The new and old
+LoRA branches are then integrated as
+Wt = Wt−1 + atAtBt =
+Xt
+i=1
+aiAiBi
+, (1)
+where ai
+is an integration coefficient that determines the influence of the i-th LoRA branch to the
+input h. Note that Wt−1 is a zero matrix when t = 1. As a result, the forward propagation in this
+layer is modified as
+e = (W + Wt)h. (2)
+Finally, only the new LoRA branch (i.e. the t-th LoRA branch) is updated for the t-th new task,
+while all the old LoRA branches are frozen. After learning the t-th task, (2) is also used for inference
+across all test samples, thereby ensuring compatibility with the scenario where task identities are
+unavailable during inference.
+Many existing CL methods based on LoRA [32, 49, 50, 61, 75] share a similar architecture to our
+method, as illustrated in Figure 1 (a). However, these methods fix all coefficients {ai}
+t
+i=1 in (1)
+to 1, forcing the new and old LoRA branches influence old tasks equally. As a result, the new
+LoRA branch introduces a change of AtBth to the output for inputs h associated with old tasks,
+potentially leading to forgetting. Although some methods attempt to mitigate this forgetting by
+3
+imposing regularization [50] or orthogonality constraints [32] on the new LoRA branch, the fixed
+integration coefficients {ai}
+t
+i=1 still limit their performance, as demonstrated by the experimental
+results presented in Section 4. The method in [75] does not force the new and old LoRA branches
+to influence old tasks equally but relies on replaying synthetic old samples to mitigate forgetting,
+making it unsuitable for the scenario considered in this work.
+Different from existing methods, GainLoRA introduces an independent gating module gi(·) for each
+task Ti
+to generate the integration coefficients (1 ≤ i ≤ T). To mitigate the forgetting caused by the
+new task, GainLoRA leverages the gating module to minimize the influence from the new LoRA
+branch to the old tasks. The details will be introduced in the following subsections.
+3.1 Architecture of Gating Modules
+As illustrated in Figure 1 (b), given an input sample x, the gating module gi(·) generates the
+integration coefficient for the i-th LoRA branch, denoted as ai = gi(x). The computation of gi(·) is
+defined as
+pi,0 = p0 = Pool(Token(x)),
+pi,l = σ(Gi,lpi,l−1), l ∈ {1, 2, ..., L},
+gi(x) = f(Gi,L+1pi,L). (3)
+Here, Token(·) represents the tokenizer used in LLMs to extract token embeddings from the input x.
+Pool(·) denotes an average pooling operation applied to the token embeddings to produce a fixed-size
+vector. σ(·) denotes the non-linear activation function. Gi,l denotes the weight matrix for the l-th
+layer of gi(·) (1 ≤ l ≤ L + 1). In the final layer, Gi,L+1 is a vector that maps the input vector pi,L
+to a scalar. Following existing works with gating mechanisms [7, 19], the function f(·) is designed to
+map a scalar to a value within [0, 1], that is, f(·) : R → [0, 1].
+Note that the input to gating modules is the same as that of LLMs, denoted as x, which differs from
+the input to LoRA in a specific layer, denoted as h. During the learning of the t-th new task, only the
+new gating module gt(·) is updated, while all the old gating modules {gi(·)}
+t−1
+i=1 remain frozen.
+3.2 Minimizing the Influence from the New LoRA Branch to Old Tasks
+GainLoRA minimizes the influence from the new LoRA branch to old tasks by making at = gt(x)
+as close to 0 as possible for any input x from old tasks {Ti}
+t−1
+i=1. However, since we focus on the
+scenario where no real or synthetic samples from old tasks are accessible, directly optimizing gt(x)
+to 0 is impractical. To overcome this challenge, GainLoRA imposes constraints on the new gating
+module gt(·), implicitly guiding gt(x) to close to 0 and reduce the influence of the new LoRA branch
+to old tasks.
+In the following two subsections, we first describe the constraints imposed on the new gating module
+gt(·) and explain how these constraints guide gt(x) close to 0 for any x from the old tasks. Then, we
+detail the implementation of these constraints during training.
+3.2.1 Constraints on New Gating Module
+To formalize the constraints imposed on the new gating module gt(·), we define the subspace spanned
+by the inputs to Gt,l (1 ≤ l ≤ L + 1) from the previous t − 1 tasks as:
+Mt,l = span{pt,l−1| pt,l−1 is defined in (3),(x, y) ∈ ∪t−1
+i=1Di}. (4)
+Note that subspaces {Mt,l}
+L+1
+l=1 cannot be obtained directly due to the unavailability of samples
+from old tasks. However, by introducing additional constraints, {Mt,l}
+L+1
+l=1 can be solved iteratively,
+which will be discussed in Section 3.2.2.
+Initialization Constraints Before learning the t-th task, the following constraints are imposed on the
+initialization of the new gating module gt(·):
+Init(Gt,L+1)⊥Mt,L+1, f(0) = 0, (5)
+where Init(Gt,L+1) denotes the initialization of Gt,L+1. These constraints ensure that for any sample
+x from the old tasks, the integration coefficient satisfies
+at = gt(x) = f(Init(Gt,L+1)pt,L) = 0, (6)
+4
+where pt,L is defined in (3). The second equality holds since Gt,L+1 = Init(Gt,L+1) before learning
+the t-th new task. The third equality holds because f(0) = 0 and pt,L ∈ Mt,L+1 for any x from
+previous t − 1 tasks.
+Updating Constraints During the learning of the t-th task, the following constraints are imposed on
+the updates to the new gating module gt(·):
+∆Gt,l⊥Mt,l for 1 ≤ l ≤ L + 1, (7)
+where ∆Gt,l denotes the update to Gt,l. Based on existing studies [60, 30], the constraints in (7)
+ensure that gt(x) remains unchanged for inputs x from the old tasks during the learning of the t-th
+task. Formally, the following proposition holds:
+Proposition 3.1. If the constraints in (7) are satisfied, subspaces {Mt,l}
+L+1
+l=1 remain unchanged
+during the learning of the t-th task. Furthermore, for any input x from the previous t − 1 tasks, gt(x)
+remains unchanged during the learning of the t-th task.
+The proof of this proposition is provided in Appendix A.3. Since the initialization constraints in (5)
+ensure gt(x) = 0 before learning the t-th new task, gt(x) = 0 is preserved throughout the learning
+process if the updating constraints in (7) are satisfied.
+The fact that subspaces {Mt,l}
+L+1
+l=1 remain unchanged, as stated in Proposition 3.1, is essential for
+implementing the orthogonal constraints in (7). Specifically, as will be detailed in Section 3.2.2,
+orthonormal bases for the subspaces {Mt,l}
+L+1
+l=1 are learned to enforce the orthogonal constraints
+in (5) and (7). Since the subspaces {Mt,l}
+L+1
+l=1 remain unchanged during the learning of the t-th task,
+their orthonormal bases also remain unchanged, allowing them to be pre-computed before learning
+the t-th task, thus facilitating the implementation of orthogonal constraints in (5) and (7) throughout
+the learning process.
+3.2.2 Implementation of Constraints
+There exist many functions f(·) : R → [0, 1] satisfying f(0) = 0. In this work, we define f(·) as
+f(b) = |2 · sigmoid(b) − 1|, (8)
+where sigmoid(·) denotes the sigmoid function. Other functions f(·) : R → [0, 1] that satisfy
+f(0) = 0 are also applicable, and experiments with different choices of f(·) are provided in
+Appendix C.3.1. Better model performance can be expected by designing more effective f(·), but
+this is not the focus of this paper.
+Implementing the orthogonal constraints in (5) and (7) is challenging due to the lack of samples from
+previous t − 1 tasks to approximate the subspaces {Mt,l}
+L+1
+l=1 . To address this issue, we further
+impose the following constraints on the initialization of Gt,l (1 ≤ l ≤ L):
+Init(Gt,l) ← Gt−1,l. (9)
+This strategy initializes the first L layers of gt(·) using the corresponding layers from the previous
+gating module gt−1(·). As a result, the first L layers of gt(·) can be viewed as being initialized and
+starting their training at the beginning of the first task, continuing until the t-th task. Simultaneously,
+the first L layers in gi(·) serve as checkpoints, preserving the state of gt(·) after learning the i-th
+task (1 ≤ i ≤ t). At this time, we can use existing method gradient projection memory (GPM) [47]
+to iteratively learn a set of matrices {Mt,l}
+L+1
+l=1 , where the columns of Mt,l contribute to a set of
+orthonormal bases of subspace Mt,l. Details of GPM are provided in Appendix A.1. Then, before
+learning the t-th task, the following operation can be performed on Init(Gt,L+1):
+Init(Gt,L+1) ← Init(Gt,L+1) − Mt,L+1MT
+t,L+1Init(Gt,L+1). (10)
+At this time, we have
+MT
+t,L+1(Init(Gt,L+1) − Mt,L+1MT
+t,L+1Init(Gt,L+1))
+=MT
+t,L+1(I − Mt,L+1MT
+t,L+1)Init(Gt,L+1)
+=(I − MT
+t,L+1Mt,L+1)MT
+t,L+1Init(Gt,L+1). (11)
+Since the columns of Mt,L+1 form an orthonormal basis, we have MT
+t,L+1Mt,L+1 = I, which
+means I − MT
+t,L+1Mt,L+1 = O. Therefore, the equation in (11) is equal to zero matrix O. Note
+5
+Algorithm 1 GainLoRA for Continual Learning
+Input: The data of different tasks {Dt}
+T
+t=1.
+Output: Learned LoRA parameters {(Ai
+, Bi)}
+T
+i=1 and gating modules {gi(·)}
+T
+i=1.
+for t in 1 : T do
+Expand the t-th new LoRA branch with At and Bt;
+Impose initialization constraints on the new gating module gt(·) by (8), (9) and (10);
+Integrate new and old LoRA branches by (1);
+for Bt ⊆ Dt do
+Compute the loss in (13) and perform;
+Perform backward propagation to compute the update of the new LoRA branch and the new
+gating module;
+Impose updating constraints on the update of the new gating module by (7);
+end for
+end for
+that Mt,L+1 is spanned by the columns of Mt,L+1, Init(Gt,L+1) satisfies the constraints in (5) after
+the operation in (10).
+Similarly, during the learning of the t-th task, the following operation can be performed on
+{∆Gt,l}
+L+1
+l=1 :
+∆Gt,l ← ∆Gt,l − Mt,lMT
+t,l∆Gt,l. (12)
+With the same proving process in (11), we can show that the update in (12) allows the update
+{∆Gt,l}
+L+1
+l=1 to satisfy the constraints in (7).
+3.3 Updating the New LoRA Branch
+Our GainLoRA aims to effectively integrate new and old LoRA branches while mitigating forgetting
+caused by the new LoRA branch on old tasks. Since GainLoRA does not impose specific update
+strategies for the new LoRA branch, it is inherently compatible with various existing CL methods that
+adopt similar LoRA architecture as our method and can update the new LoRA branch [32, 50, 61].
+Since these existing methods fix all integration coefficients {ai}
+t
+i=1 to 1, combining our method with
+these existing methods can enhance their performance, as demonstrated in Section 4.
+3.4 Whole Process of GainLoRA
+Algorithm 1 outlines the whole process of our GainLoRA. Before learning the t-th new task Tt,
+GainLoRA first expands the LoRA architecture by introducing the t-th new branch with matrices At
+and Bt. Simultaneously, a new gating module gt(·) is initialized through the operations specified
+in (8), (10) and (9) to ensure that the initialization constraints in (5) are satisfied. The new and old
+LoRA branches are then integrated using (1), and the forward propagation is modified as (2).
+During the learning of the t-th task Tt with the corresponding dataset Dt, our method follows existing
+methods [61, 75] and computes the loss for the new task through
+Lt =
+1
+|Dt|
+X
+(xt,yt)∈Dt
+X
+|yt|
+j=1
+log [P(yt,j |xt, yt,1, ..., yt,j−1)] , (13)
+where yt = [yt,1, yt,2, ..., yt,|yt|
+]. Each time, GainLoRA samples a mini-batch Bt to minimize
+the loss in (13) by updating the new LoRA branch and the new gating module gt(·). During this
+process, the projections defined in (12) are applied to the parameters of gt(·), ensuring that the update
+constraints in (7) are satisfied.
+GainLoRA introduces a new gating module for each new task, which incurs additional parameters
+and computational cost when combined with other methods. Section 4 will demonstrate that the
+trainable parameters added by GainLoRA are limited, making the number of trainable parameters in
+GainLoRA comparable to other methods. Additionally, Appendix C.1 and C.2 will demonstrate that
+the computational cost introduced by GainLoRA is minimal compared to the original LLMs.
+6
+4 Experiments
+4.1 Experimental Settings
+Datasets Following existing CL methods [45, 61, 75], we evaluate different methods on SuperNI [64]
+and Long Sequence [45] benchmarks. SuperNI benchmark includes various types of NLP tasks,
+including dialogue generation, information extraction, question answering, summarization, and
+sentiment analysis. Following the protocols of existing method [75], three tasks are selected from
+each type, resulting in 15 tasks. These tasks are arranged into two different task sequences with
+different orders, referred to as Order 1 and Order 2. Long Sequence benchmark consists of 15
+diverse classification tasks, which are similarly arranged into two task sequences with different orders,
+referred to as Order 3 and Order 4. More details about the benchmarks and task sequences are
+provided in Appendix B.
+Evaluation Metric We use Aj,i to denote the model’s performance on the i-th task once the model
+learns the j-th task. Specifically, Aj,i represents accuracy for classification tasks and Rouge-L [33]
+for other types of tasks. Following traditional CL works [5, 6], we employ average performance (AP)
+and forgetting (FT) to evaluate the model’s performance. The formulas for these two metrics are
+defined as
+AP = 1
+T
+X
+T
+i=1
+AT ,i, FT = 1
+T − 1
+T
+X−1
+i=1
+(maxl∈{1,2,...,T −1}Al,i − AT ,i), (14)
+where T denotes the total number of tasks in the task sequence. AP evaluates the model’s final
+performance, and FT quantifies the forgetting.
+Baselines We compare our method with state-of-the-art CL methods, including LFPT5 [42], EPI [65],
+MIGU [11], EWC [24], TASL [15], KIFLoRA [14], IncLoRA [61], C-LoRA [50], O-LoRA [61],
+and InfLoRA [32]. Additionally, we introduce a simple baseline called SeqLoRA, which does not
+expand new LoRA branches but sequentially updates old LoRA parameters for new tasks and lacks
+mechanism to mitigate forgetting. Note that many CL methods based on pre-trained models in CV
+focus on classification tasks, relying either on carefully designed classifiers [38, 71, 74] or the [CLS]
+token in ViT [25, 51, 57, 58, 63, 66, 67]. In contrast, we follow existing works in NLP [61, 75] and
+adopt next-token prediction to handle both classification and generation tasks, where models [43, 54]
+lack a [CLS] token. Consequently, these CV methods are incompatible with our setting and cannot
+be directly compared. For completeness, we adapt some of them to our setup and report results in
+Appendix C.7.
+Implementation Details Following existing CL works [40, 61, 68], all methods are implemented
+with instruction tuning [40] and optimized using AdamW [35]. To ensure fair comparisons, for
+all the methods based on LoRA, we follow existing CL methods [21, 61, 75] by incorporating the
+LoRA architecture into the query and value components of the multi-head attention mechanism in
+each Transformer block. Similar to the existing CL methods for LLMs [61, 75], we use T5 [43],
+Llama-2 [54] and Llama-3 [12] as the base architectures. Each experiment is repeated three times
+with different seeds, and the average result is reported. More details, such as the learning rate,
+batch size, and architecture of the gating modules in GainLoRA, are provided in Appendix B.2 and
+Appendix B.3.
+4.2 Experimental Results
+Compare with Existing Methods We first follow existing works [11, 75] and evaluate different
+CL methods using T5-Large. Since our method does not impose specific update strategies for
+the new LoRA branch, we adopt the same update strategies as the two state-of-the-art methods,
+O-LoRA [61] and InfLoRA [32]. Note that these two methods leverage LoRA architecture similar to
+our method but fix all integration coefficients {ai}
+T
+i=1 to 1. Details of these two methods are provided
+in Appendix A.2. We use GainLoRA (O-LoRA) and GainLoRA (InfLoRA) to respectively denote
+our methods adopting O-LoRA and InfLoRA to update the new LoRA branch. GainLoRA is also
+compatible with other methods that leverage expandable LoRA architecture shown in Figure 1 (a),
+and we give some results in Appendix C.5.
+The results are shown in Table 1. As we can see, our methods GainLoRA (O-LoRA) and GainLoRA (InfLoRA) outperform O-LoRA and InfLoRA in both AP and FT, respectively. This im7
+Table 1: Results on different task sequences with T5-large model. Results of methods with ∗
+are
+copied from existing paper [75].
+Method Order 1 Order 2 Order 3 Order 4
+AP↑ FT↓ AP↑ FT↓ AP↑ FT↓ AP↑ FT↓
+LFPT5∗
+[42] 39.03 10.87 29.70 20.72 66.62 14.57 67.40 13.20
+EPI∗
+[65] - - - - 75.19 0.77 75.10 2.44
+MIGU+FT [11] - - - - 71.30 11.39 69.05 14.06
+EWC [24] 15.32 26.78 18.19 30.28 43.24 23.66 46.25 32.90
+TaSL [15] 27.51 18.53 28.05 17.39 71.37 6.20 73.11 6.52
+KIFLoRA [14] 28.33 16.44 30.31 16.27 72.19 3.10 73.72 4.75
+SeqLoRA 7.30 47.60 7.03 47.97 49.46 27.60 33.81 45.53
+IncLoRA [61] 12.33 41.93 16.65 36.56 61.19 13.63 62.46 15.92
+C-LoRA [50] 22.69 24.25 32.81 11.60 66.83 8.64 61.86 14.18
+O-LoRA [61] 26.37 19.15 32.83 11.99 70.98 3.69 71.21 4.03
+GainLoRA (O-LoRA) 47.84 2.26 46.84 2.91 73.37 3.02 76.01 2.49
+InfLoRA [32] 39.78 7.64 39.57 8.93 75.15 4.19 75.79 3.47
+GainLoRA (InfLoRA) 46.21 2.40 46.44 2.61 78.01 0.77 77.54 1.25
+1 3 5 7 9 11 13 15
+Task ID
+10
+20
+30
+40
+50
+60
+70
+Averaged Performance
+(a) Order 1
+1 3 5 7 9 11 13 15
+Task ID
+20
+30
+40
+50
+60
+Averaged Performance
+(b) Order 2
+1 3 5 7 9 11 13 15
+Task ID
+20
+30
+40
+50
+60
+70
+80
+90
+Averaged Performance
+(c) Order 3
+1 3 5 7 9 11 13 15
+Task ID
+40
+50
+60
+70
+80
+Averaged Performance
+(d) Order 4
+IncLoRA O-LoRA GainLoRA (O-LoRA) InfLoRA GainLoRA (InfLoRA)
+Figure 2: The variation of performance across different CL methods during training on different task
+sequences.
+provement demonstrates that fixing all coefficients {ai}
+T
+i=1 to 1 leads to forgetting on old tasks,
+thereby limiting the performance of O-LoRA and InfLoRA. By effectively mitigating this forgetting,
+GainLoRA (O-LoRA) and GainLoRA (InfLoRA) achieve superior performance. Furthermore, our
+methods consistently achieve the best performance across all task sequences.
+Figure 2 illustrates the variation in the average performance across all learned tasks for different
+methods throughout the CL process. As shown, GainLoRA consistently outperforms the performance
+of O-LoRA and InfLoRA throughout the whole training process.
+Scaling to Larger Model Architectures To evaluate the effectiveness of our method on larger
+model architectures, we scale different LoRA-based CL methods to larger models, including T5-XL,
+Llama-2-7B, Llama-2-13B and Llama-3-8B. Table 2 and Table 3 present the results of different
+methods. As shown, across models of varying sizes, GainLoRA (O-LoRA) and GainLoRA (InfLoRA)
+consistently outperform O-LoRA and InfLoRA in terms of AP and FT, respectively. This demonstrates
+that GainLoRA effectively mitigates forgetting in the new LoRA branch across different model
+architectures.
+Trainable Parameters We compare the number of trainable parameters across different methods
+for training on different task sequences. The results for T5, Llama-2 and Llama-3 are shown in
+Figure 3, and the detailed computation of trainable parameters is provided in Appendix B.4. As shown,
+GainLoRA (O-LoRA) and GainLoRA (InfLoRA) have more trainable parameters than O-LoRA and
+InfLoRA, respectively. This increase arises from the introduction of the trainable gating module in
+GainLoRA. However, the additional trainable parameters introduced by GainLoRA are much fewer
+than those in LoRA. Therefore, the total number of trainable parameters in GainLoRA (O-LoRA)
+and GainLoRA (InfLoRA) are comparable to that of O-LoRA and InfLoRA, respectively.
+Distribution of Outputs in New Gating Module To demonstrate that our GainLoRA effectively
+minimizes the influence from the new LoRA branches to old tasks, we analyze the output distributions
+8
+Table 2: The overall results on different task sequences with T5-XL model.
+Method Order 1 Order 2 Order 3 Order 4
+AP↑ FT↓ AP↑ FT↓ AP↑ FT↓ AP↑ FT↓
+O-LoRA [61] 36.50 11.42 40.64 6.37 73.77 2.70 76.19 3.56
+GainLoRA (O-LoRA) 50.10 3.21 49.86 3.04 78.41 2.59 77.21 3.30
+InfLoRA [32] 45.61 5.60 45.85 5.10 80.22 2.09 79.43 1.71
+GainLoRA (InfLoRA) 50.06 1.86 50.26 2.64 81.22 0.58 80.30 0.75
+Table 3: The overall results on different task sequences with Llama-2-7B, Llama-2-13B and Llama-3-
+8B.
+Models Methods Order 1 Order 2
+AP↑ FT↓ AP↑ FT↓
+Llama-2-7B
+O-LoRA [61] 39.37 15.84 37.55 20.23
+GainLoRA (O-LoRA) 51.10 4.96 51.14 5.57
+InfLoRA [32] 42.93 11.23 39.94 15.00
+GainLoRA (InfLoRA) 51.27 2.84 50.17 4.71
+Llama-2-13B
+O-LoRA [61] 43.92 14.15 40.05 19.53
+GainLoRA (O-LoRA) 52.47 4.78 51.68 5.86
+InfLoRA [32] 43.64 14.85 45.74 10.61
+GainLoRA (InfLoRA) 53.64 2.87 52.46 4.90
+Llama-3-8B
+O-LoRA [61] 42.49 8.85 38.67 19.28
+GainLoRA (O-LoRA) 53.39 3.56 51.69 6.20
+InfLoRA [32] 43.27 6.02 48.77 5.88
+GainLoRA (InfLoRA) 52.18 1.40 52.48 4.21
+Large XL
+Model Size
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+Trainable Parameters (M)
+(a) T5
+7B 13B
+Model Size
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+3.5
+Trainable Parameters (M)
+(b) Llama-2
+8B
+Model Size
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+Trainable Parameters (M)
+(3) Llama-3
+O-LoRA GainLoRA (O-LoRA) InfLoRA GainLoRA (InfLoRA)
+Figure 3: (a), (b) and (c) show the number of trainable parameters for different CL methods and
+model backbones under task sequences Order 1 and Order 2.
+of the new gating modules. Specifically, after training on the final task (i.e., the 15-th task) in the task
+sequences, the 15-th task corresponds to the new task, and its associated gating module g15(·) serves
+as the new gating module.
+We obtain the outputs of the new gating module g15(·) on the samples from old and new tasks,
+respectively. Then, we analyze their distributions in Figure 4. As shown, the outputs of g15(·) for the
+samples from old tasks are concentrated around 0, effectively minimizing the influence from the new
+LoRA branch to old tasks. Furthermore, GainLoRA does not constrain the outputs of g15(·) for the
+samples from the new task. As a result, the outputs of g15(·) for the samples from the new task are
+distributed near 1, enabling the model to effectively learn the new task.
+Ablation Study To verify the necessity of both the initialization and updating constraints introduced
+in Section 3.2.1, we define several variants of GainLoRA. The first variant, referred to as “No
+Initialization Constraints”, removes the initialization constraints defined in (5). Specifically, it replaces
+f(·) defined in (8) with function sigmoid(·) and eliminates the operation in (10) while keeping all
+other components unchanged. The second variant, referred to as “No Updating Constraints”, removes
+the updating constraints defined in (7) by eliminating the operations in (12) while preserving all
+other components of GainLoRA. The third variant, referred to as “No Constraints”, follows “No
+9
+2OG 7DVNV 1HZ 7DVN
+2UGHU 
+
+
+
+
+
+
+2XWSXWV RI 1HZ *DWLQJ 0RGXOH
+D *DLQ/R5$ 2/R5$
+2OG 7DVNV 1HZ 7DVN
+2UGHU 
+
+
+
+
+
+
+2OG 7DVNV 1HZ 7DVN
+2UGHU 
+
+
+
+
+
+
+E *DLQ/R5$ ,QI/R5$
+2OG 7DVNV 1HZ 7DVN
+2UGHU 
+
+
+
+
+
+
+2OG 7DVNV 1HZ 7DVN
+2UGHU 
+
+
+
+
+
+
+2XWSXWV RI 1HZ *DWLQJ 0RGXOH
+F *DLQ/R5$ 2/R5$
+2OG 7DVNV 1HZ 7DVN
+2UGHU 
+
+
+
+
+
+
+2OG 7DVNV 1HZ 7DVN
+2UGHU 
+
+
+
+
+
+
+G *DLQ/R5$ ,QI/R5$
+2OG 7DVNV 1HZ 7DVN
+2UGHU 
+
+
+
+
+
+
+Figure 4: (a) and (b) show outputs of new gating module in our GainLoRA on different task sequences
+with T5-Large. (c) and (d) show outputs of new gating module in our GainLoRA on different task
+sequences with Llama-2-7B.
+Table 4: Ablation study of GainLoRA with T5-Large and Llama-2-7B.
+Method
+T5-Large Llama-2-7B
+Order 1 Order 2 Order 1 Order 2
+AP↑ FT↓ AP↑ FT↓ AP↑ FT↓ AP↑ FT↓
+GainLoRA (O-LoRA) 47.84 2.26 46.84 2.91 51.10 4.96 51.14 5.57
+No Initialization Constraints 35.30 17.19 39.82 12.90 44.02 11.71 42.89 14.77
+No Updating Constraints 23.01 30.32 24.96 28.14 33.74 23.06 34.71 22.36
+No Constraints 26.32 26.00 30.63 22.37 34.48 23.46 36.87 21.24
+GainLoRA (InfLoRA) 46.21 2.40 46.44 2.61 51.27 2.84 50.17 4.71
+No Initialization Constraints 45.38 3.40 43.05 5.15 50.48 3.48 48.17 6.45
+No Updating Constraints 37.69 10.94 38.85 9.31 48.52 5.68 47.85 7.00
+No Constraints 36.75 12.18 41.00 6.66 49.10 6.07 45.77 8.70
+Initialization Constraints” and “No Updating Constraints” to remove both the initialization and
+updating constraints. Table 4 presents the experimental results of these variants. As shown, none of
+these variants perform as well as our GainLoRA, indicating the critical role of both the initialization
+constraints and updating constraints in our GainLoRA.
+5 Conclusion
+In this work, we propose a new method, called GainLoRA, for CL of language models. GainLoRA
+expands a new LoRA branch for each new task and introduces gating modules to integrate the new
+and old LoRA branches. Furthermore, GainLoRA leverages the new gating module to minimize the
+influence of the new LoRA branch to old tasks, effectively mitigating forgetting and improving the
+model’s overall performance. Experimental results on CL benchmarks demonstrate that GainLoRA
+outperforms existing state-of-the-art methods.
+Limitations Similar to many CL methods for LLMs [15, 61], our method imposes some constraints
+on the model to mitigate forgetting. While effective, these constraints may accumulate with increasing
+tasks, potentially hindering the learning of new tasks. Furthermore, consistent with existing works [24,
+32, 61], our method primarily targets at catastrophic forgetting with non-overlapping tasks, and further
+investigation is needed to assess its effect on more complex scenarios, such as scenarios where there
+is overlap between tasks [39, 2].
+6 Broader Impacts
+Continual learning (CL) offers a promising direction for improving the efficiency and scalability of
+language models, particularly in settings with continuously arriving tasks. By enabling incremental
+updates without retraining from scratch, it significantly reduces computational overhead and resource
+demands. However, CL often introduces additional components (e.g. memory or gating mechanisms),
+increasing complexity and requiring effort for maintenance or deployment.
