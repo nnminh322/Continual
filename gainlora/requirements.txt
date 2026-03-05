@@ -1,0 +1,60 @@
+# Core dependencies from GainLoRA
+# ================================
+# Created from requirements.yaml
+# 
+# Installation:
+#   conda create -n gainlora python=3.10 pytorch::pytorch pytorch::pytorch-cuda=12.1 pytorch::torchvision pytorch::torchaudio -c pytorch -c nvidia
+#   pip install -r requirements.txt
+
+# Core ML/DL packages
+absl-py==2.0.0
+accelerate==0.24.1
+datasets==2.14.6
+transformers==4.30.2
+safetensors==0.4.4
+
+# PyTorch ecosystem (usually installed via conda, but listed here for reference)
+# torch>=2.1.0
+# torchvision>=0.16.0
+# torchaudio>=2.1.0
+
+# LoRA extensions
+loralib==0.1.2
+
+# Optimization & training
+deepspeed==0.11.2
+optimum==1.13.2
+cupy-cuda12x==12.1.0
+
+# Data processing
+pandas==2.2.2
+scikit-learn==1.5.1
+scipy==1.14.0
+nltk==3.8.1
+
+# Utilities
+pydantic==2.8.2
+pyyaml==6.0.1
+pynvml==11.5.3
+click==8.1.7
+tqdm==4.66.5
+tabulate==0.9.0
+regex==2024.7.24
+tokenizers==0.13.3
+sentencepiece==0.2.0
+
+# Development & debugging
+ipdb==0.13.13
+ipython==8.26.0
+pytest-cov==4.1.0
+
+# Profiling & benchmarking
+ptflops==0.7.4
+thop==0.1.1-2209072238
+calflops==0.3.2
+
+# HuggingFace Hub
+huggingface-hub==0.24.5
+
+# Flash Attention (optional, for performance)
+# flash-attn==2.5.8
