@@ -63,7 +63,30 @@ from transformers.utils import (
     logging,
     replace_return_docstrings,
 )
-from transformers.utils.model_parallel_utils import assert_device_map, get_device_map
+
+# Try to import model parallel utils (removed in transformers 5.0+)
+try:
+    from transformers.utils.model_parallel_utils import assert_device_map, get_device_map
+except ImportError:
+    # Fallback implementations for transformers 5.0+
+    def get_device_map(num_blocks, num_devices):
+        """Distribute blocks across devices."""
+        device_map = {}
+        blocks_per_device = num_blocks // num_devices
+        remainder = num_blocks % num_devices
+        for i in range(num_blocks):
+            device_id = min(i // (blocks_per_device + 1), num_devices - 1) if remainder > 0 else i // max(1, blocks_per_device)
+            device_map[i] = device_id
+        return device_map
+    
+    def assert_device_map(device_map, num_blocks):
+        """Validate device map."""
+        if device_map is None:
+            return
+        for block_idx in range(num_blocks):
+            if block_idx not in device_map:
+                raise ValueError(f"Block {block_idx} not in device_map")
+
 from transformers.models.t5.configuration_t5 import T5Config
 import loralib as lora
 
