@@ -397,10 +397,8 @@ class TrainingArguments(Seq2SeqTrainingArguments):
     )
 
     # ===== OT-SIGN training arguments =====
-    use_ot_routing: bool = field(
-        default=False,
-        metadata={"help": "Enable OT-SIGN routing in trainer (anti-drift, anti-invasion)"}
-    )
+    # NOTE: use_ot_routing is defined in ModelArguments; it is copied to training_args
+    # after parsing so that the trainer can access it via self.args.use_ot_routing.
     lambda_drift: float = field(
         default=0.01,
         metadata={"help": "Weight for anti-drift loss on replay data"}
@@ -428,6 +426,9 @@ def main():
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     training_args._frozen = False
+    # Copy OT-SIGN flag from ModelArguments into training_args so the trainer
+    # (which reads self.args) can see it without duplicating the CLI argument.
+    training_args.use_ot_routing = model_args.use_ot_routing
 
     # Setup logging
     logging.basicConfig(
