@@ -47,15 +47,23 @@ try:
 except ImportError:
     HAS_PRUNING_UTILS = False
 
-from transformers.utils import (
-    DUMMY_INPUTS,
-    DUMMY_MASK,
-    add_start_docstrings,
-    add_start_docstrings_to_model_forward,
-    is_torch_fx_proxy,
-    logging,
-    replace_return_docstrings,
-)
+# Try to import utils removed in transformers 5.0+
+try:
+    from transformers.utils import (
+        DUMMY_INPUTS,
+        DUMMY_MASK,
+        add_start_docstrings,
+        add_start_docstrings_to_model_forward,
+        is_torch_fx_proxy,
+        logging,
+        replace_return_docstrings,
+    )
+except ImportError:
+    from transformers.utils import add_start_docstrings, add_start_docstrings_to_model_forward, logging
+    DUMMY_INPUTS = [[7, 6, 0, 0, 1], [1, 2, 3, 0, 0], [0, 0, 0, 4, 5]]
+    DUMMY_MASK = [[1, 1, 0, 0, 1], [1, 1, 1, 0, 0], [1, 0, 0, 1, 1]]
+    is_torch_fx_proxy = lambda x: False
+    replace_return_docstrings = lambda *a, **kw: (lambda f: f)
 
 # Try to import model parallel utils (removed in transformers 5.0+)
 try:
@@ -1022,6 +1030,26 @@ class T5PreTrainedModel(PreTrainedModel):
         if isinstance(module, (T5Attention, T5Stack)):
             module.gradient_checkpointing = value
 
+    def get_head_mask(self, head_mask, num_hidden_layers, is_attention_chunked=False):
+        """Fallback for transformers 5.0+ where get_head_mask was removed from PreTrainedModel."""
+        if head_mask is not None:
+            head_mask = self._convert_head_mask_to_5d(head_mask, num_hidden_layers)
+            if is_attention_chunked is True:
+                head_mask = head_mask.unsqueeze(-1)
+        else:
+            head_mask = [None] * num_hidden_layers
+        return head_mask
+
+    def _convert_head_mask_to_5d(self, head_mask, num_hidden_layers):
+        if head_mask.dim() == 1:
+            head_mask = head_mask.unsqueeze(0).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
+            head_mask = head_mask.expand(num_hidden_layers, -1, -1, -1, -1)
+        elif head_mask.dim() == 2:
+            head_mask = head_mask.unsqueeze(1).unsqueeze(-1).unsqueeze(-1)
+        assert head_mask.dim() == 5, f"head_mask.dim != 5, instead {head_mask.dim()}"
+        head_mask = head_mask.to(dtype=self.dtype)
+        return head_mask
+
     def _shift_right(self, input_ids):
         decoder_start_token_id = self.config.decoder_start_token_id
         pad_token_id = self.config.pad_token_id
@@ -1798,8 +1826,17 @@ class T5Model(T5PreTrainedModel):
             encoder_attentions=encoder_outputs.attentions,
         )
 
+# Import GenerationMixin for transformers 5.0+ compatibility
+try:
+    from transformers.generation.utils import GenerationMixin as _GenerationMixin
+except ImportError:
+    try:
+        from transformers import GenerationMixin as _GenerationMixin
+    except ImportError:
+        _GenerationMixin = object
+
 @add_start_docstrings("""T5 Model with a `language modeling` head on top.""", T5_START_DOCSTRING)
-class T5ForConditionalGeneration(T5PreTrainedModel):
+class T5ForConditionalGeneration(T5PreTrainedModel, _GenerationMixin):
     _keys_to_ignore_on_load_missing = [
         r"encoder.embed_tokens.weight",
         r"decoder.embed_tokens.weight",
