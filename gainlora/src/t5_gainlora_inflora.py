@@ -1169,7 +1169,13 @@ class T5Stack(T5PreTrainedModel):
             self.matrix_trans_1[index] = torch.zeros(self.step_trans, self.step_trans).cuda()
             self.matrix_trans_3[index] = torch.zeros(self.step_trans, self.step_trans).cuda()
             self.n_trans_matrix[index] = 0
-        self.matrix_trans_2 = self.matrix_trans_2.cuda()
+        # Handle meta tensors (device_map may create tensors on meta device)
+        if self.matrix_trans_2 is not None:
+            if str(self.matrix_trans_2.device) != 'meta':
+                self.matrix_trans_2 = self.matrix_trans_2.cuda()
+            else:
+                # Re-initialize on actual device
+                self.matrix_trans_2 = torch.zeros(self.config.d_model, self.config.d_model).cuda()
 
     def get_matrix3(self, x, medium, x_final):
         for index in range(self.index_trans):
