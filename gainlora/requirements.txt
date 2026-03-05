@@ -5,6 +5,9 @@
 # Installation:
 #   conda create -n gainlora python=3.10 pytorch::pytorch pytorch::pytorch-cuda=12.1 pytorch::torchvision pytorch::torchaudio -c pytorch -c nvidia
 #   pip install -r requirements.txt
+#
+# For Kaggle/Colab (pre-built wheels):
+#   pip install -r requirements.txt --no-build-isolation
 
 # Core ML/DL packages
 absl-py==2.0.0
@@ -12,6 +15,7 @@ accelerate==0.24.1
 datasets==2.14.6
 transformers==4.30.2
 safetensors==0.4.4
+tokenizers>=0.14.1
 
 # PyTorch ecosystem (usually installed via conda, but listed here for reference)
 # torch>=2.1.0

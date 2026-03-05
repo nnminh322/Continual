@@ -77,6 +77,24 @@ Scripts are already optimized (batch_size=8, fp16). If still OOM:
 1. Reduce `per_device_train_batch_size` in bash scripts
 2. Increase `gradient_accumulation_steps`
 
+### Kaggle/Colab Environment (Pre-built Wheels)
+
+When running on Kaggle or Google Colab, use pre-built wheels to avoid compilation:
+
+```bash
+# Clone and install (Colab/Kaggle cell)
+! git clone https://github.com/liangyanshuo/gainlora.git
+! cd gainlora && pip install -r requirements.txt --no-build-isolation
+
+# Or with uv proxy (faster) - already recommended in Colab/Kaggle
+! pip install uv
+! uv pip install -r requirements.txt
+```
+
+**Note:** `tokenizers>=0.14.1` has pre-built wheels for Python 3.12. If you still get build errors:
+- Add GPU dependencies: `! pip install --upgrade setuptools wheel`
+- Or downgrade Python: Colab uses 3.10-3.12; ensure compatibility
+
 ---
 
 ## Running OT-SIGN + GainLoRA
