@@ -11,7 +11,7 @@
 
 # Core ML/DL packages
 absl-py==2.0.0
-accelerate==0.24.1
+accelerate>=0.26.0
 datasets==2.14.6
 transformers==4.38.2
 safetensors==0.4.4
