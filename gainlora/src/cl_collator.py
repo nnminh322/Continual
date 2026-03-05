@@ -122,15 +122,15 @@ class DataCollator:
                 truncation=True,
                 pad_to_multiple_of=self.pad_to_multiple_of
             )
-            with self.tokenizer.as_target_tokenizer():
-                labels = self.tokenizer(
-                    labels,
-                    max_length=self.max_target_length,
-                    padding=self.padding,
-                    return_tensors=return_tensors,
-                    truncation=True,
-                    pad_to_multiple_of=self.pad_to_multiple_of
-                )
+            # as_target_tokenizer() removed in transformers 5.0, no longer needed
+            labels = self.tokenizer(
+                labels,
+                max_length=self.max_target_length,
+                padding=self.padding,
+                return_tensors=return_tensors,
+                truncation=True,
+                pad_to_multiple_of=self.pad_to_multiple_of
+            )
             label_mask = labels["attention_mask"].bool()
             model_inputs["labels"] = labels["input_ids"].masked_fill(~label_mask, self.label_pad_token_id)
 
