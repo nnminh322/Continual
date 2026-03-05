@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from typing import Dict, Union, Any, Optional
+from typing import Dict, Union, Any, Optional, List, Tuple, Callable
 from transformers import GenerationConfig
 from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.trainer import *
