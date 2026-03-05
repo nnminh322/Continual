@@ -104,7 +104,7 @@ class DataCollator:
             instruction = self.get_instruction(instance)
 
             source = instruction
-            tokenized_source = self.tokenizer(source)["input_ids"]
+            tokenized_source = self.tokenizer(source, truncation=True, max_length=self.max_source_length)["input_ids"]
             if len(tokenized_source) <= self.max_source_length:
                 sources.append(source)
             else:
