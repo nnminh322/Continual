@@ -61,7 +61,7 @@ from assets import task_config, lora_state_dict_A, lora_state_dict_B
 
 from cl_trainer_gainlora_inflora import DenserEvalCallback, skip_instructions
 from compute_metrics import compute_metrics, compute_grouped_metrics
-from datasets.download import DownloadConfig
+from datasets import DownloadConfig
 
 # OT-SIGN run logger
 from run_logger import RunLogger

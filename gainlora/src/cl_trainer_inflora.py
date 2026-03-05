@@ -5,6 +5,7 @@ from typing import Dict, Union, Any, Optional, List, Tuple, Callable
 from transformers import GenerationConfig
 from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.trainer import *
+from transformers.trainer_utils import IntervalStrategy  # explicit for transformers 5.x
 from transformers.trainer_callback import TrainerCallback
 import numpy as np
 
