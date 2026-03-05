@@ -38,7 +38,15 @@ from transformers.modeling_outputs import (
     Seq2SeqModelOutput,
 )
 from transformers.modeling_utils import PreTrainedModel
-from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS, find_pruneable_heads_and_indices, prune_linear_layer
+from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
+
+# Try to import pruning utilities (not available in transformers 5.0+)
+try:
+    from transformers.pytorch_utils import find_pruneable_heads_and_indices, prune_linear_layer
+    HAS_PRUNING_UTILS = True
+except ImportError:
+    HAS_PRUNING_UTILS = False
+
 from transformers.utils import (
     DUMMY_INPUTS,
     DUMMY_MASK,
@@ -448,6 +456,9 @@ class T5Attention(nn.Module):
 
     def prune_heads(self, heads):
         if len(heads) == 0:
+            return
+        if not HAS_PRUNING_UTILS:
+            # Pruning not available in transformers 5.0+, skip
             return
         heads, index = find_pruneable_heads_and_indices(
             heads, self.n_heads, self.key_value_proj_dim, self.pruned_heads
