@@ -476,7 +476,7 @@ def main():
         model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
+        token=True if model_args.use_auth_token else None,
     )
     config.bos_token_id = 1
     config.eos_token_id = 2
@@ -487,7 +487,7 @@ def main():
             cache_dir = model_args.cache_dir,
             use_fast = model_args.use_fast_tokenizer,
             revision = model_args.model_revision,
-            use_auth_token = True if model_args.use_auth_token else None,
+            token = True if model_args.use_auth_token else None,
         )
     else:
         tokenizer = transformers.LlamaTokenizer.from_pretrained(
@@ -495,7 +495,7 @@ def main():
             cache_dir = model_args.cache_dir,
             use_fast = model_args.use_fast_tokenizer,
             revision = model_args.model_revision,
-            use_auth_token = True if model_args.use_auth_token else None,
+            token = True if model_args.use_auth_token else None,
         )
     tokenizer.bos_token_id = 1
     tokenizer.eos_token_id = 2
@@ -554,7 +554,7 @@ def main():
         config=config,
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
+        token=True if model_args.use_auth_token else None,
         use_safetensors=True,
     )
 
