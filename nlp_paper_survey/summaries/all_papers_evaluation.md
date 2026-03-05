@@ -1145,3 +1145,461 @@
 - **Angle Matters (48)** — Chứng minh angle trong feature space quyết định forgetting → justify geometric approach
 - **CLAP4CLIP (65)** — Probabilistic modeling works → nhưng Gaussian, chưa geometric
 - **Dual Drift (20)** — Prototype drift formalization → directly supports center drift concept
+
+
+## ENHANCED EVALUATION DATA
+
+### Domain Classification
+| Paper ID | Domain | Title |
+|----------|--------|-------|
+| 01 | NLP        | Gated Integration of Low-Rank Adaptation for CL of Large Lan... |
+| 02 | ML/Multi   | MINGLE: Mixture of Null-Space Gated Low-Rank Experts for Tes... |
+| 03 | ML/Multi   | MemEIC: A Step Toward Continual and Compositional Knowledge ... |
+| 04 | ML/Multi   | Investigating and Mitigating CF in Medical Knowledge Injecti... |
+| 05 | ML/Multi   | Bisecle: Binding and Separation in CL for Video Language Und... |
+| 06 | ML/Multi   | Continual Multimodal Contrastive Learning... |
+| 07 | NLP        | Demystifying Language Model Forgetting with Low-rank Example... |
+| 08 | ML/Multi   | Turning the Tables: Enabling Backward Transfer via Causal-Aw... |
+| 09 | ML/Multi   | Mitigating Intra- and Inter-modal Forgetting in CL of Unifie... |
+| 10 | NLP        | MEMOIR: Lifelong Model Editing with Minimal Overwrite and In... |
+| 11 | NLP        | Self-Evolving Pseudo-Rehearsal for CF with Task Similarity i... |
+| 12 | ML/Multi   | Reliable Lifelong Multimodal Editing: Conflict-Aware Retriev... |
+| 13 | ML/Multi   | Mind the Gap: Preserving and Compensating for Modality Gap i... |
+| 14 | ML/Multi   | SMoLoRA: Exploring and Defying Dual CF in Continual Visual I... |
+| 15 | ML/Multi   | DMNSP: Dynamic Multi-Layer Null Space Projection for Vision-... |
+| 16 | ML/Multi   | Ask and Remember: Questions-Only Replay Strategy for Continu... |
+| 17 | NLP        | TWIST&SCOUT: Grounding Multimodal LLM-Experts by Forget-Free... |
+| 18 | ML/Multi   | Instruction-Grounded Visual Projectors for CL of Generative ... |
+| 19 | ML/Multi   | External Knowledge Injection for CLIP-Based Class-Incrementa... |
+| 20 | ML/Multi   | Overcoming Dual Drift for Continual Long-Tailed Visual Quest... |
+| 21 | ML/Multi   | PLAN: Proactive Low-Rank Allocation for Continual Learning... |
+| 22 | NLP        | Knowledge Decoupling via Orthogonal Projection for Lifelong ... |
+| 23 | ML/Multi   | Serial Lifelong Editing via Mixture of Knowledge Expert... |
+| 24 | ML/Multi   | Efficient Domain Continual Pretraining by Mitigating the Sta... |
+| 25 | NLP        | Neuron-Level Sequential Editing for Large Language Models... |
+| 26 | NLP        | CLoRA: Controlled Low-Rank Adaptation with Subspace Regulari... |
+| 27 | NLP        | HiDe-LLaVA: Hierarchical Decoupling for Continual IT of Mult... |
+| 28 | NLP        | Multi-Modality Expansion and Retention for LLMs through Para... |
+| 29 | NLP        | GORP: Continual Gradient Low-Rank Projection Fine-Tuning for... |
+| 30 | ML/Multi   | DGAR: Generative Adaptive Replay CL Model for Temporal KG Re... |
+| 31 | ML/Multi   | Learn to Memorize: Scalable CL in Semiparametric Models with... |
+| 32 | NLP        | Don't Half-listen: Capturing Key-part Info in Continual Inst... |
+| 33 | NLP        | Recurrent Knowledge Identification and Fusion for Language M... |
+| 34 | NLP        | TiC-LM: A Web-Scale Benchmark for Time-Continual LLM Pretrai... |
+| 35 | NLP        | Exploiting Presentative Feature Distributions for PE-CL of L... |
+| 36 | NLP        | Reinforced Lifelong Editing for Language Models... |
+| 37 | NLP        | Understanding the Limits of Lifelong Knowledge Editing in LL... |
+| 38 | ML/Multi   | Knowledge Swapping via Learning and Unlearning... |
+| 39 | NLP        | Learning Dynamics in Continual Pre-Training for Large Langua... |
+| 40 | NLP        | Large Continual Instruction Assistant... |
+| 41 | ML/Multi   | TreeLoRA: Efficient CL via Layer-Wise LoRAs Guided by Hierar... |
+| 42 | NLP        | Adaptive Localization of Knowledge Negation for Continual LL... |
+| 43 | NLP        | From RAG to Memory: Non-Parametric CL for Large Language Mod... |
+| 44 | ML/Multi   | SEFE: Superficial and Essential Forgetting Eliminator for Mu... |
+| 45 | ML/Multi   | LADA: Scalable Label-Specific CLIP Adapter for Continual Lea... |
+| 46 | NLP        | Componential Prompt-Knowledge Alignment for Domain Increment... |
+| 47 | ML/Multi   | Proxy-FDA: Proxy-based Feature Distribution Alignment for Fi... |
+| 48 | ML/Multi   | Understanding the Forgetting of Replay-based CL via Feature ... |
+| 49 | ML/Multi   | LOIRE: LifelOng learning on Incremental data via pre-trained... |
+| 50 | NLP        | On Large Language Model Continual Unlearning... |
+| 51 | ML/Multi   | SD-LoRA: Scalable Decoupled Low-Rank Adaptation for Class In... |
+| 52 | NLP        | Spurious Forgetting in Continual Learning of Language Models... |
+| 53 | NLP        | Unlocking Function Vectors for Mitigating CF in Continual In... |
+| 54 | ML/Multi   | C-CLIP: Multimodal Continual Learning for Vision-Language Mo... |
+| 55 | NLP        | Adapt-inf: Scalable Continual Multimodal Instruction Tuning ... |
+| 56 | ML/Multi   | Vision and Language Synergy for Rehearsal Free Continual Lea... |
+| 57 | NLP        | Language Guided Concept Bottleneck Models for Interpretable ... |
+| 58 | NLP        | AdaDARE-gamma: Balancing Stability and Plasticity in Multi-m... |
+| 59 | ML/Multi   | Synthetic Data is Elegant GIFT for Continual Vision-Language... |
+| 60 | ML/Multi   | CL-LoRA: Continual Low-Rank Adaptation for Rehearsal-Free CI... |
+| 61 | ML/Multi   | LoRA Subtraction for Drift-Resistant Space in Exemplar-Free ... |
+| 62 | ML/Multi   | Stabilizing Zero-Shot Prediction: Antidote to Forgetting in ... |
+| 63 | ML/Multi   | Advancing Cross-domain Discriminability in CL of Vision-Lang... |
+| 64 | ML/Multi   | Continual Learning with Global Alignment... |
+| 65 | ML/Multi   | CLAP4CLIP: Continual Learning with Probabilistic Finetuning ... |
+| 66 | ML/Multi   | Train-Attention: Meta-Learning Where to Focus in Continual K... |
+| 67 | ML/Multi   | ViLCo-Bench: VIdeo Language COntinual learning Benchmark... |
+| 68 | ML/Multi   | Visual Prompt Tuning in Null Space for Continual Learning... |
+| 69 | ML/Multi   | Class-Incremental Learning with CLIP: Adaptive Representatio... |
+| 70 | ML/Multi   | Mind the Interference: Retaining Pre-trained Knowledge in PE... |
+| 71 | ML/Multi   | Select and Distill: Selective Dual-Teacher KT for CL on VLMs... |
+| 72 | ML/Multi   | PILoRA: Prototype Guided Incremental LoRA for Federated CIL... |
+| 73 | NLP        | PromptCCD: Learning Gaussian Mixture Prompt Pool for Continu... |
+| 74 | CV         | Anytime CL for Open Vocabulary Classification... |
+| 75 | CV         | CLIFF: Continual Latent Diffusion for Open-Vocabulary Object... |
+| 76 | ML/Multi   | CLEO: Continual Learning of Evolving Ontologies... |
+| 77 | ML/Multi   | Exemplar-free Continual Representation Learning via Learnabl... |
+| 78 | ML/Multi   | Adapt without Forgetting: Distill Proximity from Dual Teache... |
+| 79 | NLP        | COPAL: Continual Pruning in Large Language Generative Models... |
+| 80 | CV         | STELLA: Continual Audio-Video Pre-training with SpatioTempor... |
+| 81 | ML/Multi   | InfLoRA: Interference-Free Low-Rank Adaptation for Continual... |
+| 82 | ML/Multi   | Boosting CL of VLMs via Mixture-of-Experts Adapters... |
+| 83 | NLP        | Pre-trained Vision and Language Transformers Are Few-Shot In... |
+| 84 | CV         | Enhancing Visual CL with Language-Guided Supervision... |
+| 85 | NLP        | Text-Enhanced Data-free Approach for Federated Class-Increme... |
+| 86 | ML/Multi   | Generative Multi-modal Models are Good Class Incremental Lea... |
+| 87 | CV         | ECLIPSE: Efficient CL in Panoptic Segmentation with Visual P... |
+| 88 | NLP        | Scalable Language Model with Generalized Continual Learning... |
+| 89 | NLP        | Adapting Large Language Models via Reading Comprehension... |
+| 90 | NLP        | Dissecting Learning and Forgetting in Language Model Finetun... |
+| 91 | ML/Multi   | TiC-CLIP: Continual Training of CLIP Models... |
+| 92 | ML/Multi   | CPPO: Continual Learning for Reinforcement Learning with Hum... |
+| 93 | CV         | Learning Task-Aware Language-Image Representation for CIL Ob... |
+| 94 | ML/Multi   | Maintaining Fairness in Logit-based KD for Class-Incremental... |
+| 95 | ML/Multi   | Sub-network Discovery and Soft-masking for CL of Mixed Tasks... |
+| 96 | ML/Multi   | FeCAM: Exploiting Heterogeneity of Class Distributions in Ex... |
+| 97 | ML/Multi   | Parameter-Level Soft-Masking for Continual Learning... |
+| 98 | ML/Multi   | Continual Vision-Language Representation Learning with Off-D... |
+| 99 | ML/Multi   | CTP: Towards Vision-Language Continual Pretraining via Compa... |
+| 100 | NLP        | Introducing Language Guidance in Prompt-based Continual Lear... |
+| 101 | ML/Multi   | Preventing Zero-Shot Transfer Degradation in CL of Vision-La... |
+| 102 | NLP        | MRN: Multiplexed Routing Network for Incremental Multilingua... |
+| 103 | CV         | Class-Incremental Grouping Network for Continual Audio-Visua... |
+| 104 | NLP        | Continual Learning of Language Models... |
+| 105 | NLP        | Progressive Prompts: CL for Language Models without Forgetti... |
+| 106 | NLP        | Class-Incremental Learning based on Label Generation... |
+| 107 | ML/Multi   | Analyzing and Reducing Performance Gap in Cross-Lingual Tran... |
+| 108 | ML/Multi   | Exploring Data Geometry for Continual Learning... |
+| 109 | ML/Multi   | CODA-Prompt: COntinual Decomposed Attention-based Prompting ... |
+
+### Code Availability Checklist
+| Paper ID | Public Code | Link |
+|----------|-------------|------|
+| 01 | ❌ | N/A |
+| 02 | ❌ | N/A |
+| 03 | ❌ | N/A |
+| 04 | ❌ | N/A |
+| 05 | ❌ | N/A |
+| 06 | ❌ | N/A |
+| 07 | ❌ | N/A |
+| 08 | ❌ | N/A |
+| 09 | ❌ | N/A |
+| 10 | ❌ | N/A |
+| 11 | ❌ | N/A |
+| 12 | ❌ | N/A |
+| 13 | ✅ | https://github.com/linlany/MindtheGap |
+| 14 | ❌ | N/A |
+| 15 | ❌ | N/A |
+| 16 | ✅ | https://github.com/IemProg/QUAD |
+| 17 | ❌ | N/A |
+| 18 | ❌ | N/A |
+| 19 | ❌ | N/A |
+| 20 | ❌ | N/A |
+| 21 | ❌ | N/A |
+| 22 | ❌ | N/A |
+| 23 | ❌ | N/A |
+| 24 | ❌ | N/A |
+| 25 | ❌ | N/A |
+| 26 | ❌ | N/A |
+| 27 | ❌ | N/A |
+| 28 | ❌ | N/A |
+| 29 | ❌ | N/A |
+| 30 | ❌ | N/A |
+| 31 | ❌ | N/A |
+| 32 | ❌ | N/A |
+| 33 | ❌ | N/A |
+| 34 | ❌ | N/A |
+| 35 | ❌ | N/A |
+| 36 | ❌ | N/A |
+| 37 | ❌ | N/A |
+| 38 | ❌ | N/A |
+| 39 | ❌ | N/A |
+| 40 | ❌ | N/A |
+| 41 | ❌ | N/A |
+| 42 | ❌ | N/A |
+| 43 | ❌ | N/A |
+| 44 | ❌ | N/A |
+| 45 | ❌ | N/A |
+| 46 | ❌ | N/A |
+| 47 | ❌ | N/A |
+| 48 | ❌ | N/A |
+| 49 | ❌ | N/A |
+| 50 | ❌ | N/A |
+| 51 | ❌ | N/A |
+| 52 | ❌ | N/A |
+| 53 | ❌ | N/A |
+| 54 | ❌ | N/A |
+| 55 | ❌ | N/A |
+| 56 | ❌ | N/A |
+| 57 | ❌ | N/A |
+| 58 | ❌ | N/A |
+| 59 | ✅ | https://huggingface.co/docs/hub |
+| 60 | ✅ | https://huggingface.co/docs/hub |
+| 61 | ❌ | N/A |
+| 62 | ❌ | N/A |
+| 63 | ❌ | N/A |
+| 64 | ❌ | N/A |
+| 65 | ❌ | N/A |
+| 66 | ❌ | N/A |
+| 67 | ❌ | N/A |
+| 68 | ✅ | https://github.com/zugexiaodui/VPTinNSforCL |
+| 69 | ❌ | N/A |
+| 70 | ✅ | https://github.com/lloongx/DIKI |
+| 71 | ✅ | https://huggingface.co/docs/hub |
+| 72 | ✅ | https://github.com/Ghy0501/PILoRA |
+| 73 | ✅ | https://huggingface.co/docs/hub |
+| 74 | ✅ | https://github.com/jessemelpolio/AnytimeCL |
+| 75 | ❌ | N/A |
+| 76 | ✅ | https://huggingface.co/docs/hub |
+| 77 | ✅ | https://github.com/alviur/ldc |
+| 78 | ❌ | N/A |
+| 79 | ❌ | N/A |
+| 80 | ❌ | N/A |
+| 81 | ✅ | https://huggingface.co/docs/hub |
+| 82 | ✅ | https://github.com/JiazuoYu/MoE-Adapters4CL |
+| 83 | ✅ | https://github.com/KHU-AGI/PriViLege |
+| 84 | ✅ | https://huggingface.co/docs/hub |
+| 85 | ✅ | https://github.com/tmtuan1307/lander |
+| 86 | ✅ | https://github.com/DoubleClass/GMM |
+| 87 | ✅ | https://github.com/clovaai/ECLIPSE |
+| 88 | ❌ | N/A |
+| 89 | ❌ | N/A |
+| 90 | ❌ | N/A |
+| 91 | ❌ | N/A |
+| 92 | ❌ | N/A |
+| 93 | ❌ | N/A |
+| 94 | ❌ | N/A |
+| 95 | ✅ | https://github.com/ZixuanKe/PyContinual |
+| 96 | ✅ | https://github.com/dipamgoswami/FeCAM |
+| 97 | ❌ | N/A |
+| 98 | ✅ | https://huggingface.co/docs/hub |
+| 99 | ❌ | N/A |
+| 100 | ✅ | https://huggingface.co/docs/hub |
+| 101 | ❌ | N/A |
+| 102 | ❌ | N/A |
+| 103 | ✅ | https://github.com/stoneMo/CIGN |
+| 104 | ❌ | N/A |
+| 105 | ❌ | N/A |
+| 106 | ✅ | https://huggingface.co/docs/hub |
+| 107 | ✅ | https://huggingface.co/docs/hub |
+| 108 | ❌ | N/A |
+| 109 | ❌ | N/A |
+
+
+## ENHANCED EVALUATION DATA
+
+### Domain Classification
+| Paper ID | Domain | Title |
+|----------|--------|-------|
+| 01 | NLP        | Gated Integration of Low-Rank Adaptation for CL of Large Lan... |
+| 02 | ML/Multi   | MINGLE: Mixture of Null-Space Gated Low-Rank Experts for Tes... |
+| 03 | ML/Multi   | MemEIC: A Step Toward Continual and Compositional Knowledge ... |
+| 04 | ML/Multi   | Investigating and Mitigating CF in Medical Knowledge Injecti... |
+| 05 | ML/Multi   | Bisecle: Binding and Separation in CL for Video Language Und... |
+| 06 | ML/Multi   | Continual Multimodal Contrastive Learning... |
+| 07 | NLP        | Demystifying Language Model Forgetting with Low-rank Example... |
+| 08 | ML/Multi   | Turning the Tables: Enabling Backward Transfer via Causal-Aw... |
+| 09 | ML/Multi   | Mitigating Intra- and Inter-modal Forgetting in CL of Unifie... |
+| 10 | NLP        | MEMOIR: Lifelong Model Editing with Minimal Overwrite and In... |
+| 11 | NLP        | Self-Evolving Pseudo-Rehearsal for CF with Task Similarity i... |
+| 12 | ML/Multi   | Reliable Lifelong Multimodal Editing: Conflict-Aware Retriev... |
+| 13 | ML/Multi   | Mind the Gap: Preserving and Compensating for Modality Gap i... |
+| 14 | ML/Multi   | SMoLoRA: Exploring and Defying Dual CF in Continual Visual I... |
+| 15 | ML/Multi   | DMNSP: Dynamic Multi-Layer Null Space Projection for Vision-... |
+| 16 | ML/Multi   | Ask and Remember: Questions-Only Replay Strategy for Continu... |
+| 17 | NLP        | TWIST&SCOUT: Grounding Multimodal LLM-Experts by Forget-Free... |
+| 18 | ML/Multi   | Instruction-Grounded Visual Projectors for CL of Generative ... |
+| 19 | ML/Multi   | External Knowledge Injection for CLIP-Based Class-Incrementa... |
+| 20 | ML/Multi   | Overcoming Dual Drift for Continual Long-Tailed Visual Quest... |
+| 21 | ML/Multi   | PLAN: Proactive Low-Rank Allocation for Continual Learning... |
+| 22 | NLP        | Knowledge Decoupling via Orthogonal Projection for Lifelong ... |
+| 23 | ML/Multi   | Serial Lifelong Editing via Mixture of Knowledge Expert... |
+| 24 | ML/Multi   | Efficient Domain Continual Pretraining by Mitigating the Sta... |
+| 25 | NLP        | Neuron-Level Sequential Editing for Large Language Models... |
+| 26 | NLP        | CLoRA: Controlled Low-Rank Adaptation with Subspace Regulari... |
+| 27 | NLP        | HiDe-LLaVA: Hierarchical Decoupling for Continual IT of Mult... |
+| 28 | NLP        | Multi-Modality Expansion and Retention for LLMs through Para... |
+| 29 | NLP        | GORP: Continual Gradient Low-Rank Projection Fine-Tuning for... |
+| 30 | ML/Multi   | DGAR: Generative Adaptive Replay CL Model for Temporal KG Re... |
+| 31 | ML/Multi   | Learn to Memorize: Scalable CL in Semiparametric Models with... |
+| 32 | NLP        | Don't Half-listen: Capturing Key-part Info in Continual Inst... |
+| 33 | NLP        | Recurrent Knowledge Identification and Fusion for Language M... |
+| 34 | NLP        | TiC-LM: A Web-Scale Benchmark for Time-Continual LLM Pretrai... |
+| 35 | NLP        | Exploiting Presentative Feature Distributions for PE-CL of L... |
+| 36 | NLP        | Reinforced Lifelong Editing for Language Models... |
+| 37 | NLP        | Understanding the Limits of Lifelong Knowledge Editing in LL... |
+| 38 | ML/Multi   | Knowledge Swapping via Learning and Unlearning... |
+| 39 | NLP        | Learning Dynamics in Continual Pre-Training for Large Langua... |
+| 40 | NLP        | Large Continual Instruction Assistant... |
+| 41 | ML/Multi   | TreeLoRA: Efficient CL via Layer-Wise LoRAs Guided by Hierar... |
+| 42 | NLP        | Adaptive Localization of Knowledge Negation for Continual LL... |
+| 43 | NLP        | From RAG to Memory: Non-Parametric CL for Large Language Mod... |
+| 44 | ML/Multi   | SEFE: Superficial and Essential Forgetting Eliminator for Mu... |
+| 45 | ML/Multi   | LADA: Scalable Label-Specific CLIP Adapter for Continual Lea... |
+| 46 | NLP        | Componential Prompt-Knowledge Alignment for Domain Increment... |
+| 47 | ML/Multi   | Proxy-FDA: Proxy-based Feature Distribution Alignment for Fi... |
+| 48 | ML/Multi   | Understanding the Forgetting of Replay-based CL via Feature ... |
+| 49 | ML/Multi   | LOIRE: LifelOng learning on Incremental data via pre-trained... |
+| 50 | NLP        | On Large Language Model Continual Unlearning... |
+| 51 | ML/Multi   | SD-LoRA: Scalable Decoupled Low-Rank Adaptation for Class In... |
+| 52 | NLP        | Spurious Forgetting in Continual Learning of Language Models... |
+| 53 | NLP        | Unlocking Function Vectors for Mitigating CF in Continual In... |
+| 54 | ML/Multi   | C-CLIP: Multimodal Continual Learning for Vision-Language Mo... |
+| 55 | NLP        | Adapt-inf: Scalable Continual Multimodal Instruction Tuning ... |
+| 56 | ML/Multi   | Vision and Language Synergy for Rehearsal Free Continual Lea... |
+| 57 | NLP        | Language Guided Concept Bottleneck Models for Interpretable ... |
+| 58 | NLP        | AdaDARE-gamma: Balancing Stability and Plasticity in Multi-m... |
+| 59 | ML/Multi   | Synthetic Data is Elegant GIFT for Continual Vision-Language... |
+| 60 | ML/Multi   | CL-LoRA: Continual Low-Rank Adaptation for Rehearsal-Free CI... |
+| 61 | ML/Multi   | LoRA Subtraction for Drift-Resistant Space in Exemplar-Free ... |
+| 62 | ML/Multi   | Stabilizing Zero-Shot Prediction: Antidote to Forgetting in ... |
+| 63 | ML/Multi   | Advancing Cross-domain Discriminability in CL of Vision-Lang... |
+| 64 | ML/Multi   | Continual Learning with Global Alignment... |
+| 65 | ML/Multi   | CLAP4CLIP: Continual Learning with Probabilistic Finetuning ... |
+| 66 | ML/Multi   | Train-Attention: Meta-Learning Where to Focus in Continual K... |
+| 67 | ML/Multi   | ViLCo-Bench: VIdeo Language COntinual learning Benchmark... |
+| 68 | ML/Multi   | Visual Prompt Tuning in Null Space for Continual Learning... |
+| 69 | ML/Multi   | Class-Incremental Learning with CLIP: Adaptive Representatio... |
+| 70 | ML/Multi   | Mind the Interference: Retaining Pre-trained Knowledge in PE... |
+| 71 | ML/Multi   | Select and Distill: Selective Dual-Teacher KT for CL on VLMs... |
+| 72 | ML/Multi   | PILoRA: Prototype Guided Incremental LoRA for Federated CIL... |
+| 73 | NLP        | PromptCCD: Learning Gaussian Mixture Prompt Pool for Continu... |
+| 74 | CV         | Anytime CL for Open Vocabulary Classification... |
+| 75 | CV         | CLIFF: Continual Latent Diffusion for Open-Vocabulary Object... |
+| 76 | ML/Multi   | CLEO: Continual Learning of Evolving Ontologies... |
+| 77 | ML/Multi   | Exemplar-free Continual Representation Learning via Learnabl... |
+| 78 | ML/Multi   | Adapt without Forgetting: Distill Proximity from Dual Teache... |
+| 79 | NLP        | COPAL: Continual Pruning in Large Language Generative Models... |
+| 80 | CV         | STELLA: Continual Audio-Video Pre-training with SpatioTempor... |
+| 81 | ML/Multi   | InfLoRA: Interference-Free Low-Rank Adaptation for Continual... |
+| 82 | ML/Multi   | Boosting CL of VLMs via Mixture-of-Experts Adapters... |
+| 83 | NLP        | Pre-trained Vision and Language Transformers Are Few-Shot In... |
+| 84 | CV         | Enhancing Visual CL with Language-Guided Supervision... |
+| 85 | NLP        | Text-Enhanced Data-free Approach for Federated Class-Increme... |
+| 86 | ML/Multi   | Generative Multi-modal Models are Good Class Incremental Lea... |
+| 87 | CV         | ECLIPSE: Efficient CL in Panoptic Segmentation with Visual P... |
+| 88 | NLP        | Scalable Language Model with Generalized Continual Learning... |
+| 89 | NLP        | Adapting Large Language Models via Reading Comprehension... |
+| 90 | NLP        | Dissecting Learning and Forgetting in Language Model Finetun... |
+| 91 | ML/Multi   | TiC-CLIP: Continual Training of CLIP Models... |
+| 92 | ML/Multi   | CPPO: Continual Learning for Reinforcement Learning with Hum... |
+| 93 | CV         | Learning Task-Aware Language-Image Representation for CIL Ob... |
+| 94 | ML/Multi   | Maintaining Fairness in Logit-based KD for Class-Incremental... |
+| 95 | ML/Multi   | Sub-network Discovery and Soft-masking for CL of Mixed Tasks... |
+| 96 | ML/Multi   | FeCAM: Exploiting Heterogeneity of Class Distributions in Ex... |
+| 97 | ML/Multi   | Parameter-Level Soft-Masking for Continual Learning... |
+| 98 | ML/Multi   | Continual Vision-Language Representation Learning with Off-D... |
+| 99 | ML/Multi   | CTP: Towards Vision-Language Continual Pretraining via Compa... |
+| 100 | NLP        | Introducing Language Guidance in Prompt-based Continual Lear... |
+| 101 | ML/Multi   | Preventing Zero-Shot Transfer Degradation in CL of Vision-La... |
+| 102 | NLP        | MRN: Multiplexed Routing Network for Incremental Multilingua... |
+| 103 | CV         | Class-Incremental Grouping Network for Continual Audio-Visua... |
+| 104 | NLP        | Continual Learning of Language Models... |
+| 105 | NLP        | Progressive Prompts: CL for Language Models without Forgetti... |
+| 106 | NLP        | Class-Incremental Learning based on Label Generation... |
+| 107 | ML/Multi   | Analyzing and Reducing Performance Gap in Cross-Lingual Tran... |
+| 108 | ML/Multi   | Exploring Data Geometry for Continual Learning... |
+| 109 | ML/Multi   | CODA-Prompt: COntinual Decomposed Attention-based Prompting ... |
+
+### Code Availability Checklist
+| Paper ID | Public Code | Link |
+|----------|-------------|------|
+| 01 | ❌ | N/A |
+| 02 | ❌ | N/A |
+| 03 | ❌ | N/A |
+| 04 | ❌ | N/A |
+| 05 | ❌ | N/A |
+| 06 | ❌ | N/A |
+| 07 | ❌ | N/A |
+| 08 | ❌ | N/A |
+| 09 | ❌ | N/A |
+| 10 | ❌ | N/A |
+| 11 | ❌ | N/A |
+| 12 | ❌ | N/A |
+| 13 | ✅ | https://github.com/linlany/MindtheGap |
+| 14 | ❌ | N/A |
+| 15 | ❌ | N/A |
+| 16 | ✅ | https://github.com/IemProg/QUAD |
+| 17 | ❌ | N/A |
+| 18 | ❌ | N/A |
+| 19 | ❌ | N/A |
+| 20 | ❌ | N/A |
+| 21 | ❌ | N/A |
+| 22 | ❌ | N/A |
+| 23 | ❌ | N/A |
+| 24 | ❌ | N/A |
+| 25 | ❌ | N/A |
+| 26 | ❌ | N/A |
+| 27 | ❌ | N/A |
+| 28 | ❌ | N/A |
+| 29 | ❌ | N/A |
+| 30 | ❌ | N/A |
+| 31 | ❌ | N/A |
+| 32 | ❌ | N/A |
+| 33 | ❌ | N/A |
+| 34 | ❌ | N/A |
+| 35 | ❌ | N/A |
+| 36 | ❌ | N/A |
+| 37 | ❌ | N/A |
+| 38 | ❌ | N/A |
+| 39 | ❌ | N/A |
+| 40 | ❌ | N/A |
+| 41 | ❌ | N/A |
+| 42 | ❌ | N/A |
+| 43 | ❌ | N/A |
+| 44 | ❌ | N/A |
+| 45 | ❌ | N/A |
+| 46 | ❌ | N/A |
+| 47 | ❌ | N/A |
+| 48 | ❌ | N/A |
+| 49 | ❌ | N/A |
+| 50 | ❌ | N/A |
+| 51 | ❌ | N/A |
+| 52 | ❌ | N/A |
+| 53 | ❌ | N/A |
+| 54 | ❌ | N/A |
+| 55 | ❌ | N/A |
+| 56 | ❌ | N/A |
+| 57 | ❌ | N/A |
+| 58 | ❌ | N/A |
+| 59 | ✅ | https://huggingface.co/docs/hub |
+| 60 | ✅ | https://huggingface.co/docs/hub |
+| 61 | ❌ | N/A |
+| 62 | ❌ | N/A |
+| 63 | ❌ | N/A |
+| 64 | ❌ | N/A |
+| 65 | ❌ | N/A |
+| 66 | ❌ | N/A |
+| 67 | ❌ | N/A |
+| 68 | ✅ | https://github.com/zugexiaodui/VPTinNSforCL |
+| 69 | ❌ | N/A |
+| 70 | ✅ | https://github.com/lloongx/DIKI |
+| 71 | ✅ | https://huggingface.co/docs/hub |
+| 72 | ✅ | https://github.com/Ghy0501/PILoRA |
+| 73 | ✅ | https://huggingface.co/docs/hub |
+| 74 | ✅ | https://github.com/jessemelpolio/AnytimeCL |
+| 75 | ❌ | N/A |
+| 76 | ✅ | https://huggingface.co/docs/hub |
+| 77 | ✅ | https://github.com/alviur/ldc |
+| 78 | ❌ | N/A |
+| 79 | ❌ | N/A |
+| 80 | ❌ | N/A |
+| 81 | ✅ | https://huggingface.co/docs/hub |
+| 82 | ✅ | https://github.com/JiazuoYu/MoE-Adapters4CL |
+| 83 | ✅ | https://github.com/KHU-AGI/PriViLege |
+| 84 | ✅ | https://huggingface.co/docs/hub |
+| 85 | ✅ | https://github.com/tmtuan1307/lander |
+| 86 | ✅ | https://github.com/DoubleClass/GMM |
+| 87 | ✅ | https://github.com/clovaai/ECLIPSE |
+| 88 | ❌ | N/A |
+| 89 | ❌ | N/A |
+| 90 | ❌ | N/A |
+| 91 | ❌ | N/A |
+| 92 | ❌ | N/A |
+| 93 | ❌ | N/A |
+| 94 | ❌ | N/A |
+| 95 | ✅ | https://github.com/ZixuanKe/PyContinual |
+| 96 | ✅ | https://github.com/dipamgoswami/FeCAM |
+| 97 | ❌ | N/A |
+| 98 | ✅ | https://huggingface.co/docs/hub |
+| 99 | ❌ | N/A |
+| 100 | ✅ | https://huggingface.co/docs/hub |
+| 101 | ❌ | N/A |
+| 102 | ❌ | N/A |
+| 103 | ✅ | https://github.com/stoneMo/CIGN |
+| 104 | ❌ | N/A |
+| 105 | ❌ | N/A |
+| 106 | ✅ | https://huggingface.co/docs/hub |
+| 107 | ✅ | https://huggingface.co/docs/hub |
+| 108 | ❌ | N/A |
+| 109 | ❌ | N/A |
