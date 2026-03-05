@@ -32,7 +32,6 @@ import datasets
 import nltk  # Here to have a nice missing dependency error message early on
 import numpy as np
 import pickle
-from datasets import load_dataset
 from copy import deepcopy
 from torch import nn
 
@@ -373,6 +372,31 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         metadata={"help": "persent"}
     )
 
+
+def load_cl_dataset(data_dir, task_config_dir, max_num_instances_per_task,
+                    max_num_instances_per_eval_task, num_examples):
+    """
+    Load CL dataset directly from the CLInstructions builder.
+    datasets>=4.0 no longer supports loading from a local script via load_dataset(script.py, ...).
+    """
+    from cl_dataset import CLInstructions, CLConfig
+    config = CLConfig(
+        data_dir=data_dir,
+        task_config_dir=task_config_dir,
+        max_num_instances_per_task=max_num_instances_per_task,
+        max_num_instances_per_eval_task=max_num_instances_per_eval_task,
+        num_examples=num_examples,
+    )
+    builder = CLInstructions(config=config)
+    split_generators = builder._split_generators(None)  # dl_manager unused for local files
+    split_names = ["train", "validation", "test"]
+    dataset_dict = {}
+    for split_name, split_gen in zip(split_names, split_generators):
+        examples_list = [v for _, v in builder._generate_examples(**split_gen.gen_kwargs)]
+        dataset_dict[split_name] = datasets.Dataset.from_list(examples_list)
+    return datasets.DatasetDict(dataset_dict)
+
+
 def main():
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
@@ -432,16 +456,13 @@ def main():
     cur_task_id = task_order.index(cur_task)
 
     # Get the CL dataset
-    raw_datasets = load_dataset(
-        os.path.join(CURRENT_DIR, "cl_dataset.py"),
+    raw_datasets = load_cl_dataset(
         data_dir=data_args.data_dir,
         task_config_dir=data_args.task_config_dir,
-        # cache_dir=data_cache_dir,  # for debug, change dataset size, otherwise open it
         max_num_instances_per_task=data_args.max_num_instances_per_task,
         max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
-        num_examples=data_args.num_examples
+        num_examples=data_args.num_examples,
     )
-    raw_datasets.cleanup_cache_files()
     print(raw_datasets)
 
     config = AutoConfig.from_pretrained(
@@ -693,14 +714,13 @@ def main():
         if model_args.load_checkpoint_from:
             replay_dataset_dict = {}
             for idx in range(cur_task_id):
-                raw_datasets_gen = load_dataset(
-                    os.path.join(CURRENT_DIR, "cl_dataset.py"),
+                raw_datasets_gen = load_cl_dataset(
                     data_dir=data_args.gen_data_dir,
                     task_config_dir=task_config[task_order[idx]],
-                    cache_dir=data_cache_dir,  # for debug, change dataset size, otherwise open it
                     max_num_instances_per_task=data_args.max_num_instances_per_task,
                     max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
-                    num_examples=data_args.num_examples)
+                    num_examples=data_args.num_examples,
+                )
 
                 replay_dataset_dict[task_order[idx]] = raw_datasets_gen["train"]
                 print(raw_datasets_gen)
