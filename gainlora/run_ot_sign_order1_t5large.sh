@@ -128,8 +128,6 @@ for i in "${!TASKS[@]}"; do
     --generation_max_length 50 \
     --add_task_name False \
     --add_dataset_name False \
-    --overwrite_output_dir \
-    --overwrite_cache \
     --lr_scheduler_type constant \
     --warmup_steps 0 \
     --logging_strategy steps \

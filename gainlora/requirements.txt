@@ -29,7 +29,7 @@ thop
 calflops
 
 # GPU monitoring
-pynvml
+nvidia-ml-py
 
 # Utilities
 tabulate
