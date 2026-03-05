@@ -60,7 +60,7 @@ thop==0.1.1-2209072238
 calflops==0.3.2
 
 # HuggingFace Hub
-huggingface-hub==0.24.5
+huggingface-hub>=0.27.0
 
 # Flash Attention (optional, for performance)
 # flash-attn==2.5.8
