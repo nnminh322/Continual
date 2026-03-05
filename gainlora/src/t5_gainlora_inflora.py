@@ -1193,7 +1193,13 @@ class T5Stack(T5PreTrainedModel):
         if self.matrix_trans_2 is None:
             self.matrix_trans_2 = torch.bmm(medium.detach().permute(0, 2, 1), medium.detach()).sum(dim=0).float()/(medium.shape[0]*medium.shape[1])
         else:
-            self.matrix_trans_2 = (self.matrix_trans_2*self.n_trans_matrix[index] + torch.bmm(medium.detach().permute(0, 2, 1), medium.detach()).sum(dim=0).float())/(self.n_trans_matrix[index] + medium.shape[0]*medium.shape[1])
+            # Check shape compatibility before accumulating
+            new_matrix = torch.bmm(medium.detach().permute(0, 2, 1), medium.detach()).sum(dim=0).float()/(medium.shape[0]*medium.shape[1])
+            if self.matrix_trans_2.shape == new_matrix.shape:
+                self.matrix_trans_2 = (self.matrix_trans_2*self.n_trans_matrix[index] + new_matrix)/(self.n_trans_matrix[index] + medium.shape[0]*medium.shape[1])
+            else:
+                # Shape mismatch, reinitialize with correct shape
+                self.matrix_trans_2 = new_matrix
             
         return
 
