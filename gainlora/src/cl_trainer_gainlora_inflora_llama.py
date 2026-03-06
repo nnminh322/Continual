@@ -527,7 +527,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 torch.save(self.feature_trans_list[i], os.path.join(self.args.output_dir, 'trans_input', 'reg_{}.pt'.format(i)))
 
 
-    def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
+    def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], num_items_in_batch=None) -> torch.Tensor:
         """
         Perform a training step on a batch of inputs.
 
@@ -1225,6 +1225,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         self._total_loss_scalar = 0.0
         self._globalstep_last_logged = self.state.global_step
         model.zero_grad()
+        grad_norm: float | None = None
 
         self.control = self.callback_handler.on_train_begin(args, self.state, self.control)
 
@@ -1402,10 +1403,14 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                                 args.max_grad_norm,
                             )
                         else:
-                            self.accelerator.clip_grad_norm_(
+                            _grad_norm = self.accelerator.clip_grad_norm_(
                                 model.parameters(),
                                 args.max_grad_norm,
                             )
+                            if hasattr(_grad_norm, "item"):
+                                grad_norm = _grad_norm.item()
+                            else:
+                                grad_norm = _grad_norm
 
                     # Optimizer step
                     optimizer_was_run = True
@@ -1475,7 +1480,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
-                    self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval, start_time)
+                    self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
 
                     # print(self.model.model.trans_input[0].weight-old_trans_input_0)
                 else:
@@ -1495,7 +1500,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-            self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval, start_time)
+            self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
 
             if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
                 if is_torch_tpu_available():
