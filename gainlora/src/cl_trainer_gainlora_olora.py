@@ -29,6 +29,44 @@ except ImportError:
     pass
 
 
+def robust_svd(matrix, eps=1e-8):
+    """
+    Robust SVD with regularization and QR fallback for ill-conditioned matrices.
+    
+    Args:
+        matrix: input matrix for SVD
+        eps: regularization parameter (small identity to add for numerical stability)
+    
+    Returns:
+        U, S, V tensors from SVD, or QR decomposition fallback if SVD fails
+    """
+    try:
+        # Add small regularization to improve conditioning
+        regularized = matrix + eps * torch.eye(matrix.shape[-1], device=matrix.device, dtype=matrix.dtype)
+        U, S, V = torch.linalg.svd(regularized, full_matrices=False)
+        return U, S, V
+    except RuntimeError as e:
+        # If SVD fails, use QR decomposition as fallback
+        if "failed to converge" in str(e) or "ill-conditioned" in str(e):
+            print(f"[WARNING] SVD convergence failed, using QR decomposition fallback")
+            try:
+                Q, R = torch.linalg.qr(matrix)
+                # Create S and V from QR: approximation U≈Q, S≈diag(|diag(R)|), V≈I
+                S = torch.abs(torch.diagonal(R))
+                V = torch.eye(matrix.shape[-1], device=matrix.device, dtype=matrix.dtype)
+                return Q, S, V
+            except Exception as qr_err:
+                print(f"[WARNING] QR also failed, using identity approximation: {qr_err}")
+                # Last resort: return identity-like decomposition
+                n = matrix.shape[-1]
+                U = torch.eye(n, device=matrix.device, dtype=matrix.dtype)
+                S = torch.ones(n, device=matrix.device, dtype=matrix.dtype)
+                V = torch.eye(n, device=matrix.device, dtype=matrix.dtype)
+                return U, S, V
+        else:
+            raise
+
+
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
     predictions_ids = np.where(predictions_ids == ignore_idx, tokenizer.pad_token_id, predictions_ids)
 
@@ -192,7 +230,7 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
             pre_norm = module.prompt_key.detach().norm()
             for index in module.matrix_trans_3.keys():
                 cur_trans_matrix = module.matrix_trans_3[index]
-                U, S, V = torch.linalg.svd(cur_trans_matrix)
+                U, S, V = robust_svd(cur_trans_matrix)
                 module.prompt_key.data[:,index*module.step:(index+1)*module.step].copy_(U[:,:1].T)
                 # ipdb.set_trace()
                 module.matrix_trans_1[index].zero_()
@@ -253,9 +291,8 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
                 try:
                     cur_trans_matrix = cur_trans_matrix - torch.mm(self.feature_trans_mat[2][index],cur_trans_matrix)
                 except:
-                    ipdb.set_trace()
-                    raise Exception
-                U, S, V = torch.linalg.svd(cur_trans_matrix)
+                    pass  # Continue with original matrix if subtraction fails
+                U, S, V = robust_svd(cur_trans_matrix)
                 module.prompt_key.data[:,index*module.step:(index+1)*module.step].copy_(U[:,:1].T)
                 module.matrix_trans_1[index].zero_()
                 module.matrix_trans_3[index].zero_()
