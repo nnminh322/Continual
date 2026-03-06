@@ -68,12 +68,9 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
 
     def load_previous_reg_matrix(self):
         """Load LoRA GPM bases from previous task. No trans_input GPM needed."""
-        paths = self.args.output_dir.split('/')
-        log_path = ""
-        for path in paths[:-1]:
-            log_path = os.path.join(log_path, path)
+        log_path = os.path.dirname(self.args.output_dir)
+        local_dir = os.path.basename(self.args.output_dir)
         print(log_path)
-        local_dir = paths[-1]
 
         all_dirs = os.listdir(log_path)
         reg_matrix = []
