@@ -14,6 +14,13 @@ from transformers import GenerationConfig
 from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.trainer import *
 from transformers.trainer_callback import TrainerCallback
+
+# ShardedDDPOption was removed in transformers>=4.38
+try:
+    from transformers.trainer import ShardedDDPOption
+except ImportError:
+    class ShardedDDPOption:
+        SIMPLE = "simple"
 import numpy as np
 
 from cl_collator import SUPPORTED_DECODER_MODELS, check_model
@@ -328,7 +335,9 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
 
             optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args)
 
-            if self.sharded_ddp == ShardedDDPOption.SIMPLE:
+            # sharded_ddp was removed in transformers>=4.38; use getattr for compat
+            _sharded_ddp = getattr(self, 'sharded_ddp', None)
+            if _sharded_ddp == ShardedDDPOption.SIMPLE:
                 self.optimizer = OSS(
                     params=optimizer_grouped_parameters,
                     optim=optimizer_cls,
@@ -647,8 +656,8 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 debug_overflow = DebugUnderflowOverflow(self.model)  # noqa
 
         delay_optimizer_creation = (
-            self.sharded_ddp is not None
-            and self.sharded_ddp != ShardedDDPOption.SIMPLE
+            getattr(self, 'sharded_ddp', None) is not None
+            and getattr(self, 'sharded_ddp', None) != ShardedDDPOption.SIMPLE
             or is_sagemaker_mp_enabled()
             or self.fsdp is not None
         )
