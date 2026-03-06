@@ -114,6 +114,18 @@ except ImportError:
         return False
 
 # ============================================================================
+# ALL_LAYERNORM_LAYERS (removed from transformers.trainer in 5.0)
+# ============================================================================
+try:
+    from transformers.trainer import ALL_LAYERNORM_LAYERS
+except ImportError:
+    try:
+        from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
+    except ImportError:
+        import torch.nn as _nn
+        ALL_LAYERNORM_LAYERS = [_nn.LayerNorm]
+
+# ============================================================================
 # is_torch_tpu_available (removed in transformers 5.0, replaced by is_torch_xla_available)
 # ============================================================================
 try:
