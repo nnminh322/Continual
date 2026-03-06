@@ -103,7 +103,7 @@ for i in "${!TASKS[@]}"; do
       --replay_after_n_epoch 0"
   fi
 
-  CUDA_VISIBLE_DEVICES=${GPU_IDS} python src/run_t5.py \
+  CUDA_VISIBLE_DEVICES=${GPU_IDS} torchrun --nproc_per_node=2 src/run_t5.py \
     --do_train \
     --do_predict \
     --predict_with_generate \
