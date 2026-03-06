@@ -467,6 +467,19 @@ class T5Attention(nn.Module):
         self.matrix = torch.zeros(self.d_model, self.d_model)
         self.n_matrix = 0
 
+    @property
+    def dtype(self):
+        """
+        Override dtype property to handle StopIteration in transformers 5.0.
+        If model has no floating-point parameters (edge case in DataParallel),
+        default to torch.float32.
+        """
+        try:
+            return next(param.dtype for param in self.parameters() if param.is_floating_point())
+        except StopIteration:
+            # Fallback to float32 if no floating-point parameters found
+            return torch.float32
+
     def get_chunk(self, chunk):
         self.chunk = chunk
 
