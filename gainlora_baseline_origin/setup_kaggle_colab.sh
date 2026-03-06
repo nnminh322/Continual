@@ -42,13 +42,17 @@ ${PIP_CMD} install --upgrade pip setuptools wheel
 
 echo ""
 echo "[Remove] Uninstalling conflicting packages..."
-# Remove common preinstalled conflicts
-${PIP_CMD} uninstall -y torch torchvision torchaudio pytorch-cuda 2>/dev/null || true
-${PIP_CMD} uninstall -y triton cupy cupy-cuda12x 2>/dev/null || true
-${PIP_CMD} uninstall -y flash-attn xformers bitsandbytes 2>/dev/null || true
-${PIP_CMD} uninstall -y transformers datasets accelerate tokenizers 2>/dev/null || true
-${PIP_CMD} uninstall -y peft sentence-transformers torchtune 2>/dev/null || true
-${PIP_CMD} uninstall -y apex deepspeed 2>/dev/null || true
+# Remove common preinstalled conflicts (deep clean)
+${PIP_CMD} uninstall -y \
+  torch torchvision torchaudio pytorch-cuda triton \
+  cupy cupy-cuda12x flash-attn xformers bitsandbytes \
+  transformers tokenizers datasets accelerate peft \
+  sentence-transformers torchtune deepspeed apex \
+  cudf-cu12 dask-cudf-cu12 cuml-cu12 cucim-cu12 \
+  ydf grain umap-learn hdbscan textblob \
+  opentelemetry-proto grpcio-status gcsfs fsspec \
+  protobuf tqdm nltk scikit-learn pyarrow pandas \
+  2>/dev/null || true
 
 echo ""
 echo "[Install] Core CUDA stack (PyTorch cu121)..."
@@ -61,13 +65,14 @@ ${PIP_CMD} install --no-cache-dir -q \
   --index-url https://download.pytorch.org/whl/cu121
 
 echo "[Install] Project dependencies..."
-${PIP_CMD} install --no-cache-dir -q \
-  'numpy>=1.26,<2.1' 'scipy>=1.11,<1.15' \
-  'transformers>=4.30,<4.41' 'datasets>=2.14,<2.22' 'accelerate>=0.24,<0.35' \
-  loralib==0.1.2 'sentencepiece>=0.1.99' \
-  nltk==3.8.1 scikit-learn==1.5.1 pandas==2.2.2 \
-  'pyarrow>=16,<19' 'protobuf>=3.20.3,<5' tqdm==4.66.5 \
-  pynvml==11.5.3
+${PIP_CMD} install --no-cache-dir -q --upgrade --force-reinstall \
+  numpy==1.26.4 scipy==1.14.1 \
+  transformers==4.40.2 tokenizers==0.19.1 \
+  datasets==2.21.0 accelerate==0.34.2 \
+  loralib==0.1.2 sentencepiece==0.2.0 \
+  nltk==3.9.1 scikit-learn==1.6.1 pandas==2.2.2 \
+  pyarrow==17.0.0 protobuf==5.29.3 tqdm==4.67.1 \
+  fsspec==2025.3.0 pynvml==11.5.3
 
 echo "[Install] CuPy (with fallback for Python/CUDA compatibility)..."
 if ! ${PIP_CMD} install --no-cache-dir -q cupy-cuda12x==13.6.0; then
