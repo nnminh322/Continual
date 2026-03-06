@@ -69,11 +69,9 @@ class CLConfig(datasets.BuilderConfig):
     max_num_instances_per_eval_task: Optional[int] = None
     over_sampling: Optional[bool] = None
 
-    def __post_init__(self):
-        super().__post_init__()
-        self.task_configs = self._parse_task_config(self.task_config_dir)
-
-    def _parse_task_config(self, task_config_dir):
+    @staticmethod
+    def parse_task_config(task_config_dir):
+        """Parse train/dev/test task config JSON files from the given directory."""
         if not task_config_dir:
             return None
 
@@ -128,13 +126,14 @@ class CLInstructions(datasets.GeneratorBasedBuilder):
 
     def _split_generators(self, dl_manager):
         """Returns SplitGenerators."""
-        if self.config.data_dir is None or self.config.task_configs is None:
+        # Parse task configs lazily here (not in CLConfig) because datasets
+        # may copy/replace the config object, dropping non-field attributes.
+        task_configs = CLConfig.parse_task_config(self.config.task_config_dir)
+
+        if self.config.data_dir is None or task_configs is None:
             logger.error("Please provide right input: data_dir or task_config_dir!")
 
-        # split dir save datasets
-        # task config to specify train,dev,test
         split_dir = self.config.data_dir
-        task_configs = self.config.task_configs
 
         return [
             datasets.SplitGenerator(
