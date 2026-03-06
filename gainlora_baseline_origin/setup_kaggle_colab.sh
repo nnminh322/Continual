@@ -64,9 +64,9 @@ echo "[Install] Project dependencies..."
 ${PIP_CMD} install --no-cache-dir -q \
   'numpy>=1.26,<2.1' 'scipy>=1.11,<1.15' \
   'transformers>=4.30,<4.41' 'datasets>=2.14,<2.22' 'accelerate>=0.24,<0.35' \
-  loralib==0.1.2 sentencepiece>=0.1.99 \
+  loralib==0.1.2 'sentencepiece>=0.1.99' \
   nltk==3.8.1 scikit-learn==1.5.1 pandas==2.2.2 \
-  pyarrow>=16,<19 protobuf>=3.20.3,<5 tqdm==4.66.5 \
+  'pyarrow>=16,<19' 'protobuf>=3.20.3,<5' tqdm==4.66.5 \
   pynvml==11.5.3
 
 echo "[Install] CuPy (with fallback for Python/CUDA compatibility)..."
