@@ -75,7 +75,10 @@ class CLConfig(datasets.BuilderConfig):
             **kwargs
     ):
         super().__init__(*args, **kwargs)
+        # Keep explicit config keys so datasets>=2.20 validation accepts
+        # kwargs passed from load_dataset(..., task_config_dir=..., ...).
         self.data_dir = data_dir
+        self.task_config_dir = task_config_dir
         self.num_examples = num_examples
         self.over_sampling = over_sampling
         self.task_configs = self._parse_task_config(task_config_dir)

@@ -51,17 +51,14 @@ ${PIP_CMD} uninstall -y \
   cudf-cu12 dask-cudf-cu12 cuml-cu12 cucim-cu12 \
   ydf grain umap-learn hdbscan textblob \
   opentelemetry-proto grpcio-status \
-  protobuf tqdm nltk scikit-learn pyarrow pandas \
+  protobuf \
   2>/dev/null || true
 
 echo ""
 echo "[Install] Core CUDA stack (PyTorch cu121)..."
-# Use flexible constraints to survive index churn.
-${PIP_CMD} install --no-cache-dir -q \
-  'torch>=2.2,<2.6' 'torchvision>=0.17,<0.21' 'torchaudio>=2.2,<2.6' \
-  --index-url https://download.pytorch.org/whl/cu121 || \
-${PIP_CMD} install --no-cache-dir -q \
-  torch==2.2.2 torchvision==0.17.2 torchaudio==2.2.2 \
+# Install a consistent torch/vision/audio trio for Python 3.12 + CUDA 12.1.
+${PIP_CMD} install --no-cache-dir -q --upgrade --force-reinstall \
+  torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
   --index-url https://download.pytorch.org/whl/cu121
 
 echo "[Install] Project dependencies..."
@@ -69,7 +66,7 @@ ${PIP_CMD} install --no-cache-dir -q --upgrade --force-reinstall \
   numpy==1.26.4 scipy==1.14.1 \
   transformers==4.40.2 tokenizers==0.19.1 \
   datasets==2.21.0 accelerate==0.34.2 \
-  loralib==0.1.2 sentencepiece==0.2.0 \
+  loralib==0.1.2 sentencepiece==0.2.0 ipdb==0.13.13 \
   nltk==3.9.1 scikit-learn==1.6.1 pandas==2.2.2 \
   pyarrow==17.0.0 protobuf==5.29.3 tqdm==4.67.1 \
   fsspec==2024.6.1 pynvml==11.5.3

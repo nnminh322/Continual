@@ -28,7 +28,10 @@ from typing import Optional
 import math
 import torch
 from torch import nn
-import ipdb
+try:
+    import ipdb  # Optional debug dependency.
+except ImportError:
+    ipdb = None
 
 import datasets
 import nltk  # Here to have a nice missing dependency error message early on
@@ -420,11 +423,16 @@ def main():
     download_config = DownloadConfig
     download_config.local_files_only = True
     # Get the CL dataset
+    dataset_script_path = os.path.join(CURRENT_DIR, "cl_dataset.py")
+    if not os.path.exists(dataset_script_path):
+        raise FileNotFoundError(f"Dataset script not found: {dataset_script_path}")
+
     raw_datasets = load_dataset(
-        os.path.join(CURRENT_DIR, "cl_dataset.py"),
+        dataset_script_path,
         data_dir=data_args.data_dir,
         download_config=download_config,
         task_config_dir=data_args.task_config_dir,
+        trust_remote_code=True,
         # cache_dir=data_cache_dir,  # for debug, change dataset size, otherwise open it
         max_num_instances_per_task=data_args.max_num_instances_per_task,
         max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
@@ -670,10 +678,11 @@ def main():
             replay_dataset_dict = {}
             for idx in range(cur_task_id):
                 raw_datasets_gen = load_dataset(
-                    os.path.join(CURRENT_DIR, "cl_dataset.py"),
+                    dataset_script_path,
                     data_dir=data_dir,
                     download_config=download_config,
                     task_config_dir=task_config[task_order[idx]],
+                    trust_remote_code=True,
                     cache_dir=data_cache_dir,  # for debug, change dataset size, otherwise open it
                     max_num_instances_per_task=data_args.max_num_instances_per_task,
                     max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
