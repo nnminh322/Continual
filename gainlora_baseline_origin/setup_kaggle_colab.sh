@@ -53,9 +53,13 @@ pip uninstall -y transformers datasets accelerate 2>/dev/null || true
 pip uninstall -y apex deepspeed 2>/dev/null || true
 
 echo ""
-echo "[Install] Core CUDA stack (PyTorch 2.1.0 cu121)..."
+echo "[Install] Core CUDA stack (PyTorch cu121)..."
+# Try PyTorch 2.1.0 first (original req), fallback to 2.2.2 if unavailable
 pip install --no-cache-dir -q \
-  torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
+  'torch>=2.1.0,<3.0' 'torchvision>=0.16.0,<1.0' 'torchaudio>=2.1.0,<3.0' \
+  --index-url https://download.pytorch.org/whl/cu121 2>&1 || \
+pip install --no-cache-dir -q \
+  torch==2.2.2 torchvision==0.17.2 torchaudio==2.2.2 \
   --index-url https://download.pytorch.org/whl/cu121
 
 echo "[Install] Project dependencies..."
