@@ -23,9 +23,9 @@ METRIC_TYPE="exact_match"   # Exact Match for Long benchmark
 KL_RATIO=0.1
 EPOCHS=10                   # Long benchmark uses fewer epochs
 
-BATCH_SIZE=8
-EVAL_BATCH=32               # Long benchmark uses larger eval batch
-GRAD_ACCUM=4
+BATCH_SIZE=4
+EVAL_BATCH=16               # Long benchmark uses larger eval batch
+GRAD_ACCUM=8
 LR=0.0003
 
 OT_EPSILON=0.05
@@ -141,6 +141,7 @@ for i in "${!TASKS[@]}"; do
     --threshold 0.995 \
     --transthreshold 0.995 \
     --fp16 \
+    --gradient_checkpointing True \
     ${OT_FLAGS} \
     ${PREV_FLAGS}
 
