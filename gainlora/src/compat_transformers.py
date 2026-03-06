@@ -188,3 +188,13 @@ def patch_trainer_compat(trainer):
         trainer._trial = None
     if not hasattr(trainer, 'model_wrapped'):
         trainer.model_wrapped = getattr(trainer, 'model', None)
+
+def patch_args_compat(args):
+    """
+    Patch a TrainingArguments instance with deprecated attributes that were removed
+    in transformers 5.0. Call this in Trainer.__init__ to ensure args has all needed fields.
+    
+    - past_index: -1 (default, no cached predictions)
+    """
+    if not hasattr(args, 'past_index'):
+        args.past_index = -1
