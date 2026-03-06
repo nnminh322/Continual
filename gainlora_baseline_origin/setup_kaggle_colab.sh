@@ -50,7 +50,7 @@ ${PIP_CMD} uninstall -y \
   sentence-transformers torchtune deepspeed apex \
   cudf-cu12 dask-cudf-cu12 cuml-cu12 cucim-cu12 \
   ydf grain umap-learn hdbscan textblob \
-  opentelemetry-proto grpcio-status gcsfs fsspec \
+  opentelemetry-proto grpcio-status \
   protobuf tqdm nltk scikit-learn pyarrow pandas \
   2>/dev/null || true
 
@@ -72,7 +72,7 @@ ${PIP_CMD} install --no-cache-dir -q --upgrade --force-reinstall \
   loralib==0.1.2 sentencepiece==0.2.0 \
   nltk==3.9.1 scikit-learn==1.6.1 pandas==2.2.2 \
   pyarrow==17.0.0 protobuf==5.29.3 tqdm==4.67.1 \
-  fsspec==2025.3.0 pynvml==11.5.3
+  fsspec==2024.6.1 pynvml==11.5.3
 
 echo "[Install] CuPy (with fallback for Python/CUDA compatibility)..."
 if ! ${PIP_CMD} install --no-cache-dir -q cupy-cuda12x==13.6.0; then
