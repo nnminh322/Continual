@@ -1055,10 +1055,6 @@ class T5PreTrainedModel(PreTrainedModel):
             if module.has_relative_attention_bias:
                 module.relative_attention_bias.weight.data.normal_(mean=0.0, std=factor * ((d_model) ** -0.5))
 
-    def _set_gradient_checkpointing(self, module, value=False):
-        if isinstance(module, (T5Attention, T5Stack)):
-            module.gradient_checkpointing = value
-
     def get_head_mask(self, head_mask, num_hidden_layers, is_attention_chunked=False):
         """Fallback for transformers 5.0+ where get_head_mask was removed from PreTrainedModel."""
         if head_mask is not None:

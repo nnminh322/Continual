@@ -169,11 +169,9 @@ class OLoRATrainer(Seq2SeqTrainer):
         elif self.use_apex:
             with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward()
-        elif self.is_deepspeed_enabled:
-            # loss gets scaled under gradient_accumulation_steps in deepspeed
-            self.accelerator.backward(loss)
         else:
-            loss.backward()
+            # Use accelerator.backward() for all cases (DDP, fp16, deepspeed, etc.)
+            self.accelerator.backward(loss)
         
         if self.state.global_step > self.args.replay_after_n_epoch*self.args.step_per_epoch and self.args.data_replay_freq != -1 and self.state.global_step % self.args.data_replay_freq == 0:
             for item in self.replay_iterator_dict.keys():
