@@ -515,13 +515,22 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
         if "attention_mask" in inputs:
             gen_kwargs["attention_mask"] = inputs.get("attention_mask", None)
 
+        # synced_gpus and attention_mask must be passed to generate(), not GenerationConfig
+        _synced_gpus = gen_kwargs.pop("synced_gpus", False)
+        _attention_mask = gen_kwargs.pop("attention_mask", None)
+
         generation_config = GenerationConfig(**gen_kwargs)
+
+        _generate_extra = {"synced_gpus": _synced_gpus}
+        if _attention_mask is not None:
+            _generate_extra["attention_mask"] = _attention_mask
 
         if hasattr(self.model, "encoder") and self.model.encoder.main_input_name != self.model.main_input_name:
             generation_inputs = inputs[self.model.encoder.main_input_name]
             generated_tokens = self.model.generate(
                 input_ids=generation_inputs,
                 generation_config=generation_config,
+                **_generate_extra,
             )
         else:
             generation_inputs = inputs[self.model.main_input_name]
@@ -530,11 +539,13 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                     input_ids=generation_inputs,
                     input_ids_wo_label=inputs["input_ids_wo_label"],
                     generation_config=generation_config,
+                    **_generate_extra,
                 )
             else:
                 generated_tokens = self.model.generate(
                     input_ids=generation_inputs,
                     generation_config=generation_config,
+                    **_generate_extra,
                 )
 
         bs, source_len = inputs['input_ids'].shape
