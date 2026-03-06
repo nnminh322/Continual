@@ -22,18 +22,23 @@ Continual learning (CL), which requires the model to learn multiple tasks sequen
 ## Kaggle/Colab Quick Setup (Conflict-Safe)
 
 Notebook environments often contain preinstalled packages that conflict with pinned versions.
-Use an isolated venv and pinned CUDA 12.x wheels:
+The setup script automatically detects conda availability and either creates a conda env or installs directly:
 
 ```bash
 cd gainlora_baseline_origin
 bash setup_kaggle_colab.sh
-source .venv/bin/activate
+
+# If conda was available:
+conda activate specroute
+
+# If conda not available, skip this step (already installed)
 ```
 
 Notes:
-- The setup script creates `.venv` and installs a minimal pinned stack compatible with this codebase.
-- `cupy-cuda12x` is required by GPM/SVD code in trainers.
-- `#SBATCH` lines in experiment scripts are comments in Colab/Kaggle and will not break `bash` execution.
+- The setup script auto-detects and cleans conflicting packages (`torch`, `triton`, `cupy`, `flash-attn`, etc.)
+- Installs pinned CUDA 12.x wheels compatible with this codebase
+- `cupy-cuda12x` is required by GPM/SVD code in trainers
+- `#SBATCH` lines in experiment scripts are comments in Colab/Kaggle and will not break `bash` execution
 
 ## SpecRoute on 2xT4
 
