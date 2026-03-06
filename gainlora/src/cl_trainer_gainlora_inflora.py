@@ -1480,6 +1480,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                             _grad_norm = self.accelerator.clip_grad_norm_(
                                 model.parameters(),
                                 args.max_grad_norm,
+                                check_grad_overflow=False,
                             )
                             if hasattr(_grad_norm, "item"):
                                 grad_norm = _grad_norm.item()
