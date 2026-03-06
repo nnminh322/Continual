@@ -126,6 +126,14 @@ except ImportError:
         ALL_LAYERNORM_LAYERS = [_nn.LayerNorm]
 
 # ============================================================================
+# IS_SAGEMAKER_MP_POST_1_10 (SageMaker detection constant — removed in transformers 5.0)
+# ============================================================================
+try:
+    from transformers.trainer import IS_SAGEMAKER_MP_POST_1_10
+except ImportError:
+    IS_SAGEMAKER_MP_POST_1_10 = False
+
+# ============================================================================
 # is_torch_tpu_available (removed in transformers 5.0, replaced by is_torch_xla_available)
 # ============================================================================
 try:
