@@ -42,7 +42,8 @@ ${PIP_CMD} install --upgrade pip setuptools wheel
 
 echo ""
 echo "[Remove] Uninstalling conflicting packages..."
-# Remove common preinstalled conflicts (deep clean)
+# Remove common preinstalled conflicts (deep clean).
+# JAX/jaxlib MUST go because they require numpy>=2.0 which breaks our pin.
 ${PIP_CMD} uninstall -y \
   torch torchvision torchaudio pytorch-cuda triton \
   cupy cupy-cuda12x flash-attn xformers bitsandbytes \
@@ -52,23 +53,36 @@ ${PIP_CMD} uninstall -y \
   ydf grain umap-learn hdbscan textblob \
   opentelemetry-proto grpcio-status \
   protobuf \
+  jax jaxlib \
   2>/dev/null || true
 
 echo ""
-# Pre-pin numpy and protobuf BEFORE torch install.
-# Without this, torch's --upgrade would pull numpy 2.3.x (breaks scipy/numba)
-# and protobuf stays missing (was uninstalled above) during the torch step.
-echo "[Install] Pre-pinning numpy and protobuf..."
+echo "[Install] Core CUDA stack (PyTorch cu121)..."
+# 1) Pre-pin numpy+protobuf so torch install doesn't drag in wrong versions.
+# 2) No --force-reinstall: that flag reinstalls ALL deps (including numpy) → disaster.
+#    Since torch was uninstalled above, pip will install 2.5.1 fresh.
 ${PIP_CMD} install --no-cache-dir -q \
   "numpy==1.26.4" "protobuf==5.29.3"
-
-echo "[Install] Core CUDA stack (PyTorch cu121)..."
-# --force-reinstall is required here to actually replace Colab's preinstalled torch
-# (e.g. torch 2.10.0+cu128) with our exact pinned trio. numpy/protobuf are already
-# pinned above, so pip won't touch them during this step.
-${PIP_CMD} install --no-cache-dir -q --force-reinstall \
+${PIP_CMD} install --no-cache-dir -q \
   torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
   --index-url https://download.pytorch.org/whl/cu121
+
+# Sanity-check: abort early if wrong torch survived
+TORCH_VER=$(${PY_CMD} -c "import torch; print(torch.__version__)" 2>/dev/null || echo "NONE")
+echo "[Check] torch version after install: ${TORCH_VER}"
+if [[ "${TORCH_VER}" != 2.5.1* ]]; then
+  echo "[WARN] torch ${TORCH_VER} != 2.5.1 — forcing pip uninstall+reinstall..."
+  ${PIP_CMD} uninstall -y torch torchvision torchaudio 2>/dev/null || true
+  ${PIP_CMD} install --no-cache-dir -q --no-deps \
+    torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+    --index-url https://download.pytorch.org/whl/cu121
+  TORCH_VER=$(${PY_CMD} -c "import torch; print(torch.__version__)" 2>/dev/null || echo "NONE")
+  echo "[Check] torch version after force: ${TORCH_VER}"
+  if [[ "${TORCH_VER}" != 2.5.1* ]]; then
+    echo "[ERROR] Cannot install torch 2.5.1. Aborting."
+    exit 1
+  fi
+fi
 
 echo "[Install] Project dependencies..."
 ${PIP_CMD} install --no-cache-dir -q \
@@ -86,9 +100,6 @@ if ! ${PIP_CMD} install --no-cache-dir -q cupy-cuda12x==13.6.0; then
 fi
 
 echo "[Cache] Clearing stale HuggingFace dataset module cache..."
-# This forces datasets to re-copy local cl_dataset.py into the module cache
-# with the correct (current) content. Without this, the old cached version
-# (pre-patch) would silently be used even after code changes.
 rm -rf ~/.cache/huggingface/modules/datasets_modules/ 2>/dev/null || true
 echo "[Cache] HF dataset module cache cleared"
 
