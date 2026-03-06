@@ -1144,7 +1144,7 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
 
         # Activate gradient checkpointing if needed
         if args.gradient_checkpointing:
-            self.model.gradient_checkpointing_enable()
+            self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
         model = self._wrap_model(self.model_wrapped)
 

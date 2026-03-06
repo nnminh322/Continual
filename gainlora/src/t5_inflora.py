@@ -1397,6 +1397,7 @@ class T5Stack(T5PreTrainedModel):
                     layer_head_mask,
                     cross_attn_layer_head_mask,
                     None,  # past_key_value is always None with gradient checkpointing
+                    use_reentrant=False,
                 )
             else:
                 layer_outputs = layer_module(

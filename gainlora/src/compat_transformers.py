@@ -198,3 +198,9 @@ def patch_args_compat(args):
     """
     if not hasattr(args, 'past_index'):
         args.past_index = -1
+
+    # GainLoRA has parameters (prompt_key, previous_prompts_keys, vmf_signatures)
+    # not used in every forward pass. Transformers 5.0 sets find_unused_parameters=False
+    # when gradient_checkpointing=True, which causes DDP reduction errors.
+    if getattr(args, 'ddp_find_unused_parameters', None) is None:
+        args.ddp_find_unused_parameters = True
