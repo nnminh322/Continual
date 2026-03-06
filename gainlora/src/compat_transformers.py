@@ -113,6 +113,18 @@ except ImportError:
     def is_apex_available():
         return False
 
+# ============================================================================
+# is_torch_tpu_available (removed in transformers 5.0, replaced by is_torch_xla_available)
+# ============================================================================
+try:
+    from transformers.utils import is_torch_tpu_available
+except ImportError:
+    try:
+        from transformers.utils import is_torch_xla_available as is_torch_tpu_available
+    except ImportError:
+        def is_torch_tpu_available(check_device=True):
+            return False
+
 
 def patch_trainer_compat(trainer):
     """
@@ -132,6 +144,8 @@ def patch_trainer_compat(trainer):
     """
     if not hasattr(trainer, 'sharded_ddp'):
         trainer.sharded_ddp = None
+    if not hasattr(trainer, 'fsdp'):
+        trainer.fsdp = None
     if not hasattr(trainer, 'use_apex'):
         trainer.use_apex = False
     if not hasattr(trainer, 'do_grad_scaling'):
@@ -150,5 +164,7 @@ def patch_trainer_compat(trainer):
         trainer.is_in_train = False
     if not hasattr(trainer, 'is_deepspeed_enabled'):
         trainer.is_deepspeed_enabled = False
+    if not hasattr(trainer, '_trial'):
+        trainer._trial = None
     if not hasattr(trainer, 'model_wrapped'):
         trainer.model_wrapped = getattr(trainer, 'model', None)

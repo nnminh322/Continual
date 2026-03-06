@@ -5,7 +5,7 @@ from transformers import GenerationConfig
 from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.trainer import *
 from transformers.trainer_utils import IntervalStrategy
-from compat_transformers import ShardedDDPOption, is_sagemaker_mp_enabled, smp_forward_backward, deepspeed_init, deepspeed_load_checkpoint, HPSearchBackend, patch_trainer_compat  # explicit for transformers 5.x
+from compat_transformers import ShardedDDPOption, is_sagemaker_mp_enabled, smp_forward_backward, deepspeed_init, deepspeed_load_checkpoint, HPSearchBackend, patch_trainer_compat, is_torch_tpu_available  # explicit for transformers 5.x
 from transformers.trainer_callback import TrainerCallback
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
