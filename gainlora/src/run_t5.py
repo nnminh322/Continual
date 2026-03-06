@@ -809,7 +809,7 @@ def main():
             replay_dataset_dict=replay_dataset_dict,
             replay_label_dict=replay_label_dict,
             eval_dataset=eval_dataset if training_args.do_eval else None,
-            tokenizer=tokenizer,
+            processing_class=tokenizer,
             data_collator=data_collator,
             compute_metrics=compute_rouge_metrics,
             callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
@@ -828,7 +828,7 @@ def main():
             replay_dataset_dict=replay_dataset_dict,
             replay_label_dict=replay_label_dict,
             eval_dataset=eval_dataset if training_args.do_eval else None,
-            tokenizer=tokenizer,
+            processing_class=tokenizer,
             data_collator=data_collator,
             compute_metrics=compute_rouge_metrics,
             callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
@@ -847,7 +847,7 @@ def main():
             replay_dataset_dict=replay_dataset_dict,
             replay_label_dict=replay_label_dict,
             eval_dataset=eval_dataset if training_args.do_eval else None,
-            tokenizer=tokenizer,
+            processing_class=tokenizer,
             data_collator=data_collator,
             compute_metrics=compute_rouge_metrics,
             callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
@@ -866,7 +866,7 @@ def main():
             replay_dataset_dict=replay_dataset_dict,
             replay_label_dict=replay_label_dict,
             eval_dataset=eval_dataset if training_args.do_eval else None,
-            tokenizer=tokenizer,
+            processing_class=tokenizer,
             data_collator=data_collator,
             compute_metrics=compute_rouge_metrics,
             callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None

@@ -73,8 +73,8 @@ class DenserEvalCallback(TrainerCallback):
 
 class InfLoRATrainer(Seq2SeqTrainer):
 
-    def __init__(self, model, args, train_dataset, cur_task_id, task_order, data_collator_replay=None, replay_dataset_dict=None, replay_label_dict=None, eval_dataset=None, tokenizer=None, data_collator=None, compute_metrics=None, callbacks=None):
-        super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator, compute_metrics=compute_metrics, callbacks=callbacks)
+    def __init__(self, model, args, train_dataset, cur_task_id, task_order, data_collator_replay=None, replay_dataset_dict=None, replay_label_dict=None, eval_dataset=None, processing_class=None, data_collator=None, compute_metrics=None, callbacks=None):
+        super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, processing_class=processing_class, data_collator=data_collator, compute_metrics=compute_metrics, callbacks=callbacks)
         patch_trainer_compat(self)
         patch_args_compat(self.args)
 
