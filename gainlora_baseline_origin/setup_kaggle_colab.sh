@@ -55,26 +55,42 @@ ${PIP_CMD} uninstall -y \
   2>/dev/null || true
 
 echo ""
+# Pre-pin numpy and protobuf BEFORE torch install.
+# Without this, torch's --upgrade would pull numpy 2.3.x (breaks scipy/numba)
+# and protobuf stays missing (was uninstalled above) during the torch step.
+echo "[Install] Pre-pinning numpy and protobuf..."
+${PIP_CMD} install --no-cache-dir -q \
+  "numpy==1.26.4" "protobuf==5.29.3"
+
 echo "[Install] Core CUDA stack (PyTorch cu121)..."
-# Install a consistent torch/vision/audio trio for Python 3.12 + CUDA 12.1.
-${PIP_CMD} install --no-cache-dir -q --upgrade --force-reinstall \
+# --force-reinstall is required here to actually replace Colab's preinstalled torch
+# (e.g. torch 2.10.0+cu128) with our exact pinned trio. numpy/protobuf are already
+# pinned above, so pip won't touch them during this step.
+${PIP_CMD} install --no-cache-dir -q --force-reinstall \
   torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
   --index-url https://download.pytorch.org/whl/cu121
 
 echo "[Install] Project dependencies..."
-${PIP_CMD} install --no-cache-dir -q --upgrade --force-reinstall \
-  numpy==1.26.4 scipy==1.14.1 \
+${PIP_CMD} install --no-cache-dir -q \
+  "numpy==1.26.4" "scipy==1.14.1" \
   transformers==4.40.2 tokenizers==0.19.1 \
-  datasets==2.21.0 accelerate==0.34.2 \
+  "datasets==2.21.0" accelerate==0.34.2 \
   loralib==0.1.2 sentencepiece==0.2.0 ipdb==0.13.13 \
   nltk==3.9.1 scikit-learn==1.6.1 pandas==2.2.2 \
-  pyarrow==17.0.0 protobuf==5.29.3 tqdm==4.67.1 \
-  fsspec==2024.6.1 pynvml==11.5.3
+  "pyarrow==17.0.0" "protobuf==5.29.3" tqdm==4.67.1 \
+  "fsspec==2024.6.1" pynvml==11.5.3
 
 echo "[Install] CuPy (with fallback for Python/CUDA compatibility)..."
 if ! ${PIP_CMD} install --no-cache-dir -q cupy-cuda12x==13.6.0; then
   ${PIP_CMD} install --no-cache-dir -q 'cupy-cuda12x>=13.0,<15.0'
 fi
+
+echo "[Cache] Clearing stale HuggingFace dataset module cache..."
+# This forces datasets to re-copy local cl_dataset.py into the module cache
+# with the correct (current) content. Without this, the old cached version
+# (pre-patch) would silently be used even after code changes.
+rm -rf ~/.cache/huggingface/modules/datasets_modules/ 2>/dev/null || true
+echo "[Cache] HF dataset module cache cleared"
 
 echo ""
 echo "[Check] Verifying installation..."
