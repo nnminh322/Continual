@@ -54,9 +54,9 @@ echo "============================================================"
 echo ""
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=4; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=8; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=16; EVAL_BSZ=2
 else
     BSZ=16; GA=2; EVAL_BSZ=4
 fi
