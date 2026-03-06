@@ -5,7 +5,8 @@ from typing import Dict, Union, Any, Optional, List, Tuple, Callable
 from transformers import GenerationConfig
 from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.trainer import *
-from transformers.trainer_utils import IntervalStrategy  # explicit for transformers 5.x
+from transformers.trainer_utils import IntervalStrategy
+from compat_transformers import ShardedDDPOption, is_sagemaker_mp_enabled, smp_forward_backward, deepspeed_init, deepspeed_load_checkpoint, HPSearchBackend, patch_trainer_compat  # explicit for transformers 5.x
 from transformers.trainer_callback import TrainerCallback
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
@@ -127,6 +128,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
 
     def __init__(self, model, args, train_dataset, cur_task_id, task_order, data_collator_replay=None, replay_dataset_dict=None, replay_label_dict=None, eval_dataset=None, tokenizer=None, data_collator=None, compute_metrics=None, callbacks=None):
         super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator, compute_metrics=compute_metrics, callbacks=callbacks)
+        patch_trainer_compat(self)
 
         self.data_collator_replay = data_collator_replay
         self.replay_dataset_dict = replay_dataset_dict
