@@ -10,6 +10,8 @@ Key differences from GainLoRA_InfLoRA_Trainer:
 """
 
 import torch
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from transformers import GenerationConfig
 from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.trainer import *
