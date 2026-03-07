@@ -74,7 +74,42 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
         )
         self.task_order = task_order
         self.cur_task_id = cur_task_id
+        self._grad_check_done = False
         # No replay data needed for SpecRoute
+
+    def training_step(self, model, inputs, **kwargs):
+        """Override to add one-time gradient diagnostic."""
+        loss = super().training_step(model, inputs, **kwargs)
+
+        # One-time gradient check after first backward
+        if not self._grad_check_done:
+            self._grad_check_done = True
+            n_with_grad, n_zero_grad, n_none_grad = 0, 0, 0
+            sample_name, sample_norm = None, None
+            for name, p in self.model.named_parameters():
+                if p.requires_grad:
+                    if p.grad is not None:
+                        gn = p.grad.norm().item()
+                        if gn > 0:
+                            n_with_grad += 1
+                            if sample_name is None:
+                                sample_name, sample_norm = name, gn
+                        else:
+                            n_zero_grad += 1
+                    else:
+                        n_none_grad += 1
+            print("=" * 60)
+            print(f"[GRAD CHECK] params with grad>0: {n_with_grad}, "
+                  f"grad==0: {n_zero_grad}, grad=None: {n_none_grad}")
+            if sample_name:
+                print(f"[GRAD CHECK] sample: {sample_name} grad_norm={sample_norm:.6e}")
+            else:
+                print("[GRAD CHECK] WARNING: NO trainable param has non-zero gradient!")
+            print(f"[GRAD CHECK] fp16={self.args.fp16}, bf16={self.args.bf16}, "
+                  f"grad_checkpointing={self.args.gradient_checkpointing}")
+            print("=" * 60)
+
+        return loss
 
     def load_previous_reg_matrix(self):
         """Load LoRA GPM bases from previous task. No trans_input GPM needed."""

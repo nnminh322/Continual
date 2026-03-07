@@ -32,16 +32,18 @@ else
 fi
 
 # Determine parallelism strategy
+# NOTE: T5 models trained in bfloat16 produce NaN with fp16 (overflow).
+# T4 GPUs do not support bf16. Use fp32 + gradient_checkpointing instead.
 if [ "$IS_T4" -eq 1 ] && [ "$NUM_GPUS" -ge 2 ]; then
     GPU_MODE="t4_2gpu"
     GPU_IDS="0,1"
-    FP16_FLAG="--fp16"
-    echo "[GPU] Strategy: 2x T4 DataParallel + fp16"
+    FP16_FLAG="--gradient_checkpointing"
+    echo "[GPU] Strategy: 2x T4 DataParallel + fp32 + gradient_checkpointing"
 elif [ "$IS_T4" -eq 1 ]; then
     GPU_MODE="t4_1gpu"
     GPU_IDS="${1:-0}"
-    FP16_FLAG="--fp16"
-    echo "[GPU] Strategy: 1x T4 + fp16"
+    FP16_FLAG="--gradient_checkpointing"
+    echo "[GPU] Strategy: 1x T4 + fp32 + gradient_checkpointing"
 else
     GPU_MODE="a100"
     GPU_IDS="${1:-0}"
@@ -105,9 +107,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    $FP16_FLAG
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=4; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=8; GA=4; EVAL_BSZ=4
+    BSZ=4; GA=8; EVAL_BSZ=2
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -156,9 +158,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    $FP16_FLAG
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=4; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=8; GA=4; EVAL_BSZ=4
+    BSZ=4; GA=8; EVAL_BSZ=2
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -207,9 +209,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    $FP16_FLAG
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=4; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=8; GA=4; EVAL_BSZ=4
+    BSZ=4; GA=8; EVAL_BSZ=2
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -258,9 +260,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    $FP16_FLAG
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=4; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=8; GA=4; EVAL_BSZ=4
+    BSZ=4; GA=8; EVAL_BSZ=2
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -309,9 +311,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    $FP16_FLAG
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=4; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=8; GA=4; EVAL_BSZ=4
+    BSZ=4; GA=8; EVAL_BSZ=2
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -360,9 +362,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    $FP16_FLAG
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=4; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=8; GA=4; EVAL_BSZ=4
+    BSZ=4; GA=8; EVAL_BSZ=2
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -411,9 +413,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    $FP16_FLAG
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=4; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=8; GA=4; EVAL_BSZ=4
+    BSZ=4; GA=8; EVAL_BSZ=2
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -462,9 +464,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    $FP16_FLAG
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=4; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=8; GA=4; EVAL_BSZ=4
+    BSZ=4; GA=8; EVAL_BSZ=2
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -513,9 +515,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    $FP16_FLAG
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=4; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=8; GA=4; EVAL_BSZ=4
+    BSZ=4; GA=8; EVAL_BSZ=2
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -564,9 +566,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    $FP16_FLAG
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=4; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=8; GA=4; EVAL_BSZ=4
+    BSZ=4; GA=8; EVAL_BSZ=2
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -615,9 +617,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    $FP16_FLAG
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=4; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=8; GA=4; EVAL_BSZ=4
+    BSZ=4; GA=8; EVAL_BSZ=2
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -666,9 +668,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    $FP16_FLAG
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=4; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=8; GA=4; EVAL_BSZ=4
+    BSZ=4; GA=8; EVAL_BSZ=2
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -717,9 +719,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    $FP16_FLAG
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=4; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=8; GA=4; EVAL_BSZ=4
+    BSZ=4; GA=8; EVAL_BSZ=2
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -768,9 +770,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    $FP16_FLAG
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=4; GA=4; EVAL_BSZ=4
+    BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=8; GA=4; EVAL_BSZ=4
+    BSZ=4; GA=8; EVAL_BSZ=2
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi

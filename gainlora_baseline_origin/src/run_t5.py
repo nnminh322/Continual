@@ -376,6 +376,15 @@ def main():
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     training_args._frozen = False
 
+    # Safety: T5 models produce NaN/zero gradients with fp16. Force disable.
+    if training_args.fp16:
+        print("=" * 60)
+        print("WARNING: --fp16 detected. T5 models are unstable with fp16")
+        print("(causes NaN loss or zero gradients). Forcing fp16=False.")
+        print("Use --gradient_checkpointing for memory savings instead.")
+        print("=" * 60)
+        training_args.fp16 = False
+
     # Setup logging
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",

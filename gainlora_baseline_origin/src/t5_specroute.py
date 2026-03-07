@@ -392,7 +392,8 @@ class T5Stack(T5PreTrainedModel):
             if self.gradient_checkpointing and self.training:
                 def create_custom_forward(module):
                     def custom_forward(*inputs):
-                        return tuple(module(*inputs, use_cache, output_attentions))
+                        return tuple(module(*inputs, use_cache, output_attentions,
+                                           key_attention_weights=key_attention_weights))
                     return custom_forward
 
                 layer_outputs = checkpoint(
