@@ -526,16 +526,19 @@ def main():
     except:
         device = torch.device(f"cuda:0")
     if model_args.load_checkpoint_from and training_args.model_name != 'specroute':
-        print("----------Loading Previous Query Projection Layer----------")
-        model.encoder.trans_input.load_state_dict(torch.load(model_args.load_checkpoint_from, map_location=device))
-        if training_args.model_name in ['gainlora_inflora', 'gainlora_olora']:
-            model.encoder.previous_trans_input.input_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device)['0.weight'])
-            model.encoder.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device)['2.weight'])
-            model.encoder.previous_trans_input.state_dict()
-            if cur_task_id > 1:
-                model.encoder.previous_trans_input.input_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device)['input_linear'])
-                model.encoder.previous_trans_input.output_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device)['output_linear'])
-        print("----------Loading Previous Query Projection Layer Done----------")
+        if not os.path.exists(model_args.load_checkpoint_from):
+            logger.warning(f"load_checkpoint_from not found: {model_args.load_checkpoint_from}, skipping load")
+        else:
+            print("----------Loading Previous Query Projection Layer----------")
+            model.encoder.trans_input.load_state_dict(torch.load(model_args.load_checkpoint_from, map_location=device))
+            if training_args.model_name in ['gainlora_inflora', 'gainlora_olora']:
+                model.encoder.previous_trans_input.input_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device)['0.weight'])
+                model.encoder.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device)['2.weight'])
+                model.encoder.previous_trans_input.state_dict()
+                if cur_task_id > 1:
+                    model.encoder.previous_trans_input.input_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device)['input_linear'])
+                    model.encoder.previous_trans_input.output_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device)['output_linear'])
+            print("----------Loading Previous Query Projection Layer Done----------")
 
     if model_args.previous_lora_path:
         previous_lora_list = model_args.previous_lora_path.split(',')

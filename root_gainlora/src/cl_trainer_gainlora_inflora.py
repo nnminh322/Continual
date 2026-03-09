@@ -185,7 +185,8 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
             pre_norm = module.prompt_key.detach().norm()
             for index in module.matrix_trans_3.keys():
                 cur_trans_matrix = module.matrix_trans_3[index]
-                U, S, V = torch.linalg.svd(cur_trans_matrix)
+                _eps = 1e-6 * torch.eye(cur_trans_matrix.shape[0], device=cur_trans_matrix.device, dtype=cur_trans_matrix.dtype)
+                U, S, V = torch.linalg.svd(cur_trans_matrix + _eps)
                 module.prompt_key.data[:,index*module.step:(index+1)*module.step].copy_(U[:,:1].T)
                 # ipdb.set_trace()
                 module.matrix_trans_1[index].zero_()
