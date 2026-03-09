@@ -501,6 +501,22 @@ def main():
             use_auth_token=True if model_args.use_auth_token else None,
         )
 
+    # FIX: from_pretrained wraps model construction in no_init_weights() context,
+    # which replaces nn.init.kaiming_uniform_ with a no-op. This leaves lora_A
+    # as all zeros (from torch.zeros in constructor), making LoRA output = 0
+    # and all lora_B gradients = 0. Re-initialize lora_A here.
+    _n_reinit = 0
+    for _module in model.modules():
+        if hasattr(_module, 'lora_A') and hasattr(_module, 'lora_B') and hasattr(_module, 'reset_parameters'):
+            nn.init.kaiming_uniform_(_module.lora_A, a=math.sqrt(5))
+            _n_reinit += 1
+    print(f"[FIX] Re-initialized lora_A in {_n_reinit} LoRA layers with kaiming_uniform_")
+    # Verify fix
+    for _module in model.modules():
+        if hasattr(_module, 'lora_A'):
+            print(f"  lora_A: norm={_module.lora_A.data.norm().item():.6f}, all_zero={(_module.lora_A.data == 0).all().item()}")
+            break
+
     model.persent = training_args.persent
     model.resize_token_embeddings(len(tokenizer))
 
@@ -880,142 +896,32 @@ def main():
     trainer.is_deepspeed_enabled = False
     print("is_deepspeed_enabled", trainer.is_deepspeed_enabled)
 
-    # ============ DEEP GRADIENT DIAGNOSTIC ============
-    if training_args.model_name == 'specroute' and training_args.do_train:
+    # ============ QUICK SANITY CHECK: LoRA weights ============
+    if training_args.do_train:
         print("=" * 60)
-        print("[DIAG] Deep gradient diagnostic")
-        model.train()
+        print("[SANITY] Checking LoRA layer initialization...")
         model.to(device)
-
-        # ---- TEST 1: Isolated LoRA layer test ----
-        print("\n--- TEST 1: Isolated LoRA layer ---")
-        _lora = model.encoder.block[0].layer[0].SelfAttention.lora_q
-        print(f"  lora_A: shape={_lora.lora_A.shape}, requires_grad={_lora.lora_A.requires_grad}, "
-              f"norm={_lora.lora_A.data.norm().item():.6f}, all_zero={_lora.lora_A.data.eq(0).all().item()}")
-        print(f"  lora_B: shape={_lora.lora_B.shape}, requires_grad={_lora.lora_B.requires_grad}, "
-              f"norm={_lora.lora_B.data.norm().item():.6f}, all_zero={_lora.lora_B.data.eq(0).all().item()}")
-        _test_x = torch.randn(1, 3, _lora.lora_A.shape[1], device=device)
-        _lora.lora_B.grad = None
-        _y = _lora(_test_x)
-        print(f"  LoRA output: norm={_y.norm().item():.6f}, requires_grad={_y.requires_grad}")
-        _simple_loss = _y.sum()
-        print(f"  simple_loss: {_simple_loss.item():.6f}, requires_grad={_simple_loss.requires_grad}, grad_fn={_simple_loss.grad_fn}")
-        _simple_loss.backward()
-        print(f"  lora_B.grad: {'None' if _lora.lora_B.grad is None else f'norm={_lora.lora_B.grad.norm().item():.6e}'}")
-        # Also test with x that doesn't require grad (like in the real model when base is frozen)
-        _lora.lora_B.grad = None
-        _test_x2 = torch.randn(1, 3, _lora.lora_A.shape[1], device=device, requires_grad=False)
-        _y2 = _lora(_test_x2)
-        print(f"  LoRA output (x.requires_grad=False): requires_grad={_y2.requires_grad}")
-        _y2.sum().backward()
-        print(f"  lora_B.grad (x no grad): {'None' if _lora.lora_B.grad is None else f'norm={_lora.lora_B.grad.norm().item():.6e}'}")
-        model.zero_grad()
-
-        # ---- TEST 2: Check requires_grad propagation through the model ----
-        print("\n--- TEST 2: requires_grad propagation ---")
-        # Disable GC for this test to simplify
+        _lora = None
         for _m in model.modules():
-            if hasattr(_m, 'gradient_checkpointing'):
-                _m.gradient_checkpointing = False
-        from torch.utils.data import DataLoader as _DL
-        _test_loader = _DL(train_dataset, batch_size=2, collate_fn=data_collator)
-        _test_batch = next(iter(_test_loader))
-        _test_input = {}
-        for k, v in _test_batch.items():
-            _test_input[k] = v.to(device) if isinstance(v, torch.Tensor) else v
-        # Hook into first encoder attention to check input
-        _attn_module = model.encoder.block[0].layer[0].SelfAttention
-        _hook_data = {}
-        def _fwd_hook(module, inp, out):
-            if isinstance(inp, tuple):
-                h = inp[0]
-            else:
-                h = inp
-            _hook_data['input_requires_grad'] = h.requires_grad if isinstance(h, torch.Tensor) else 'N/A'
-            _hook_data['input_norm'] = h.norm().item() if isinstance(h, torch.Tensor) else 'N/A'
-        _h = _attn_module.register_forward_hook(_fwd_hook)
-        # Also hook LoRA output
-        _lora_hook_data = {}
-        def _lora_fwd_hook(module, inp, out):
-            _lora_hook_data['output_requires_grad'] = out.requires_grad
-            _lora_hook_data['output_norm'] = out.norm().item()
-            if isinstance(inp, tuple):
-                _lora_hook_data['input_requires_grad'] = inp[0].requires_grad if isinstance(inp[0], torch.Tensor) else 'N/A'
-            else:
-                _lora_hook_data['input_requires_grad'] = inp.requires_grad if isinstance(inp, torch.Tensor) else 'N/A'
-        _lh = _attn_module.lora_q.register_forward_hook(_lora_fwd_hook)
-        model.zero_grad()
-        _outputs = model(**_test_input)
-        _loss = _outputs.loss
-        print(f"  T5Attention input: requires_grad={_hook_data.get('input_requires_grad', 'N/A')}, norm={_hook_data.get('input_norm', 'N/A')}")
-        print(f"  LoRA_q input: requires_grad={_lora_hook_data.get('input_requires_grad', 'N/A')}")
-        print(f"  LoRA_q output: requires_grad={_lora_hook_data.get('output_requires_grad', 'N/A')}, norm={_lora_hook_data.get('output_norm', 'N/A')}")
-        _h.remove()
-        _lh.remove()
-
-        # ---- TEST 3: Backward with grad hooks on lora_B ----
-        print("\n--- TEST 3: Backward with hooks ---")
-        _grad_hooks = {}
-        def _make_grad_hook(name):
-            def _hook(grad):
-                _grad_hooks[name] = grad.norm().item()
-            return _hook
-        # Register hooks on a few lora_B params
-        _hook_handles = []
-        _hook_targets = [
-            'encoder.block.0.layer.0.SelfAttention.lora_q.lora_B',
-            'encoder.block.0.layer.0.SelfAttention.lora_v.lora_B',
-            'decoder.block.0.layer.0.SelfAttention.lora_q.lora_B',
-            'decoder.block.0.layer.1.EncDecAttention.lora_q.lora_B',
-        ]
-        for name, p in model.named_parameters():
-            if name in _hook_targets:
-                _hook_handles.append(p.register_hook(_make_grad_hook(name)))
-        _loss.backward()
-        print(f"  Grad hooks captured ({len(_grad_hooks)} hooks fired):")
-        for name, norm in _grad_hooks.items():
-            print(f"    {name}: grad_norm={norm:.6e}")
-        if not _grad_hooks:
-            print("  WARNING: No grad hooks fired! Backward didn't reach lora_B.")
-        # Also check final gradient state
-        _n_ok, _n_zero, _n_none = 0, 0, 0
-        for name, p in model.named_parameters():
-            if p.requires_grad:
-                if p.grad is None:
-                    _n_none += 1
-                elif p.grad.norm().item() > 0:
-                    _n_ok += 1
-                else:
-                    _n_zero += 1
-        print(f"  Final grad counts: grad>0={_n_ok}, grad==0={_n_zero}, grad=None={_n_none}")
-        for _hh in _hook_handles:
-            _hh.remove()
-
-        # ---- TEST 4: Manual single-layer backward ----
-        print("\n--- TEST 4: Single T5Block forward+backward ---")
-        model.zero_grad()
-        _block = model.encoder.block[0]
-        _hidden = torch.randn(2, 10, model.config.d_model, device=device, requires_grad=True)
-        _mask = torch.zeros(2, 1, 1, 10, device=device)
-        _block_out = _block(_hidden, attention_mask=_mask, key_attention_weights=None)
-        _block_loss = _block_out[0].sum()
-        print(f"  block output requires_grad={_block_out[0].requires_grad}")
-        _block_loss.backward()
-        _bq = _block.layer[0].SelfAttention.lora_q.lora_B
-        _bv = _block.layer[0].SelfAttention.lora_v.lora_B
-        print(f"  encoder.block[0] lora_q.B grad: {'None' if _bq.grad is None else f'norm={_bq.grad.norm().item():.6e}'}")
-        print(f"  encoder.block[0] lora_v.B grad: {'None' if _bv.grad is None else f'norm={_bv.grad.norm().item():.6e}'}")
-        model.zero_grad()
-
-        # ---- Restore GC and cleanup ----
-        _use_gc = training_args.gradient_checkpointing
-        for _m in model.modules():
-            if hasattr(_m, 'gradient_checkpointing'):
-                _m.gradient_checkpointing = _use_gc
-        del _test_loader, _test_batch, _test_input
-        torch.cuda.empty_cache()
-        print("\n" + "=" * 60)
-    # ============ END DEEP GRADIENT DIAGNOSTIC ============
+            if hasattr(_m, 'lora_A') and hasattr(_m, 'lora_B'):
+                _lora = _m
+                break
+        if _lora is not None:
+            _a_ok = _lora.lora_A.data.norm().item() > 0
+            print(f"  lora_A norm={_lora.lora_A.data.norm().item():.6f}, requires_grad={_lora.lora_A.requires_grad} {'OK' if _a_ok else 'ZERO - BUG!'}")
+            print(f"  lora_B norm={_lora.lora_B.data.norm().item():.6f}, requires_grad={_lora.lora_B.requires_grad}")
+            # Quick forward+backward test
+            _test_x = torch.randn(1, 3, _lora.lora_A.shape[1], device=device)
+            _lora.lora_B.grad = None
+            _y = _lora(_test_x)
+            _y.sum().backward()
+            _b_grad = _lora.lora_B.grad.norm().item() if _lora.lora_B.grad is not None else 0
+            print(f"  lora_B.grad norm={_b_grad:.6e} {'OK' if _b_grad > 0 else 'ZERO - BUG!'}")
+            model.zero_grad()
+            if not _a_ok:
+                raise RuntimeError("lora_A is all zeros! from_pretrained no_init_weights fix failed.")
+        print("=" * 60)
+    # ============ END SANITY CHECK ============
 
     all_metrics = {"run_name": training_args.run_name}
 
