@@ -757,6 +757,14 @@ def main():
         model.gradient_checkpointing_enable(
             gradient_checkpointing_kwargs={"use_reentrant": False}
         )
+        # Verify new format is active (should have _gradient_checkpointing_func)
+        _enc = getattr(model, 'encoder', None)
+        if _enc is not None:
+            _gc_func = getattr(_enc, '_gradient_checkpointing_func', None)
+            print(f"[GC FORMAT] encoder._gradient_checkpointing_func = {_gc_func}")
+            print(f"[GC FORMAT] encoder.gradient_checkpointing = {getattr(_enc, 'gradient_checkpointing', 'N/A')}")
+        else:
+            print("[GC FORMAT] WARNING: model has no 'encoder' attribute")
 
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     training_args.step_per_epoch = math.ceil(len(raw_datasets["train"]) / training_args.per_device_train_batch_size / world_size / training_args.gradient_accumulation_steps)
@@ -875,71 +883,61 @@ def main():
     # ============ MANUAL GRADIENT TEST (bypass Trainer/DataParallel) ============
     if training_args.model_name == 'specroute' and training_args.do_train:
         print("=" * 60)
-        print("[GRAD TEST] Manual gradient test on raw model (no Trainer wrapping)")
-        print(f"[GRAD TEST] encoder.gradient_checkpointing={getattr(model.encoder, 'gradient_checkpointing', 'N/A')}")
-        print(f"[GRAD TEST] input_require_grads hook present: {hasattr(model, '_require_grads_hook')}")
+        print("[GRAD TEST] Dual-mode gradient test (with/without gradient checkpointing)")
         model.train()
         model.to(device)
-        # Get one batch
         from torch.utils.data import DataLoader as _DL
         _test_loader = _DL(train_dataset, batch_size=2, collate_fn=data_collator)
         _test_batch = next(iter(_test_loader))
         _test_input = {}
         for k, v in _test_batch.items():
-            if isinstance(v, torch.Tensor):
-                _test_input[k] = v.to(device)
-            else:
-                _test_input[k] = v
-        # Forward
-        _outputs = model(**_test_input)
-        _loss = _outputs.loss
-        print(f"[GRAD TEST] loss={_loss.item():.4f}, requires_grad={_loss.requires_grad}, grad_fn={_loss.grad_fn}")
-        # Check intermediate: does lora output require grad?
-        _lora_b_sample = None
-        for name, p in model.named_parameters():
-            if p.requires_grad and 'lora_B' in name:
-                _lora_b_sample = (name, p)
-                break
-        if _lora_b_sample:
-            print(f"[GRAD TEST] sample param: {_lora_b_sample[0]}, "
-                  f"requires_grad={_lora_b_sample[1].requires_grad}, "
-                  f"shape={_lora_b_sample[1].shape}, "
-                  f"all_zeros={(_lora_b_sample[1].data == 0).all().item()}")
-        # Backward
-        _loss.backward()
-        # Check gradients
-        _n_ok, _n_zero, _n_none = 0, 0, 0
-        for name, p in model.named_parameters():
-            if p.requires_grad:
-                if p.grad is None:
-                    _n_none += 1
-                    if _n_none <= 2:
-                        print(f"  GRAD NONE: {name}")
-                elif p.grad.norm().item() > 0:
-                    _n_ok += 1
-                    if _n_ok <= 3:
-                        print(f"  GRAD OK: {name} norm={p.grad.norm().item():.6e}")
-                else:
-                    _n_zero += 1
-                    if _n_zero <= 2:
-                        print(f"  GRAD ZERO: {name}")
-        print(f"[GRAD TEST] RESULT: grad>0={_n_ok}, grad==0={_n_zero}, grad=None={_n_none}")
-        if _n_ok == 0:
-            print("[GRAD TEST] FAIL! Debugging computation graph...")
-            # Check if loss depends on any trainable param
-            print(f"  loss.grad_fn chain (first 10):")
-            _fn = _loss.grad_fn
-            for _i in range(10):
-                if _fn is None:
-                    break
-                print(f"    {_i}: {_fn}")
-                _next = _fn.next_functions
-                if _next:
-                    _fn = _next[0][0]
-                else:
-                    break
-        model.zero_grad()
-        del _test_loader, _test_batch, _test_input, _outputs, _loss
+            _test_input[k] = v.to(device) if isinstance(v, torch.Tensor) else v
+
+        _results = {}  # {True: n_ok, False: n_ok}
+        for _gc_mode in [True, False]:
+            _label = "WITH_GC" if _gc_mode else "NO_GC"
+            # Set gradient checkpointing mode on encoder + decoder + all attention
+            for _m in model.modules():
+                if hasattr(_m, 'gradient_checkpointing'):
+                    _m.gradient_checkpointing = _gc_mode
+            model.zero_grad()
+            _outputs = model(**_test_input)
+            _loss = _outputs.loss
+            print(f"[GRAD TEST {_label}] loss={_loss.item():.4f}, requires_grad={_loss.requires_grad}, grad_fn={_loss.grad_fn}")
+            _loss.backward()
+            _n_ok, _n_zero, _n_none = 0, 0, 0
+            _sample = None
+            for name, p in model.named_parameters():
+                if p.requires_grad:
+                    if p.grad is None:
+                        _n_none += 1
+                    elif p.grad.norm().item() > 0:
+                        _n_ok += 1
+                        if _sample is None:
+                            _sample = f"{name} norm={p.grad.norm().item():.6e}"
+                    else:
+                        _n_zero += 1
+            print(f"[GRAD TEST {_label}] grad>0={_n_ok}, grad==0={_n_zero}, grad=None={_n_none}")
+            if _sample:
+                print(f"[GRAD TEST {_label}] sample: {_sample}")
+            elif _n_ok == 0:
+                print(f"[GRAD TEST {_label}] WARNING: ALL ZERO GRADIENTS!")
+            _results[_gc_mode] = _n_ok
+            model.zero_grad()
+            del _outputs, _loss
+
+        # Auto-fallback: if WITH_GC gives zero grads but NO_GC works, disable GC
+        _use_gc = training_args.gradient_checkpointing
+        if _use_gc and _results.get(True, 0) == 0 and _results.get(False, 0) > 0:
+            print("[GRAD TEST] AUTO-FALLBACK: Disabling gradient checkpointing (WITH_GC broken, NO_GC works)")
+            _use_gc = False
+        elif _use_gc and _results.get(True, 0) == 0 and _results.get(False, 0) == 0:
+            print("[GRAD TEST] CRITICAL: Both modes have zero gradients! Check LoRA initialization.")
+        print(f"[GRAD TEST] Final gradient checkpointing for training: {_use_gc}")
+        for _m in model.modules():
+            if hasattr(_m, 'gradient_checkpointing'):
+                _m.gradient_checkpointing = _use_gc
+        del _test_loader, _test_batch, _test_input
         torch.cuda.empty_cache()
         print("=" * 60)
     # ============ END MANUAL GRADIENT TEST ============

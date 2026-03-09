@@ -152,14 +152,9 @@ class T5Stack(T5PreTrainedModel):
         self.device_map = None
         self.gradient_checkpointing = False
 
-    def _set_gradient_checkpointing(self, module, value=False):
-        """Override: the parent's _set_gradient_checkpointing checks
-        isinstance(module, T5Stack) but that refers to t5_gainlora_inflora.T5Stack,
-        not this specroute T5Stack. We must also check for our own class."""
-        # Import the parent's T5Stack for the original check
-        from t5_gainlora_inflora import T5Stack as GainLoRA_T5Stack
-        if isinstance(module, (T5Attention, GainLoRA_T5Stack, T5Stack)):
-            module.gradient_checkpointing = value
+    # NOTE: _set_gradient_checkpointing removed intentionally.
+    # The old format (with 'value' param) causes transformers to silently ignore
+    # gradient_checkpointing_kwargs (including use_reentrant=False).
 
     def compute_spectral_routing(self, avg_inputs_embeds):
         """
@@ -405,19 +400,36 @@ class T5Stack(T5PreTrainedModel):
                                            key_attention_weights=key_attention_weights))
                     return custom_forward
 
-                layer_outputs = checkpoint(
-                    create_custom_forward(layer_module),
-                    hidden_states,
-                    extended_attention_mask,
-                    position_bias,
-                    encoder_hidden_states,
-                    encoder_extended_attention_mask,
-                    encoder_decoder_position_bias,
-                    layer_head_mask,
-                    cross_attn_layer_head_mask,
-                    None,
-                    use_reentrant=False,
-                )
+                # Use _gradient_checkpointing_func (set by new-format
+                # gradient_checkpointing_enable) if available, else fallback
+                gc_fn = getattr(self, '_gradient_checkpointing_func', None)
+                if gc_fn is not None:
+                    layer_outputs = gc_fn(
+                        create_custom_forward(layer_module),
+                        hidden_states,
+                        extended_attention_mask,
+                        position_bias,
+                        encoder_hidden_states,
+                        encoder_extended_attention_mask,
+                        encoder_decoder_position_bias,
+                        layer_head_mask,
+                        cross_attn_layer_head_mask,
+                        None,
+                    )
+                else:
+                    layer_outputs = checkpoint(
+                        create_custom_forward(layer_module),
+                        hidden_states,
+                        extended_attention_mask,
+                        position_bias,
+                        encoder_hidden_states,
+                        encoder_extended_attention_mask,
+                        encoder_decoder_position_bias,
+                        layer_head_mask,
+                        cross_attn_layer_head_mask,
+                        None,
+                        use_reentrant=False,
+                    )
             else:
                 layer_outputs = layer_module(
                     hidden_states,
@@ -522,12 +534,8 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
         self.model_parallel = False
         self.device_map = None
 
-    def _set_gradient_checkpointing(self, module, value=False):
-        """Override parent's method: it checks isinstance(module, T5Stack) but
-        that T5Stack is the gainlora one. Our specroute T5Stack is a separate class."""
-        from t5_gainlora_inflora import T5Stack as GainLoRA_T5Stack
-        if isinstance(module, (T5Attention, GainLoRA_T5Stack, T5Stack)):
-            module.gradient_checkpointing = value
+    # NOTE: _set_gradient_checkpointing removed intentionally.
+    # The old format causes transformers to silently ignore gradient_checkpointing_kwargs.
 
     def parallelize(self, device_map=None):
         self.device_map = (
