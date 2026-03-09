@@ -152,6 +152,15 @@ class T5Stack(T5PreTrainedModel):
         self.device_map = None
         self.gradient_checkpointing = False
 
+    def _set_gradient_checkpointing(self, module, value=False):
+        """Override: the parent's _set_gradient_checkpointing checks
+        isinstance(module, T5Stack) but that refers to t5_gainlora_inflora.T5Stack,
+        not this specroute T5Stack. We must also check for our own class."""
+        # Import the parent's T5Stack for the original check
+        from t5_gainlora_inflora import T5Stack as GainLoRA_T5Stack
+        if isinstance(module, (T5Attention, GainLoRA_T5Stack, T5Stack)):
+            module.gradient_checkpointing = value
+
     def compute_spectral_routing(self, avg_inputs_embeds):
         """
         Compute routing weights using spectral projection fits.
@@ -407,6 +416,7 @@ class T5Stack(T5PreTrainedModel):
                     layer_head_mask,
                     cross_attn_layer_head_mask,
                     None,
+                    use_reentrant=False,
                 )
             else:
                 layer_outputs = layer_module(
@@ -511,6 +521,13 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
         # Model parallel
         self.model_parallel = False
         self.device_map = None
+
+    def _set_gradient_checkpointing(self, module, value=False):
+        """Override parent's method: it checks isinstance(module, T5Stack) but
+        that T5Stack is the gainlora one. Our specroute T5Stack is a separate class."""
+        from t5_gainlora_inflora import T5Stack as GainLoRA_T5Stack
+        if isinstance(module, (T5Attention, GainLoRA_T5Stack, T5Stack)):
+            module.gradient_checkpointing = value
 
     def parallelize(self, device_map=None):
         self.device_map = (

@@ -739,9 +739,24 @@ def main():
                         "Prediction": pred
                     }) + "\n")
         return result
+    # ===== CRITICAL: enable_input_require_grads =====
+    # When all base model weights are frozen (only lora_B trainable),
+    # embedding outputs don't have requires_grad=True.
+    # This breaks gradient flow through DataParallel's Broadcast/Reduce.
+    # enable_input_require_grads() adds a hook that sets requires_grad_(True)
+    # on embedding outputs, ensuring the full computation graph tracks gradients.
+    if training_args.model_name in ['specroute', 'inflora', 'gainlora_inflora']:
+        model.enable_input_require_grads()
+        print("-----Enabled input_require_grads (critical for frozen base + LoRA)-----")
+
     print(f"-----Gradient checkpointing: {training_args.gradient_checkpointing} -----")
     if training_args.gradient_checkpointing:
-        model.gradient_checkpointing_enable()
+        # MUST use use_reentrant=False: with reentrant=True (default),
+        # checkpoint() requires input tensors to have requires_grad=True,
+        # otherwise gradients are silently dropped or backward crashes.
+        model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
 
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     training_args.step_per_epoch = math.ceil(len(raw_datasets["train"]) / training_args.per_device_train_batch_size / world_size / training_args.gradient_accumulation_steps)
@@ -856,6 +871,78 @@ def main():
 
     trainer.is_deepspeed_enabled = False
     print("is_deepspeed_enabled", trainer.is_deepspeed_enabled)
+
+    # ============ MANUAL GRADIENT TEST (bypass Trainer/DataParallel) ============
+    if training_args.model_name == 'specroute' and training_args.do_train:
+        print("=" * 60)
+        print("[GRAD TEST] Manual gradient test on raw model (no Trainer wrapping)")
+        print(f"[GRAD TEST] encoder.gradient_checkpointing={getattr(model.encoder, 'gradient_checkpointing', 'N/A')}")
+        print(f"[GRAD TEST] input_require_grads hook present: {hasattr(model, '_require_grads_hook')}")
+        model.train()
+        model.to(device)
+        # Get one batch
+        from torch.utils.data import DataLoader as _DL
+        _test_loader = _DL(train_dataset, batch_size=2, collate_fn=data_collator)
+        _test_batch = next(iter(_test_loader))
+        _test_input = {}
+        for k, v in _test_batch.items():
+            if isinstance(v, torch.Tensor):
+                _test_input[k] = v.to(device)
+            else:
+                _test_input[k] = v
+        # Forward
+        _outputs = model(**_test_input)
+        _loss = _outputs.loss
+        print(f"[GRAD TEST] loss={_loss.item():.4f}, requires_grad={_loss.requires_grad}, grad_fn={_loss.grad_fn}")
+        # Check intermediate: does lora output require grad?
+        _lora_b_sample = None
+        for name, p in model.named_parameters():
+            if p.requires_grad and 'lora_B' in name:
+                _lora_b_sample = (name, p)
+                break
+        if _lora_b_sample:
+            print(f"[GRAD TEST] sample param: {_lora_b_sample[0]}, "
+                  f"requires_grad={_lora_b_sample[1].requires_grad}, "
+                  f"shape={_lora_b_sample[1].shape}, "
+                  f"all_zeros={(_lora_b_sample[1].data == 0).all().item()}")
+        # Backward
+        _loss.backward()
+        # Check gradients
+        _n_ok, _n_zero, _n_none = 0, 0, 0
+        for name, p in model.named_parameters():
+            if p.requires_grad:
+                if p.grad is None:
+                    _n_none += 1
+                    if _n_none <= 2:
+                        print(f"  GRAD NONE: {name}")
+                elif p.grad.norm().item() > 0:
+                    _n_ok += 1
+                    if _n_ok <= 3:
+                        print(f"  GRAD OK: {name} norm={p.grad.norm().item():.6e}")
+                else:
+                    _n_zero += 1
+                    if _n_zero <= 2:
+                        print(f"  GRAD ZERO: {name}")
+        print(f"[GRAD TEST] RESULT: grad>0={_n_ok}, grad==0={_n_zero}, grad=None={_n_none}")
+        if _n_ok == 0:
+            print("[GRAD TEST] FAIL! Debugging computation graph...")
+            # Check if loss depends on any trainable param
+            print(f"  loss.grad_fn chain (first 10):")
+            _fn = _loss.grad_fn
+            for _i in range(10):
+                if _fn is None:
+                    break
+                print(f"    {_i}: {_fn}")
+                _next = _fn.next_functions
+                if _next:
+                    _fn = _next[0][0]
+                else:
+                    break
+        model.zero_grad()
+        del _test_loader, _test_batch, _test_input, _outputs, _loss
+        torch.cuda.empty_cache()
+        print("=" * 60)
+    # ============ END MANUAL GRADIENT TEST ============
 
     all_metrics = {"run_name": training_args.run_name}
 

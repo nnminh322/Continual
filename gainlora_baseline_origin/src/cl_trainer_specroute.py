@@ -105,8 +105,24 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 print(f"[GRAD CHECK] sample: {sample_name} grad_norm={sample_norm:.6e}")
             else:
                 print("[GRAD CHECK] WARNING: NO trainable param has non-zero gradient!")
+            # Extra diagnostics for debugging
             print(f"[GRAD CHECK] fp16={self.args.fp16}, bf16={self.args.bf16}, "
                   f"grad_checkpointing={self.args.gradient_checkpointing}")
+            # Check model wrapping
+            import torch.nn as _tnn
+            _raw = model
+            if isinstance(model, _tnn.DataParallel):
+                _raw = model.module
+            _enc = getattr(_raw, 'encoder', None)
+            if _enc is not None:
+                print(f"[GRAD CHECK] encoder.gradient_checkpointing={getattr(_enc, 'gradient_checkpointing', 'N/A')}")
+                print(f"[GRAD CHECK] encoder type={type(_enc).__name__}, module={type(_enc).__module__}")
+            print(f"[GRAD CHECK] model type={type(model).__name__}, training={model.training}")
+            # Check if embeddings output requires grad
+            _shared = getattr(_raw, 'shared', None)
+            if _shared is not None:
+                _hooks = [h for h in _shared._forward_hooks.values()] if hasattr(_shared, '_forward_hooks') else []
+                print(f"[GRAD CHECK] shared embedding hooks: {len(_hooks)}")
             print("=" * 60)
 
         return loss
