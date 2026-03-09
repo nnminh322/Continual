@@ -35,13 +35,13 @@ fi
 if [ "$IS_T4" -eq 1 ] && [ "$NUM_GPUS" -ge 2 ]; then
     GPU_MODE="t4_2gpu"
     GPU_IDS="0,1"
-    FP16_FLAG="--fp16"
-    echo "[GPU] Strategy: 2x T4 DataParallel + fp16"
+    FP16_FLAG="--gradient_checkpointing"
+    echo "[GPU] Strategy: 2x T4 DataParallel + fp32 + gradient_checkpointing"
 elif [ "$IS_T4" -eq 1 ]; then
     GPU_MODE="t4_1gpu"
     GPU_IDS="${1:-0}"
-    FP16_FLAG="--fp16"
-    echo "[GPU] Strategy: 1x T4 + fp16"
+    FP16_FLAG="--gradient_checkpointing"
+    echo "[GPU] Strategy: 1x T4 + fp32 + gradient_checkpointing"
 else
     GPU_MODE="a100"
     GPU_IDS="${1:-0}"
