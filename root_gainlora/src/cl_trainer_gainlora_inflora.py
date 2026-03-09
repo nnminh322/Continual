@@ -1,8 +1,18 @@
 import torch
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from transformers import GenerationConfig
 from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.trainer import *
+from transformers.trainer_pt_utils import nested_truncate
 from transformers.trainer_callback import TrainerCallback
+
+# ShardedDDPOption was removed in transformers>=4.38
+try:
+    from transformers.trainer import ShardedDDPOption
+except ImportError:
+    class ShardedDDPOption:
+        SIMPLE = "simple"
 import numpy as np
 
 from cl_collator import SUPPORTED_DECODER_MODELS, check_model
@@ -10,7 +20,10 @@ from cl_dataset import ANSWER_PREFIX
 import cupy as cp
 from torch.utils.dlpack import to_dlpack, from_dlpack
 from cupy import fromDlpack
-import ipdb
+try:
+    import ipdb
+except ImportError:
+    pass
 
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
     predictions_ids = np.where(predictions_ids == ignore_idx, tokenizer.pad_token_id, predictions_ids)
@@ -629,7 +642,9 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
 
             optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args)
 
-            if self.sharded_ddp == ShardedDDPOption.SIMPLE:
+            # sharded_ddp was removed in transformers>=4.38; use getattr for compat
+            _sharded_ddp = getattr(self, 'sharded_ddp', None)
+            if _sharded_ddp == ShardedDDPOption.SIMPLE:
                 self.optimizer = OSS(
                     params=optimizer_grouped_parameters,
                     optim=optimizer_cls,
@@ -1033,9 +1048,10 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
             else:
                 debug_overflow = DebugUnderflowOverflow(self.model)  # noqa
 
+        _sharded_ddp = getattr(self, 'sharded_ddp', None)
         delay_optimizer_creation = (
-            self.sharded_ddp is not None
-            and self.sharded_ddp != ShardedDDPOption.SIMPLE
+            _sharded_ddp is not None
+            and _sharded_ddp != ShardedDDPOption.SIMPLE
             or is_sagemaker_mp_enabled()
             or self.fsdp is not None
         )
@@ -1051,7 +1067,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
 
         # Activate gradient checkpointing if needed
         if args.gradient_checkpointing:
-            self.model.gradient_checkpointing_enable()
+            self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
         model = self._wrap_model(self.model_wrapped)
 
