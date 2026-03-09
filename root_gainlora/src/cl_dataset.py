@@ -21,6 +21,8 @@ import os
 import random
 import datasets
 from hashlib import md5
+from dataclasses import dataclass, field as dc_field
+from typing import Optional
 
 logger = datasets.logging.get_logger(__name__)
 TASK_CONFIG_FILES = {"train": "train_tasks.json", "dev": "dev_tasks.json", "test": "test_tasks.json"}
@@ -50,39 +52,27 @@ def save_ds(instances, file_name):
         json.dump(instances, fi, ensure_ascii=False, indent=2)
 
 
+@dataclass
 class CLConfig(datasets.BuilderConfig):
     """
     Config dataset load procedure.
 
     Args:
         data_dir: task data dir, which contains the corresponding dataset dirs
-        prompt_path: prompt json file, which saves task and its prompts map
-        task_file: task config file, save training and testing split config, and sampling strategies.
-         Support two sampling strategies: 'random' indicates random sampling, while 'full' means to return all samples.
+        task_config_dir: directory with train/dev/test task config json files
         max_num_instances_per_task: max training sample size of each task
         max_num_instances_per_eval_task: max eval sample size of each task
     """
 
-    def __init__(
-            self,
-            *args,
-            data_dir=None,
-            task_config_dir=None,
-            num_examples=None,
-            max_num_instances_per_task=None,
-            max_num_instances_per_eval_task=None,
-            over_sampling=None,
-            **kwargs
-    ):
-        super().__init__(*args, **kwargs)
-        self.data_dir = data_dir
-        self.num_examples = num_examples
-        self.over_sampling = over_sampling
-        self.task_configs = self._parse_task_config(task_config_dir)
-        self.max_num_instances_per_task = max_num_instances_per_task
-        self.max_num_instances_per_eval_task = max_num_instances_per_eval_task
+    task_config_dir: Optional[str] = None
+    num_examples: Optional[int] = None
+    max_num_instances_per_task: Optional[int] = None
+    max_num_instances_per_eval_task: Optional[int] = None
+    over_sampling: Optional[bool] = None
 
-    def _parse_task_config(self, task_config_dir):
+    @staticmethod
+    def parse_task_config(task_config_dir):
+        """Parse train/dev/test task config JSON files from the given directory."""
         if not task_config_dir:
             return None
 
@@ -137,13 +127,14 @@ class CLInstructions(datasets.GeneratorBasedBuilder):
 
     def _split_generators(self, dl_manager):
         """Returns SplitGenerators."""
-        if self.config.data_dir is None or self.config.task_configs is None:
+        # Parse task configs lazily here (not in CLConfig) because datasets
+        # may copy/replace the config object, dropping non-field attributes.
+        task_configs = CLConfig.parse_task_config(self.config.task_config_dir)
+
+        if self.config.data_dir is None or task_configs is None:
             logger.error("Please provide right input: data_dir or task_config_dir!")
 
-        # split dir save datasets
-        # task config to specify train,dev,test
         split_dir = self.config.data_dir
-        task_configs = self.config.task_configs
 
         return [
             datasets.SplitGenerator(

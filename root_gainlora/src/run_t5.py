@@ -28,7 +28,10 @@ from typing import Optional
 import math
 import torch
 from torch import nn
-import ipdb
+try:
+    import ipdb  # Optional debug dependency.
+except ImportError:
+    ipdb = None
 
 import datasets
 import nltk  # Here to have a nice missing dependency error message early on
@@ -373,6 +376,15 @@ def main():
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     training_args._frozen = False
 
+    # Safety: T5 models produce NaN/zero gradients with fp16. Force disable.
+    if training_args.fp16:
+        print("=" * 60)
+        print("WARNING: --fp16 detected. T5 models are unstable with fp16")
+        print("(causes NaN loss or zero gradients). Forcing fp16=False.")
+        print("Use --gradient_checkpointing for memory savings instead.")
+        print("=" * 60)
+        training_args.fp16 = False
+
     # Setup logging
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -419,12 +431,23 @@ def main():
 
     download_config = DownloadConfig
     download_config.local_files_only = True
+
+    dataset_script_path = os.path.join(CURRENT_DIR, "cl_dataset.py")
+    if not os.path.exists(dataset_script_path):
+        raise FileNotFoundError(f"Dataset script not found: {dataset_script_path}")
+
+    # Resolve relative paths to absolute so HF datasets module cache can find them
+    # regardless of the CWD when the cached script is executed.
+    abs_data_dir = os.path.abspath(data_args.data_dir) if data_args.data_dir else None
+    abs_task_config_dir = os.path.abspath(data_args.task_config_dir) if data_args.task_config_dir else None
+
     # Get the CL dataset
     raw_datasets = load_dataset(
-        os.path.join(CURRENT_DIR, "cl_dataset.py"),
-        data_dir=data_args.data_dir,
+        dataset_script_path,
+        data_dir=abs_data_dir,
         download_config=download_config,
-        task_config_dir=data_args.task_config_dir,
+        task_config_dir=abs_task_config_dir,
+        trust_remote_code=True,
         # cache_dir=data_cache_dir,  # for debug, change dataset size, otherwise open it
         max_num_instances_per_task=data_args.max_num_instances_per_task,
         max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
@@ -479,6 +502,22 @@ def main():
 
     model.persent = training_args.persent
     model.resize_token_embeddings(len(tokenizer))
+
+    # FIX: from_pretrained wraps model construction in no_init_weights() context,
+    # which replaces nn.init.kaiming_uniform_ with a no-op. This leaves lora_A
+    # as all zeros (from torch.zeros in constructor), making LoRA output = 0
+    # and all lora_B gradients = 0. Re-initialize lora_A here.
+    _n_reinit = 0
+    for _module in model.modules():
+        if hasattr(_module, 'lora_A') and hasattr(_module, 'lora_B') and hasattr(_module, 'reset_parameters'):
+            nn.init.kaiming_uniform_(_module.lora_A, a=math.sqrt(5))
+            _n_reinit += 1
+    print(f"[FIX] Re-initialized lora_A in {_n_reinit} LoRA layers with kaiming_uniform_")
+    # Verify fix
+    for _module in model.modules():
+        if hasattr(_module, 'lora_A'):
+            print(f"  lora_A: norm={_module.lora_A.data.norm().item():.6f}, all_zero={(_module.lora_A.data == 0).all().item()}")
+            break
 
     try:
         local_rank = int(os.environ['LOCAL_RANK'])
@@ -651,10 +690,11 @@ def main():
             replay_dataset_dict = {}
             for idx in range(cur_task_id):
                 raw_datasets_gen = load_dataset(
-                    os.path.join(CURRENT_DIR, "cl_dataset.py"),
-                    data_dir=data_dir,
+                    dataset_script_path,
+                    data_dir=os.path.abspath(data_dir) if data_dir else None,
                     download_config=download_config,
-                    task_config_dir=task_config[task_order[idx]],
+                    task_config_dir=os.path.abspath(task_config[task_order[idx]]) if task_config[task_order[idx]] else None,
+                    trust_remote_code=True,
                     cache_dir=data_cache_dir,  # for debug, change dataset size, otherwise open it
                     max_num_instances_per_task=data_args.max_num_instances_per_task,
                     max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
@@ -697,8 +737,32 @@ def main():
                     }) + "\n")
         return result
     print(f"-----Gradient checkpointing: {training_args.gradient_checkpointing} -----")
+
+    # CRITICAL: enable_input_require_grads
+    # When all base model weights are frozen (only lora_B trainable),
+    # embedding outputs don't have requires_grad=True.
+    # This breaks gradient flow through DataParallel's Broadcast/Reduce.
+    # enable_input_require_grads() adds a hook that sets requires_grad_(True)
+    # on embedding outputs, ensuring the full computation graph tracks gradients.
+    if training_args.model_name in ['inflora', 'gainlora_inflora', 'gainlora_olora']:
+        model.enable_input_require_grads()
+        print("-----Enabled input_require_grads (critical for frozen base + LoRA)-----")
+
     if training_args.gradient_checkpointing:
-        model.gradient_checkpointing_enable()
+        # MUST use use_reentrant=False: with reentrant=True (default),
+        # checkpoint() requires input tensors to have requires_grad=True,
+        # otherwise gradients are silently dropped or backward crashes.
+        model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
+        # Verify new format is active (should have _gradient_checkpointing_func)
+        _enc = getattr(model, 'encoder', None)
+        if _enc is not None:
+            _gc_func = getattr(_enc, '_gradient_checkpointing_func', None)
+            print(f"[GC FORMAT] encoder._gradient_checkpointing_func = {_gc_func}")
+            print(f"[GC FORMAT] encoder.gradient_checkpointing = {getattr(_enc, 'gradient_checkpointing', 'N/A')}")
+        else:
+            print("[GC FORMAT] WARNING: model has no 'encoder' attribute")
 
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     training_args.step_per_epoch = math.ceil(len(raw_datasets["train"]) / training_args.per_device_train_batch_size / world_size / training_args.gradient_accumulation_steps)
@@ -792,6 +856,33 @@ def main():
 
     trainer.is_deepspeed_enabled = False
     print("is_deepspeed_enabled", trainer.is_deepspeed_enabled)
+
+    # ============ QUICK SANITY CHECK: LoRA weights ============
+    if training_args.do_train:
+        print("=" * 60)
+        print("[SANITY] Checking LoRA layer initialization...")
+        model.to(device)
+        _lora = None
+        for _m in model.modules():
+            if hasattr(_m, 'lora_A') and hasattr(_m, 'lora_B'):
+                _lora = _m
+                break
+        if _lora is not None:
+            _a_ok = _lora.lora_A.data.norm().item() > 0
+            print(f"  lora_A norm={_lora.lora_A.data.norm().item():.6f}, requires_grad={_lora.lora_A.requires_grad} {'OK' if _a_ok else 'ZERO - BUG!'}")
+            print(f"  lora_B norm={_lora.lora_B.data.norm().item():.6f}, requires_grad={_lora.lora_B.requires_grad}")
+            # Quick forward+backward test
+            _test_x = torch.randn(1, 3, _lora.lora_A.shape[1], device=device)
+            _lora.lora_B.grad = None
+            _y = _lora(_test_x)
+            _y.sum().backward()
+            _b_grad = _lora.lora_B.grad.norm().item() if _lora.lora_B.grad is not None else 0
+            print(f"  lora_B.grad norm={_b_grad:.6e} {'OK' if _b_grad > 0 else 'ZERO - BUG!'}")
+            model.zero_grad()
+            if not _a_ok:
+                raise RuntimeError("lora_A is all zeros! from_pretrained no_init_weights fix failed.")
+        print("=" * 60)
+    # ============ END SANITY CHECK ============
 
     all_metrics = {"run_name": training_args.run_name}
 
