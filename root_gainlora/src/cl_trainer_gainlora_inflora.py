@@ -534,7 +534,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         
         if self.do_grad_scaling:
             self.scaler.scale(loss).backward()
-        elif self.use_apex:
+        elif getattr(self, 'use_apex', False):
             with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward()
         elif self.is_deepspeed_enabled:
@@ -567,7 +567,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         
                 if self.do_grad_scaling:
                     self.scaler.scale(kl_loss).backward()
-                elif self.use_apex:
+                elif getattr(self, 'use_apex', False):
                     with amp.scale_loss(kl_loss, self.optimizer) as scaled_loss:
                         scaled_loss.backward()
                 elif self.is_deepspeed_enabled:
@@ -1058,7 +1058,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
             getattr(self, 'sharded_ddp', None) is not None
             and getattr(self, 'sharded_ddp', None) != ShardedDDPOption.SIMPLE
             or is_sagemaker_mp_enabled()
-            or self.fsdp is not None
+            or getattr(self, 'fsdp', None) is not None
         )
 
         if self.is_deepspeed_enabled:
@@ -1090,7 +1090,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         # prepare using `accelerator` prepare
         if use_accelerator_prepare:
             if hasattr(self.lr_scheduler, "step"):
-                if self.use_apex:
+                if getattr(self, 'use_apex', False):
                     model = self.accelerator.prepare(self.model)
                 else:
                     model, self.optimizer = self.accelerator.prepare(self.model, self.optimizer)
@@ -1325,7 +1325,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                         elif hasattr(model, "clip_grad_norm_"):
                             # Some models (like FullyShardedDDP) have a specific way to do gradient clipping
                             model.clip_grad_norm_(args.max_grad_norm)
-                        elif self.use_apex:
+                        elif getattr(self, 'use_apex', False):
                             # Revert to normal clipping otherwise, handling Apex or full precision
                             nn.utils.clip_grad_norm_(
                                 amp.master_params(self.optimizer),
