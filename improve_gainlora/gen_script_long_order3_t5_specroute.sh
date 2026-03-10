@@ -32,13 +32,11 @@ else
 fi
 
 # Determine parallelism strategy
-# NOTE: DataParallel is incompatible (segfault with GC, OOM without GC).
-# When 2x T4: use DDP (torchrun) with gradient_checkpointing. Each GPU ~13.4GB.
 if [ "$IS_T4" -eq 1 ] && [ "$NUM_GPUS" -ge 2 ]; then
-    GPU_MODE="t4_ddp"
+    GPU_MODE="t4_2gpu"
     GPU_IDS="0,1"
     FP16_FLAG="--gradient_checkpointing"
-    echo "[GPU] Strategy: 2x T4 DDP + fp32 + gradient_checkpointing"
+    echo "[GPU] Strategy: 2x T4 DataParallel + fp32 + gradient_checkpointing"
 elif [ "$IS_T4" -eq 1 ]; then
     GPU_MODE="t4_1gpu"
     GPU_IDS="${1:-0}"
@@ -55,22 +53,15 @@ echo "[GPU] Using CUDA_VISIBLE_DEVICES=$GPU_IDS"
 echo "============================================================"
 echo ""
 
-# Set launch command: torchrun for DDP, python otherwise
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    PYTHON_CMD="torchrun --standalone --nproc_per_node=${NUM_GPUS}"
-else
-    PYTHON_CMD="python"
-fi
-
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=2
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=8; EVAL_BSZ=16
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=16
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
-CUDA_VISIBLE_DEVICES=$GPU_IDS $PYTHON_CMD src/run_t5.py \
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --predict_with_generate \
    --model_name_or_path $2 \
@@ -115,15 +106,15 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_specroute/outputs/1-yelp/check
 
 sleep 5
 
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    BSZ=4; GA=2; EVAL_BSZ=16
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=16
 else
     BSZ=16; GA=2; EVAL_BSZ=128
 fi
 
-CUDA_VISIBLE_DEVICES=$GPU_IDS $PYTHON_CMD src/run_t5.py \
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --predict_with_generate \
    --model_name_or_path $2 \
@@ -168,15 +159,15 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_specroute/outputs/2-amazon/che
 
 sleep 5
 
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    BSZ=4; GA=2; EVAL_BSZ=16
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=16
 else
     BSZ=16; GA=2; EVAL_BSZ=128
 fi
 
-CUDA_VISIBLE_DEVICES=$GPU_IDS $PYTHON_CMD src/run_t5.py \
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --predict_with_generate \
    --model_name_or_path $2 \
@@ -221,15 +212,15 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_specroute/outputs/3-mnli/check
 
 sleep 5
 
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    BSZ=4; GA=2; EVAL_BSZ=16
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=16
 else
     BSZ=16; GA=2; EVAL_BSZ=128
 fi
 
-CUDA_VISIBLE_DEVICES=$GPU_IDS $PYTHON_CMD src/run_t5.py \
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --predict_with_generate \
    --model_name_or_path $2 \
@@ -274,15 +265,15 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_specroute/outputs/4-cb/checkpo
 
 sleep 5
 
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    BSZ=4; GA=2; EVAL_BSZ=16
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=16
 else
     BSZ=16; GA=2; EVAL_BSZ=128
 fi
 
-CUDA_VISIBLE_DEVICES=$GPU_IDS $PYTHON_CMD src/run_t5.py \
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --predict_with_generate \
    --model_name_or_path $2 \
@@ -327,15 +318,15 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_specroute/outputs/5-copa/check
 
 sleep 5
 
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    BSZ=4; GA=2; EVAL_BSZ=16
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=16
 else
     BSZ=16; GA=2; EVAL_BSZ=128
 fi
 
-CUDA_VISIBLE_DEVICES=$GPU_IDS $PYTHON_CMD src/run_t5.py \
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --predict_with_generate \
    --model_name_or_path $2 \
@@ -380,15 +371,15 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_specroute/outputs/6-qqp/checkp
 
 sleep 5
 
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    BSZ=4; GA=2; EVAL_BSZ=16
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=16
 else
     BSZ=16; GA=2; EVAL_BSZ=128
 fi
 
-CUDA_VISIBLE_DEVICES=$GPU_IDS $PYTHON_CMD src/run_t5.py \
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --predict_with_generate \
    --model_name_or_path $2 \
@@ -433,15 +424,15 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_specroute/outputs/7-rte/checkp
 
 sleep 5
 
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    BSZ=4; GA=2; EVAL_BSZ=16
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=16
 else
     BSZ=16; GA=2; EVAL_BSZ=128
 fi
 
-CUDA_VISIBLE_DEVICES=$GPU_IDS $PYTHON_CMD src/run_t5.py \
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --predict_with_generate \
    --model_name_or_path $2 \
@@ -486,15 +477,15 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_specroute/outputs/8-imdb/check
 
 sleep 5
 
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    BSZ=4; GA=2; EVAL_BSZ=16
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=16
 else
     BSZ=16; GA=2; EVAL_BSZ=128
 fi
 
-CUDA_VISIBLE_DEVICES=$GPU_IDS $PYTHON_CMD src/run_t5.py \
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --predict_with_generate \
    --model_name_or_path $2 \
@@ -539,15 +530,15 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_specroute/outputs/9-sst2/check
 
 sleep 5
 
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    BSZ=4; GA=2; EVAL_BSZ=16
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=16
 else
     BSZ=16; GA=2; EVAL_BSZ=128
 fi
 
-CUDA_VISIBLE_DEVICES=$GPU_IDS $PYTHON_CMD src/run_t5.py \
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --predict_with_generate \
    --model_name_or_path $2 \
@@ -592,15 +583,15 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_specroute/outputs/10-dbpedia/c
 
 sleep 5
 
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    BSZ=4; GA=2; EVAL_BSZ=16
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=16
 else
     BSZ=16; GA=2; EVAL_BSZ=128
 fi
 
-CUDA_VISIBLE_DEVICES=$GPU_IDS $PYTHON_CMD src/run_t5.py \
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --predict_with_generate \
    --model_name_or_path $2 \
@@ -645,15 +636,15 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_specroute/outputs/11-agnews/ch
 
 sleep 5
 
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    BSZ=4; GA=2; EVAL_BSZ=16
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=16
 else
     BSZ=16; GA=2; EVAL_BSZ=128
 fi
 
-CUDA_VISIBLE_DEVICES=$GPU_IDS $PYTHON_CMD src/run_t5.py \
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --predict_with_generate \
    --model_name_or_path $2 \
@@ -698,15 +689,15 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_specroute/outputs/12-yahoo/che
 
 sleep 5
 
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    BSZ=4; GA=2; EVAL_BSZ=16
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=16
 else
     BSZ=16; GA=2; EVAL_BSZ=128
 fi
 
-CUDA_VISIBLE_DEVICES=$GPU_IDS $PYTHON_CMD src/run_t5.py \
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --predict_with_generate \
    --model_name_or_path $2 \
@@ -751,15 +742,15 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_specroute/outputs/13-multirc/c
 
 sleep 5
 
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    BSZ=4; GA=2; EVAL_BSZ=16
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=16
 else
     BSZ=16; GA=2; EVAL_BSZ=128
 fi
 
-CUDA_VISIBLE_DEVICES=$GPU_IDS $PYTHON_CMD src/run_t5.py \
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --predict_with_generate \
    --model_name_or_path $2 \
@@ -804,15 +795,15 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_specroute/outputs/14-boolq/che
 
 sleep 5
 
-if [ "$GPU_MODE" = "t4_ddp" ]; then
-    BSZ=4; GA=2; EVAL_BSZ=16
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=16
 else
     BSZ=16; GA=2; EVAL_BSZ=128
 fi
 
-CUDA_VISIBLE_DEVICES=$GPU_IDS $PYTHON_CMD src/run_t5.py \
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --predict_with_generate \
    --model_name_or_path $2 \
