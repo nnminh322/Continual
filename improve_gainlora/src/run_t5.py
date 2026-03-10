@@ -928,6 +928,9 @@ def main():
 
     all_metrics = {"run_name": training_args.run_name}
 
+    # DDP rank check: only rank 0 (or single-GPU) should save files
+    is_main_process = training_args.local_rank in [-1, 0]
+
     # Training
     if training_args.do_train:
         checkpoint = None
@@ -937,40 +940,42 @@ def main():
             checkpoint = last_checkpoint
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
 
-        save_path = training_args.output_dir + "/saved_weights"
-        if not os.path.exists(save_path):
-            try:
-                os.makedirs(save_path)
-            except:
-                pass
+        # Only main process saves weights/checkpoints (DDP compatibility)
+        if is_main_process:
+            save_path = training_args.output_dir + "/saved_weights"
+            if not os.path.exists(save_path):
+                try:
+                    os.makedirs(save_path)
+                except:
+                    pass
 
-        if training_args.model_name != 'specroute':
-            if not prompt_config["run_single"]:
-                if training_args.model_name in ['gainlora_inflora', 'gainlora_olora'] and prompt_config["previous_prompt_key_path"] is not None:
-                    previous_trans_input = deepcopy(trainer.model.encoder.previous_trans_input.state_dict())
-                    torch.save(previous_trans_input, os.path.join(save_path, 'previous_trans_input.pt'))
-                torch.save(trainer.model.encoder.trans_input.state_dict(), os.path.join(save_path, 'trans_input.pt'))
-
-            if prompt_config["previous_prompt_key_path"] is not None:
-                torch.save(lora_state_dict_A(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_A.pt'))
-                torch.save(lora_state_dict_B(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_B.pt'))
+            if training_args.model_name != 'specroute':
                 if not prompt_config["run_single"]:
-                    torch.save(torch.cat([trainer.model.encoder.prompt_key, trainer.model.encoder.previous_prompts_keys], dim=0).data, os.path.join(save_path, 'prompts_keys_till_now.pt'))
+                    if training_args.model_name in ['gainlora_inflora', 'gainlora_olora'] and prompt_config["previous_prompt_key_path"] is not None:
+                        previous_trans_input = deepcopy(trainer.model.encoder.previous_trans_input.state_dict())
+                        torch.save(previous_trans_input, os.path.join(save_path, 'previous_trans_input.pt'))
+                    torch.save(trainer.model.encoder.trans_input.state_dict(), os.path.join(save_path, 'trans_input.pt'))
+
+                if prompt_config["previous_prompt_key_path"] is not None:
+                    torch.save(lora_state_dict_A(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_A.pt'))
+                    torch.save(lora_state_dict_B(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_B.pt'))
+                    if not prompt_config["run_single"]:
+                        torch.save(torch.cat([trainer.model.encoder.prompt_key, trainer.model.encoder.previous_prompts_keys], dim=0).data, os.path.join(save_path, 'prompts_keys_till_now.pt'))
+                else:
+                    torch.save(lora_state_dict_A(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_A.pt'))
+                    torch.save(lora_state_dict_B(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_B.pt'))
+                    if not prompt_config["run_single"]:
+                        torch.save(trainer.model.encoder.prompt_key.data, os.path.join(save_path, 'prompts_keys_till_now.pt'))
             else:
+                # SpecRoute: save lora weights and spectral signatures
                 torch.save(lora_state_dict_A(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_A.pt'))
                 torch.save(lora_state_dict_B(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_B.pt'))
-                if not prompt_config["run_single"]:
-                    torch.save(trainer.model.encoder.prompt_key.data, os.path.join(save_path, 'prompts_keys_till_now.pt'))
-        else:
-            # SpecRoute: save lora weights and spectral signatures
-            torch.save(lora_state_dict_A(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_A.pt'))
-            torch.save(lora_state_dict_B(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_B.pt'))
-            from t5_specroute import compute_spectral_signatures
-            _raw_model = trainer.model.module if hasattr(trainer.model, 'module') else trainer.model
-            signatures = compute_spectral_signatures(_raw_model, config)
-            torch.save(signatures, os.path.join(save_path, 'spectral_signatures.pt'))
-            print("----------Saved spectral signatures----------")
-        tokenizer.save_pretrained(save_path)
+                from t5_specroute import compute_spectral_signatures
+                _raw_model = trainer.model.module if hasattr(trainer.model, 'module') else trainer.model
+                signatures = compute_spectral_signatures(_raw_model, config)
+                torch.save(signatures, os.path.join(save_path, 'spectral_signatures.pt'))
+                print("----------Saved spectral signatures----------")
+            tokenizer.save_pretrained(save_path)
 
         metrics = train_result.metrics
         max_train_samples = (
@@ -986,6 +991,9 @@ def main():
 
         if training_args.model_name in ['inflora', 'gainlora_inflora', 'gainlora_olora', 'specroute']:
             trainer.get_repsentation()
+            # Sync all ranks after GPM save before prediction (DDP)
+            if torch.distributed.is_initialized():
+                torch.distributed.barrier()
 
     # Evaluation
     results = {}
@@ -1020,11 +1028,12 @@ def main():
         
         if not prompt_config["run_single"]:
             # ipdb.set_trace()
-            save_path = training_args.output_dir + "/saved_weights"
-            with open(os.path.join(save_path, "attention_weights.pkl"), 'wb') as f:
-                print("*"*20, "Saving Attention Weights", "*"*20)
-                print(np.array(np.concatenate(_raw_trainer_model.encoder.all_attn_weights)).mean(axis=0))
-                pickle.dump(np.array(np.concatenate(_raw_trainer_model.encoder.all_attn_weights)).mean(axis=0), f)
+            if is_main_process:
+                save_path = training_args.output_dir + "/saved_weights"
+                with open(os.path.join(save_path, "attention_weights.pkl"), 'wb') as f:
+                    print("*"*20, "Saving Attention Weights", "*"*20)
+                    print(np.array(np.concatenate(_raw_trainer_model.encoder.all_attn_weights)).mean(axis=0))
+                    pickle.dump(np.array(np.concatenate(_raw_trainer_model.encoder.all_attn_weights)).mean(axis=0), f)
             _raw_trainer_model.encoder.is_inference = False
 
         if training_args.do_predict:
@@ -1047,8 +1056,9 @@ def main():
             trainer.save_metrics("predict", metrics)
             all_metrics.update(metrics)
 
-            with open(os.path.join("logs_and_outputs", training_args.run_name, "outputs", "task_order.txt"), 'w') as f:
-                f.write(data_args.task_order)
+            if is_main_process:
+                with open(os.path.join("logs_and_outputs", training_args.run_name, "outputs", "task_order.txt"), 'w') as f:
+                    f.write(data_args.task_order)
 
     return results
 

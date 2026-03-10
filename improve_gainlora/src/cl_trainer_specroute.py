@@ -324,9 +324,10 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 ))
         print('-' * 40)
 
-        # Save LoRA GPM bases
-        for i in range(len(self.feature_list)):
-            torch.save(self.feature_list[i], os.path.join(self.args.output_dir, 'reg_{}.pt'.format(i)))
+        # Save LoRA GPM bases (only main process for DDP)
+        if self.args.local_rank in [-1, 0]:
+            for i in range(len(self.feature_list)):
+                torch.save(self.feature_list[i], os.path.join(self.args.output_dir, 'reg_{}.pt'.format(i)))
 
         # No trans_input GPM to save
 
