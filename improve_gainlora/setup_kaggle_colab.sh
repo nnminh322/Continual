@@ -44,6 +44,7 @@ echo ""
 echo "[Remove] Uninstalling conflicting packages..."
 # Remove common preinstalled conflicts (deep clean).
 # JAX/jaxlib MUST go because they require numpy>=2.0 which breaks our pin.
+# Also remove packages that depend on torch/jax to suppress pip warnings later.
 ${PIP_CMD} uninstall -y \
   torch torchvision torchaudio pytorch-cuda triton \
   cupy cupy-cuda12x flash-attn xformers bitsandbytes \
@@ -54,6 +55,14 @@ ${PIP_CMD} uninstall -y \
   opentelemetry-proto grpcio-status \
   protobuf \
   jax jaxlib \
+  torchmetrics easyocr pytorch-lightning fastai \
+  gymnax kaggle-environments dopamine-rl \
+  flax optax orbax-checkpoint chex \
+  nx-cugraph-cu12 pylibcugraph-cu12 \
+  opencv-contrib-python opencv-python opencv-python-headless \
+  shap rasterio tobler cesium pytensor \
+  tensorflow-decision-forests \
+  a2a-sdk bigframes google-adk gcsfs \
   2>/dev/null || true
 
 echo ""
@@ -61,11 +70,14 @@ echo "[Install] Core CUDA stack (PyTorch cu121)..."
 # 1) Pre-pin numpy+protobuf so torch install doesn't drag in wrong versions.
 # 2) No --force-reinstall: that flag reinstalls ALL deps (including numpy) → disaster.
 #    Since torch was uninstalled above, pip will install 2.5.1 fresh.
+# Note: pip may show "ERROR: dependency resolver" warnings from other Kaggle packages.
+#       These are harmless — those packages (kaggle-environments, dopamine-rl, etc.)
+#       won't be used and don't affect our training. We filter them for readability.
 ${PIP_CMD} install --no-cache-dir -q \
-  "numpy==1.26.4" "protobuf==5.29.3"
+  "numpy==1.26.4" "protobuf==5.29.3" 2>&1 | grep -v "which is not installed\|which is incompatible\|dependency resolver" || true
 ${PIP_CMD} install --no-cache-dir -q \
   torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
-  --index-url https://download.pytorch.org/whl/cu121
+  --index-url https://download.pytorch.org/whl/cu121 2>&1 | grep -v "which is not installed\|which is incompatible\|dependency resolver" || true
 
 # Sanity-check: abort early if wrong torch survived
 TORCH_VER=$(${PY_CMD} -c "import torch; print(torch.__version__)" 2>/dev/null || echo "NONE")
@@ -92,7 +104,8 @@ ${PIP_CMD} install --no-cache-dir -q \
   loralib==0.1.2 sentencepiece==0.2.0 ipdb==0.13.13 \
   nltk==3.9.1 scikit-learn==1.6.1 pandas==2.2.2 \
   "pyarrow==17.0.0" "protobuf==5.29.3" tqdm==4.67.1 \
-  "fsspec==2024.6.1" pynvml==11.5.3
+  "fsspec==2024.6.1" pynvml==11.5.3 \
+  2>&1 | grep -v "which is not installed\|which is incompatible\|dependency resolver" || true
 
 echo "[Install] CuPy (with fallback for Python/CUDA compatibility)..."
 if ! ${PIP_CMD} install --no-cache-dir -q cupy-cuda12x==13.6.0; then
