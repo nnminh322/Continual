@@ -966,7 +966,8 @@ def main():
             torch.save(lora_state_dict_A(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_A.pt'))
             torch.save(lora_state_dict_B(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_B.pt'))
             from t5_specroute import compute_spectral_signatures
-            signatures = compute_spectral_signatures(trainer.model, config)
+            _raw_model = trainer.model.module if hasattr(trainer.model, 'module') else trainer.model
+            signatures = compute_spectral_signatures(_raw_model, config)
             torch.save(signatures, os.path.join(save_path, 'spectral_signatures.pt'))
             print("----------Saved spectral signatures----------")
         tokenizer.save_pretrained(save_path)
@@ -1006,7 +1007,8 @@ def main():
         if data_args.max_predict_samples is not None:
             predict_dataset = predict_dataset.select(range(data_args.max_predict_samples))
 
-        trainer.model.encoder.is_inference = True
+        _raw_trainer_model = trainer.model.module if hasattr(trainer.model, 'module') else trainer.model
+        _raw_trainer_model.encoder.is_inference = True
         _ = trainer.predict(
             eval_dataset,
             metric_key_prefix="predict",
@@ -1021,9 +1023,9 @@ def main():
             save_path = training_args.output_dir + "/saved_weights"
             with open(os.path.join(save_path, "attention_weights.pkl"), 'wb') as f:
                 print("*"*20, "Saving Attention Weights", "*"*20)
-                print(np.array(np.concatenate(trainer.model.encoder.all_attn_weights)).mean(axis=0))
-                pickle.dump(np.array(np.concatenate(trainer.model.encoder.all_attn_weights)).mean(axis=0), f)
-            trainer.model.encoder.is_inference = False
+                print(np.array(np.concatenate(_raw_trainer_model.encoder.all_attn_weights)).mean(axis=0))
+                pickle.dump(np.array(np.concatenate(_raw_trainer_model.encoder.all_attn_weights)).mean(axis=0), f)
+            _raw_trainer_model.encoder.is_inference = False
 
         if training_args.do_predict:
             predict_results = trainer.predict(

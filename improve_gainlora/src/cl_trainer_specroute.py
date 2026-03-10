@@ -127,12 +127,20 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
 
         return loss
 
+    def _unwrap_model(self):
+        """Unwrap DataParallel/DistributedDataParallel to get the raw model."""
+        m = self.model
+        if hasattr(m, 'module'):
+            m = m.module
+        return m
+
     def load_previous_reg_matrix(self):
         """Load LoRA GPM bases from previous task. No trans_input GPM needed."""
         log_path = os.path.dirname(self.args.output_dir)
         local_dir = os.path.basename(self.args.output_dir)
         print(log_path)
 
+        raw_model = self._unwrap_model()
         all_dirs = os.listdir(log_path)
         reg_matrix = []
         for all_dir in all_dirs:
@@ -140,7 +148,7 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 continue
             if eval(all_dir.split('-')[0]) == eval(local_dir.split('-')[0]) - 1:
                 i = 0
-                for module in self.model.modules():
+                for module in raw_model.modules():
                     if hasattr(module, 'get_feature'):
                         reg_matrix.append(torch.load(
                             os.path.join(os.path.join(log_path, all_dir), "reg_{}.pt".format(i))
@@ -162,9 +170,10 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
             # First task: no constraints
             return
 
+        raw_model = self._unwrap_model()
         # Compute projection matrices for LoRA GPM
         self.feature_mat, i = [], 0
-        for name, module in self.model.named_modules():
+        for name, module in raw_model.named_modules():
             if hasattr(module, 'get_feature'):
                 feature_mat = {}
                 for index in self.feature_list[i].keys():
@@ -204,13 +213,14 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
         """
         self.feature_list, self._cur_task = self.load_previous_reg_matrix()
 
+        raw_model = self._unwrap_model()
         train_dataloader = self.get_train_dataloader()
         if isinstance(train_dataloader, DataLoader) and isinstance(train_dataloader.sampler, DistributedSampler):
             train_dataloader.sampler.set_epoch(1998)
         elif hasattr(train_dataloader, "dataset") and isinstance(train_dataloader.dataset, IterableDatasetShard):
             train_dataloader.dataset.set_epoch(1998)
 
-        for name, module in self.model.named_modules():
+        for name, module in raw_model.named_modules():
             if hasattr(module, 'get_feature'):
                 module.get_feature = True
                 module.stage = 0
@@ -230,7 +240,7 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
 
         # Collect LoRA covariance matrices
         mat_list = []
-        for name, module in self.model.named_modules():
+        for name, module in raw_model.named_modules():
             if hasattr(module, 'get_feature'):
                 merged_tensor = {}
                 for index in range(module.index):
