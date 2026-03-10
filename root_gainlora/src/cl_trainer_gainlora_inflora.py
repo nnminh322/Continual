@@ -195,6 +195,8 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
             pre_norm = module.prompt_key.detach().norm()
             for index in module.matrix_trans_3.keys():
                 cur_trans_matrix = module.matrix_trans_3[index]
+                # Sanitize non-finite values before SVD
+                cur_trans_matrix = torch.nan_to_num(cur_trans_matrix, nan=0.0, posinf=1e6, neginf=-1e6)
                 try:
                     U, S, V = torch.linalg.svd(cur_trans_matrix)
                 except Exception:
