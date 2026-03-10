@@ -1,0 +1,475 @@
+Cloning into 'Continual'...
+remote: Enumerating objects: 1802, done.
+remote: Counting objects: 100% (34/34), done.
+remote: Compressing objects: 100% (24/24), done.
+remote: Total 1802 (delta 22), reused 19 (delta 10), pack-reused 1768 (from 1)
+Receiving objects: 100% (1802/1802), 341.92 MiB | 33.49 MiB/s, done.
+Resolving deltas: 100% (777/777), done.
+Updating files: 100% (2185/2185), done.
+Collecting uv
+  Downloading uv-0.10.9-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (11 kB)
+Downloading uv-0.10.9-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (23.4 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 23.4/23.4 MB 69.4 MB/s eta 0:00:00
+Installing collected packages: uv
+Successfully installed uv-0.10.9
+/content/Continual/improve_gainlora
+==========================================
+SpecRoute Setup for Kaggle/Colab
+==========================================
+[Env] Detected: colab
+[Setup] Using current Python environment
+Requirement already satisfied: pip in /usr/local/lib/python3.12/dist-packages (24.1.2)
+Collecting pip
+  Downloading pip-26.0.1-py3-none-any.whl.metadata (4.7 kB)
+Requirement already satisfied: setuptools in /usr/local/lib/python3.12/dist-packages (75.2.0)
+Collecting setuptools
+  Downloading setuptools-82.0.1-py3-none-any.whl.metadata (6.5 kB)
+Requirement already satisfied: wheel in /usr/local/lib/python3.12/dist-packages (0.46.3)
+Requirement already satisfied: packaging>=24.0 in /usr/local/lib/python3.12/dist-packages (from wheel) (26.0)
+Downloading pip-26.0.1-py3-none-any.whl (1.8 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.8/1.8 MB 54.3 MB/s eta 0:00:00
+Downloading setuptools-82.0.1-py3-none-any.whl (1.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.0/1.0 MB 70.7 MB/s eta 0:00:00
+Installing collected packages: setuptools, pip
+  Attempting uninstall: setuptools
+    Found existing installation: setuptools 75.2.0
+    Uninstalling setuptools-75.2.0:
+      Successfully uninstalled setuptools-75.2.0
+  Attempting uninstall: pip
+    Found existing installation: pip 24.1.2
+    Uninstalling pip-24.1.2:
+      Successfully uninstalled pip-24.1.2
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+ipython 7.34.0 requires jedi>=0.16, which is not installed.
+Successfully installed pip-26.0.1 setuptools-82.0.1
+
+[Remove] Uninstalling conflicting packages...
+Found existing installation: torch 2.10.0+cu128
+Uninstalling torch-2.10.0+cu128:
+  Successfully uninstalled torch-2.10.0+cu128
+Found existing installation: torchvision 0.25.0+cu128
+Uninstalling torchvision-0.25.0+cu128:
+  Successfully uninstalled torchvision-0.25.0+cu128
+Found existing installation: torchaudio 2.10.0+cu128
+Uninstalling torchaudio-2.10.0+cu128:
+  Successfully uninstalled torchaudio-2.10.0+cu128
+Found existing installation: triton 3.6.0
+Uninstalling triton-3.6.0:
+  Successfully uninstalled triton-3.6.0
+Found existing installation: cupy-cuda12x 14.0.1
+Uninstalling cupy-cuda12x-14.0.1:
+  Successfully uninstalled cupy-cuda12x-14.0.1
+Found existing installation: transformers 5.0.0
+Uninstalling transformers-5.0.0:
+  Successfully uninstalled transformers-5.0.0
+Found existing installation: tokenizers 0.22.2
+Uninstalling tokenizers-0.22.2:
+  Successfully uninstalled tokenizers-0.22.2
+Found existing installation: datasets 4.0.0
+Uninstalling datasets-4.0.0:
+  Successfully uninstalled datasets-4.0.0
+Found existing installation: accelerate 1.12.0
+Uninstalling accelerate-1.12.0:
+  Successfully uninstalled accelerate-1.12.0
+Found existing installation: peft 0.18.1
+Uninstalling peft-0.18.1:
+  Successfully uninstalled peft-0.18.1
+Found existing installation: sentence-transformers 5.2.3
+Uninstalling sentence-transformers-5.2.3:
+  Successfully uninstalled sentence-transformers-5.2.3
+Found existing installation: torchtune 0.6.1
+Uninstalling torchtune-0.6.1:
+  Successfully uninstalled torchtune-0.6.1
+Found existing installation: cudf-cu12 26.2.1
+Uninstalling cudf-cu12-26.2.1:
+  Successfully uninstalled cudf-cu12-26.2.1
+Found existing installation: dask-cudf-cu12 26.2.1
+Uninstalling dask-cudf-cu12-26.2.1:
+  Successfully uninstalled dask-cudf-cu12-26.2.1
+Found existing installation: cuml-cu12 26.2.0
+Uninstalling cuml-cu12-26.2.0:
+  Successfully uninstalled cuml-cu12-26.2.0
+Found existing installation: cucim-cu12 26.2.0
+Uninstalling cucim-cu12-26.2.0:
+  Successfully uninstalled cucim-cu12-26.2.0
+Found existing installation: ydf 0.15.0
+Uninstalling ydf-0.15.0:
+  Successfully uninstalled ydf-0.15.0
+Found existing installation: grain 0.2.16
+Uninstalling grain-0.2.16:
+  Successfully uninstalled grain-0.2.16
+Found existing installation: umap-learn 0.5.11
+Uninstalling umap-learn-0.5.11:
+  Successfully uninstalled umap-learn-0.5.11
+Found existing installation: hdbscan 0.8.41
+Uninstalling hdbscan-0.8.41:
+  Successfully uninstalled hdbscan-0.8.41
+Found existing installation: textblob 0.19.0
+Uninstalling textblob-0.19.0:
+  Successfully uninstalled textblob-0.19.0
+Found existing installation: opentelemetry-proto 1.38.0
+Uninstalling opentelemetry-proto-1.38.0:
+  Successfully uninstalled opentelemetry-proto-1.38.0
+Found existing installation: grpcio-status 1.71.2
+Uninstalling grpcio-status-1.71.2:
+  Successfully uninstalled grpcio-status-1.71.2
+Found existing installation: protobuf 5.29.6
+Uninstalling protobuf-5.29.6:
+  Successfully uninstalled protobuf-5.29.6
+Found existing installation: jax 0.7.2
+Uninstalling jax-0.7.2:
+  Successfully uninstalled jax-0.7.2
+Found existing installation: jaxlib 0.7.2
+Uninstalling jaxlib-0.7.2:
+  Successfully uninstalled jaxlib-0.7.2
+
+[Install] Core CUDA stack (PyTorch cu121)...
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+orbax-checkpoint 0.11.33 requires jax>=0.6.0, which is not installed.
+fastai 2.8.7 requires torch<3,>=1.10, which is not installed.
+fastai 2.8.7 requires torchvision>=0.11, which is not installed.
+dopamine-rl 4.1.2 requires jax>=0.1.72, which is not installed.
+dopamine-rl 4.1.2 requires jaxlib>=0.1.51, which is not installed.
+optax 0.2.7 requires jax>=0.5.3, which is not installed.
+optax 0.2.7 requires jaxlib>=0.5.3, which is not installed.
+tensorflow-decision-forests 1.12.0 requires ydf>=0.11.0, which is not installed.
+opentelemetry-exporter-otlp-proto-http 1.38.0 requires opentelemetry-proto==1.38.0, which is not installed.
+pylibcugraph-cu12 26.2.0 requires cupy-cuda12x>=13.6.0, which is not installed.
+flax 0.11.2 requires jax>=0.6.0, which is not installed.
+google-cloud-pubsub 2.35.0 requires grpcio-status>=1.33.2, which is not installed.
+nx-cugraph-cu12 26.2.0 requires cupy-cuda12x>=13.6.0, which is not installed.
+rasterio 1.5.0 requires numpy>=2, but you have numpy 1.26.4 which is incompatible.
+opencv-python-headless 4.13.0.92 requires numpy>=2; python_version >= "3.9", but you have numpy 1.26.4 which is incompatible.
+xarray-einstats 0.10.0 requires numpy>=2.0, but you have numpy 1.26.4 which is incompatible.
+opencv-contrib-python 4.13.0.92 requires numpy>=2; python_version >= "3.9", but you have numpy 1.26.4 which is incompatible.
+shap 0.50.0 requires numpy>=2, but you have numpy 1.26.4 which is incompatible.
+pytensor 2.38.0 requires numpy>=2.0, but you have numpy 1.26.4 which is incompatible.
+opencv-python 4.13.0.92 requires numpy>=2; python_version >= "3.9", but you have numpy 1.26.4 which is incompatible.
+tobler 0.13.0 requires numpy>=2.0, but you have numpy 1.26.4 which is incompatible.
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+pylibcugraph-cu12 26.2.0 requires cupy-cuda12x>=13.6.0, which is not installed.
+nx-cugraph-cu12 26.2.0 requires cupy-cuda12x>=13.6.0, which is not installed.
+[Check] torch version after install: 2.5.1+cu121
+[Install] Project dependencies...
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+dopamine-rl 4.1.2 requires jax>=0.1.72, which is not installed.
+dopamine-rl 4.1.2 requires jaxlib>=0.1.51, which is not installed.
+gcsfs 2025.3.0 requires fsspec==2025.3.0, but you have fsspec 2024.6.1 which is incompatible.
+xarray-einstats 0.10.0 requires numpy>=2.0, but you have numpy 1.26.4 which is incompatible.
+shap 0.50.0 requires numpy>=2, but you have numpy 1.26.4 which is incompatible.
+pytensor 2.38.0 requires numpy>=2.0, but you have numpy 1.26.4 which is incompatible.
+tobler 0.13.0 requires numpy>=2.0, but you have numpy 1.26.4 which is incompatible.
+[Install] CuPy (with fallback for Python/CUDA compatibility)...
+[Cache] Clearing stale HuggingFace dataset module cache...
+[Cache] HF dataset module cache cleared
+
+[Check] Verifying installation...
+✓ python 3.12.12
+✓ torch 2.5.1+cu121
+✓ cuda available: True
+✓ gpu count: 1
+  - GPU 0: Tesla T4 (15.6 GB)
+✓ transformers 4.40.2
+✓ datasets 2.21.0
+✓ cupy 13.6.0
+
+[Success] All packages installed correctly!
+
+==========================================
+[Ready] Environment is ready to use
+==========================================
+[GPU] Detected T4 GPUs (15360MB VRAM each)
+[GPU] Strategy: 1x T4 + fp32 + gradient_checkpointing
+[GPU] Using CUDA_VISIBLE_DEVICES=0
+============================================================
+
+2026-03-10 03:12:17.494775: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:467] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1773112337.746317    2252 cuda_dnn.cc:8579] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+E0000 00:00:1773112337.813824    2252 cuda_blas.cc:1407] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+W0000 00:00:1773112338.333798    2252 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1773112338.333884    2252 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1773112338.333889    2252 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1773112338.333894    2252 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+2026-03-10 03:12:18.389433: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+Using the `WANDB_DISABLED` environment variable is deprecated and will be removed in v5. Use the --report_to flag to control the integrations used for logging result (for instance --report_to none).
+03/10/2026 03:12:26 - WARNING - __main__ - Process rank: 0, device: cuda:0, n_gpu: 1distributed training: True, 16-bits training: False
+Generating train split: 0 examples [00:00, ? examples/s]/content/Continual/improve_gainlora/CL_Benchmark/SuperNI/task1572_samsum_summary/train.json
+['Contributors', 'Source', 'URL', 'Categories', 'Reasoning', 'Definition', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Instance License']
+Generating train split: 160 examples [00:00, 7761.12 examples/s]
+Generating validation split: 0 examples [00:00, ? examples/s]/content/Continual/improve_gainlora/CL_Benchmark/SuperNI/task1572_samsum_summary/dev.json
+['Contributors', 'Source', 'URL', 'Categories', 'Reasoning', 'Definition', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Instance License']
+Generating validation split: 20 examples [00:00, 3573.73 examples/s]
+Generating test split: 0 examples [00:00, ? examples/s]/content/Continual/improve_gainlora/CL_Benchmark/SuperNI/task1572_samsum_summary/test.json
+['Contributors', 'Source', 'URL', 'Categories', 'Reasoning', 'Definition', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Instance License']
+Generating test split: 20 examples [00:00, 4457.99 examples/s]
+/usr/local/lib/python3.12/dist-packages/huggingface_hub/file_download.py:949: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+config.json: 100% 662/662 [00:00<00:00, 5.38MB/s]
+tokenizer_config.json: 2.54kB [00:00, 12.3MB/s]
+spiece.model: 100% 792k/792k [00:00<00:00, 853kB/s]
+tokenizer.json: 2.42MB [00:00, 97.9MB/s]
+special_tokens_map.json: 2.20kB [00:00, 13.0MB/s]
+model.safetensors: 100% 3.13G/3.13G [00:26<00:00, 119MB/s]
+[WARNING|modeling_utils.py:4172] 2026-03-10 03:13:04,706 >> Some weights of T5ForConditionalGeneration were not initialized from the model checkpoint at google/flan-t5-large and are newly initialized: ['decoder.block.0.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.0.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.0.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.0.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.0.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.0.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.0.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.0.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.1.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.1.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.1.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.1.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.1.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.1.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.1.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.1.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.10.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.10.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.10.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.10.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.10.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.10.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.10.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.10.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.11.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.11.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.11.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.11.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.11.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.11.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.11.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.11.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.12.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.12.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.12.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.12.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.12.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.12.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.12.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.12.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.13.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.13.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.13.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.13.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.13.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.13.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.13.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.13.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.14.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.14.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.14.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.14.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.14.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.14.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.14.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.14.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.15.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.15.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.15.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.15.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.15.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.15.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.15.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.15.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.16.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.16.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.16.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.16.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.16.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.16.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.16.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.16.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.17.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.17.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.17.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.17.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.17.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.17.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.17.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.17.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.18.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.18.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.18.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.18.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.18.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.18.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.18.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.18.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.19.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.19.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.19.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.19.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.19.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.19.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.19.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.19.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.2.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.2.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.2.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.2.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.2.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.2.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.2.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.2.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.20.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.20.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.20.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.20.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.20.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.20.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.20.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.20.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.21.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.21.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.21.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.21.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.21.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.21.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.21.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.21.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.22.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.22.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.22.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.22.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.22.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.22.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.22.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.22.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.23.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.23.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.23.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.23.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.23.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.23.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.23.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.23.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.3.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.3.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.3.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.3.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.3.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.3.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.3.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.3.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.4.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.4.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.4.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.4.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.4.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.4.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.4.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.4.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.5.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.5.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.5.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.5.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.5.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.5.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.5.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.5.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.6.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.6.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.6.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.6.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.6.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.6.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.6.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.6.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.7.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.7.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.7.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.7.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.7.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.7.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.7.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.7.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.8.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.8.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.8.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.8.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.8.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.8.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.8.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.8.layer.1.EncDecAttention.lora_v.lora_B', 'decoder.block.9.layer.0.SelfAttention.lora_q.lora_A', 'decoder.block.9.layer.0.SelfAttention.lora_q.lora_B', 'decoder.block.9.layer.0.SelfAttention.lora_v.lora_A', 'decoder.block.9.layer.0.SelfAttention.lora_v.lora_B', 'decoder.block.9.layer.1.EncDecAttention.lora_q.lora_A', 'decoder.block.9.layer.1.EncDecAttention.lora_q.lora_B', 'decoder.block.9.layer.1.EncDecAttention.lora_v.lora_A', 'decoder.block.9.layer.1.EncDecAttention.lora_v.lora_B', 'encoder.block.0.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.0.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.0.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.0.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.1.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.1.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.1.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.1.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.10.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.10.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.10.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.10.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.11.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.11.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.11.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.11.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.12.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.12.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.12.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.12.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.13.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.13.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.13.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.13.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.14.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.14.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.14.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.14.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.15.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.15.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.15.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.15.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.16.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.16.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.16.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.16.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.17.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.17.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.17.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.17.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.18.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.18.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.18.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.18.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.19.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.19.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.19.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.19.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.2.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.2.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.2.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.2.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.20.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.20.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.20.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.20.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.21.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.21.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.21.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.21.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.22.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.22.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.22.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.22.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.23.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.23.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.23.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.23.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.3.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.3.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.3.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.3.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.4.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.4.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.4.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.4.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.5.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.5.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.5.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.5.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.6.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.6.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.6.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.6.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.7.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.7.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.7.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.7.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.8.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.8.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.8.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.8.layer.0.SelfAttention.lora_v.lora_B', 'encoder.block.9.layer.0.SelfAttention.lora_q.lora_A', 'encoder.block.9.layer.0.SelfAttention.lora_q.lora_B', 'encoder.block.9.layer.0.SelfAttention.lora_v.lora_A', 'encoder.block.9.layer.0.SelfAttention.lora_v.lora_B']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+generation_config.json: 100% 147/147 [00:00<00:00, 1.22MB/s]
+[FIX] Re-initialized lora_A in 144 LoRA layers with kaiming_uniform_
+  lora_A: norm=1.165892, all_zero=False
+encoder.block.0.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.0.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.1.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.1.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.2.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.2.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.3.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.3.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.4.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.4.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.5.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.5.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.6.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.6.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.7.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.7.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.8.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.8.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.9.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.9.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.10.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.10.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.11.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.11.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.12.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.12.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.13.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.13.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.14.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.14.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.15.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.15.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.16.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.16.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.17.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.17.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.18.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.18.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.19.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.19.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.20.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.20.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.21.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.21.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.22.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.22.layer.0.SelfAttention.lora_v.lora_B
+encoder.block.23.layer.0.SelfAttention.lora_q.lora_B
+encoder.block.23.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.0.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.0.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.0.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.0.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.1.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.1.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.1.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.1.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.2.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.2.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.2.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.2.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.3.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.3.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.3.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.3.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.4.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.4.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.4.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.4.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.5.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.5.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.5.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.5.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.6.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.6.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.6.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.6.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.7.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.7.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.7.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.7.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.8.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.8.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.8.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.8.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.9.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.9.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.9.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.9.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.10.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.10.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.10.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.10.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.11.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.11.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.11.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.11.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.12.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.12.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.12.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.12.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.13.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.13.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.13.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.13.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.14.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.14.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.14.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.14.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.15.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.15.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.15.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.15.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.16.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.16.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.16.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.16.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.17.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.17.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.17.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.17.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.18.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.18.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.18.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.18.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.19.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.19.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.19.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.19.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.20.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.20.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.20.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.20.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.21.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.21.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.21.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.21.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.22.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.22.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.22.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.22.layer.1.EncDecAttention.lora_v.lora_B
+decoder.block.23.layer.0.SelfAttention.lora_q.lora_B
+decoder.block.23.layer.0.SelfAttention.lora_v.lora_B
+decoder.block.23.layer.1.EncDecAttention.lora_q.lora_B
+decoder.block.23.layer.1.EncDecAttention.lora_v.lora_B
+Total number of parameters: 0.589M, rate: 0.08%
+-----Enabled input_require_grads (critical for frozen base + LoRA)-----
+-----Gradient checkpointing: True -----
+[GC FORMAT] encoder._gradient_checkpointing_func = functools.partial(<function checkpoint at 0x7afa0d101260>, use_reentrant=False)
+[GC FORMAT] encoder.gradient_checkpointing = True
+logs_and_outputs/gen_script_superni_order1_t5_specroute/outputs
+is_deepspeed_enabled False
+============================================================
+[SANITY] Checking LoRA layer initialization...
+  lora_A norm=1.165892, requires_grad=False OK
+  lora_B norm=0.000000, requires_grad=True
+  lora_B.grad norm=2.550334e+02 OK
+============================================================
+Using Same Learning Rate for All Modules (SpecRoute)
+  0% 0/500 [00:00<?, ?it/s][WARNING|tokenization_utils_base.py:3896] 2026-03-10 03:13:10,166 >> Token indices sequence length is longer than the specified maximum sequence length for this model (733 > 512). Running this sequence through the model will result in indexing errors
+/usr/local/lib/python3.12/dist-packages/transformers/tokenization_utils_base.py:3921: UserWarning: `as_target_tokenizer` is deprecated and will be removed in v5 of Transformers. You can tokenize your labels by using the argument `text_target` of the regular `__call__` method (either in the same call as your input texts if you use the same keyword arguments, or in a separate call.
+  warnings.warn(
+/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py:632: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.5 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  return fn(*args, **kwargs)
+03/10/2026 03:13:10 - WARNING - t5_specroute - `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`...
+============================================================
+[GRAD CHECK] params with grad>0: 144, grad==0: 0, grad=None: 0
+[GRAD CHECK] sample: encoder.block.0.layer.0.SelfAttention.lora_q.lora_B grad_norm=3.473810e-03
+[GRAD CHECK] fp16=False, bf16=False, grad_checkpointing=True
+[GRAD CHECK] encoder.gradient_checkpointing=True
+[GRAD CHECK] encoder type=T5Stack, module=t5_specroute
+[GRAD CHECK] model type=T5ForConditionalGeneration, training=True
+[GRAD CHECK] shared embedding hooks: 1
+============================================================
+{'loss': 1.4764, 'grad_norm': 0.28208309412002563, 'learning_rate': 0.0003, 'epoch': 2.0}
+{'loss': 1.3944, 'grad_norm': 0.25231918692588806, 'learning_rate': 0.0003, 'epoch': 4.0}
+  5% 25/500 [05:15<1:41:00, 12.76s/it]
+  0% 0/10 [00:00<?, ?it/s]
+ 20% 2/10 [00:00<00:03,  2.01it/s]
+ 30% 3/10 [00:03<00:09,  1.32s/it]
+ 40% 4/10 [00:05<00:10,  1.72s/it]
+ 50% 5/10 [00:07<00:08,  1.78s/it]
+ 60% 6/10 [00:10<00:07,  1.94s/it]
+ 70% 7/10 [00:11<00:05,  1.84s/it]
+ 80% 8/10 [00:13<00:03,  1.86s/it]
+ 90% 9/10 [00:16<00:02,  2.22s/it]
+                                      
+{'eval_rougeL': 52.6023, 'eval_rougeL_for_CL': 52.6023, 'eval_rougeL_for_task1572_samsum_summary': 52.6023, 'eval_loss': 1.1035579442977905, 'eval_exact_match': 0.0, 'eval_rouge1': 59.8544, 'eval_exact_match_for_CL': 0.0, 'eval_rouge1_for_CL': 59.8544, 'eval_exact_match_for_task1572_samsum_summary': 0.0, 'eval_rouge1_for_task1572_samsum_summary': 59.8544, 'eval_gen_len': 28.3, 'eval_global_step': 25, 'eval_runtime': 21.5571, 'eval_samples_per_second': 0.928, 'eval_steps_per_second': 0.464, 'epoch': 5.0}
+  5% 25/500 [05:36<1:41:00, 12.76s/it]
+100% 10/10 [00:19<00:00,  2.54s/it]
+                                   /usr/local/lib/python3.12/dist-packages/transformers/tokenization_utils_base.py:3921: UserWarning: `as_target_tokenizer` is deprecated and will be removed in v5 of Transformers. You can tokenize your labels by using the argument `text_target` of the regular `__call__` method (either in the same call as your input texts if you use the same keyword arguments, or in a separate call.
+  warnings.warn(
+/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py:632: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.5 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  return fn(*args, **kwargs)
+{'loss': 1.3357, 'grad_norm': 0.2572508454322815, 'learning_rate': 0.0003, 'epoch': 6.0}
+{'loss': 1.291, 'grad_norm': 0.24950174987316132, 'learning_rate': 0.0003, 'epoch': 8.0}
+{'loss': 1.2634, 'grad_norm': 0.25138288736343384, 'learning_rate': 0.0003, 'epoch': 10.0}
+ 10% 50/500 [11:14<1:34:37, 12.62s/it]
+  0% 0/10 [00:00<?, ?it/s]
+ 20% 2/10 [00:00<00:03,  2.02it/s]
+ 30% 3/10 [00:03<00:09,  1.31s/it]
+ 40% 4/10 [00:06<00:10,  1.80s/it]
+ 50% 5/10 [00:07<00:09,  1.81s/it]
+ 60% 6/10 [00:10<00:07,  1.98s/it]
+ 70% 7/10 [00:11<00:05,  1.91s/it]
+ 80% 8/10 [00:13<00:03,  1.90s/it]
+ 90% 9/10 [00:16<00:02,  2.22s/it]
+                                      
+{'eval_rougeL': 50.2065, 'eval_rougeL_for_CL': 50.2065, 'eval_rougeL_for_task1572_samsum_summary': 50.2065, 'eval_loss': 1.0499770641326904, 'eval_exact_match': 0.0, 'eval_rouge1': 58.1571, 'eval_exact_match_for_CL': 0.0, 'eval_rouge1_for_CL': 58.1571, 'eval_exact_match_for_task1572_samsum_summary': 0.0, 'eval_rouge1_for_task1572_samsum_summary': 58.1571, 'eval_gen_len': 29.55, 'eval_global_step': 50, 'eval_runtime': 21.684, 'eval_samples_per_second': 0.922, 'eval_steps_per_second': 0.461, 'epoch': 10.0}
+ 10% 50/500 [11:35<1:34:37, 12.62s/it]
+100% 10/10 [00:20<00:00,  2.56s/it]
+                                   /usr/local/lib/python3.12/dist-packages/transformers/tokenization_utils_base.py:3921: UserWarning: `as_target_tokenizer` is deprecated and will be removed in v5 of Transformers. You can tokenize your labels by using the argument `text_target` of the regular `__call__` method (either in the same call as your input texts if you use the same keyword arguments, or in a separate call.
+  warnings.warn(
+/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py:632: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.5 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  return fn(*args, **kwargs)
+{'loss': 1.2107, 'grad_norm': 0.230705127120018, 'learning_rate': 0.0003, 'epoch': 12.0}
+{'loss': 1.1823, 'grad_norm': 0.2689644396305084, 'learning_rate': 0.0003, 'epoch': 14.0}
+ 15% 75/500 [17:09<1:33:05, 13.14s/it]
+  0% 0/10 [00:00<?, ?it/s]
+ 20% 2/10 [00:01<00:04,  1.98it/s]
+ 30% 3/10 [00:03<00:09,  1.33s/it]
+ 40% 4/10 [00:05<00:09,  1.56s/it]
+ 50% 5/10 [00:06<00:07,  1.49s/it]
+ 60% 6/10 [00:09<00:06,  1.75s/it]
+ 70% 7/10 [00:11<00:05,  1.86s/it]
+ 80% 8/10 [00:12<00:03,  1.71s/it]
+ 90% 9/10 [00:15<00:02,  2.12s/it]
+                                      
+{'eval_rougeL': 49.0111, 'eval_rougeL_for_CL': 49.0111, 'eval_rougeL_for_task1572_samsum_summary': 49.0111, 'eval_loss': 1.0102300643920898, 'eval_exact_match': 0.0, 'eval_rouge1': 57.6646, 'eval_exact_match_for_CL': 0.0, 'eval_rouge1_for_CL': 57.6646, 'eval_exact_match_for_task1572_samsum_summary': 0.0, 'eval_rouge1_for_task1572_samsum_summary': 57.6646, 'eval_gen_len': 30.2, 'eval_global_step': 75, 'eval_runtime': 20.347, 'eval_samples_per_second': 0.983, 'eval_steps_per_second': 0.491, 'epoch': 15.0}
+ 15% 75/500 [17:29<1:33:05, 13.14s/it]
+100% 10/10 [00:18<00:00,  2.25s/it]
+                                   /usr/local/lib/python3.12/dist-packages/transformers/tokenization_utils_base.py:3921: UserWarning: `as_target_tokenizer` is deprecated and will be removed in v5 of Transformers. You can tokenize your labels by using the argument `text_target` of the regular `__call__` method (either in the same call as your input texts if you use the same keyword arguments, or in a separate call.
+  warnings.warn(
+/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py:632: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.5 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  return fn(*args, **kwargs)
+{'loss': 1.1603, 'grad_norm': 0.2284332811832428, 'learning_rate': 0.0003, 'epoch': 16.0}
+{'loss': 1.132, 'grad_norm': 0.23029854893684387, 'learning_rate': 0.0003, 'epoch': 18.0}
+{'loss': 1.1013, 'grad_norm': 0.2577148675918579, 'learning_rate': 0.0003, 'epoch': 20.0}
+ 20% 100/500 [23:16<1:25:31, 12.83s/it]
+  0% 0/10 [00:00<?, ?it/s]
+ 20% 2/10 [00:01<00:04,  1.79it/s]
+ 30% 3/10 [00:03<00:09,  1.36s/it]
+ 40% 4/10 [00:05<00:09,  1.60s/it]
+ 50% 5/10 [00:07<00:07,  1.54s/it]
+ 60% 6/10 [00:09<00:07,  1.79s/it]
+ 70% 7/10 [00:11<00:05,  1.80s/it]
+ 80% 8/10 [00:12<00:03,  1.80s/it]
+ 90% 9/10 [00:15<00:02,  2.18s/it]
+                                       
+{'eval_rougeL': 48.5354, 'eval_rougeL_for_CL': 48.5354, 'eval_rougeL_for_task1572_samsum_summary': 48.5354, 'eval_loss': 0.9658627510070801, 'eval_exact_match': 0.0, 'eval_rouge1': 57.8326, 'eval_exact_match_for_CL': 0.0, 'eval_rouge1_for_CL': 57.8326, 'eval_exact_match_for_task1572_samsum_summary': 0.0, 'eval_rouge1_for_task1572_samsum_summary': 57.8326, 'eval_gen_len': 30.85, 'eval_global_step': 100, 'eval_runtime': 20.8806, 'eval_samples_per_second': 0.958, 'eval_steps_per_second': 0.479, 'epoch': 20.0}
+ 20% 100/500 [23:37<1:25:31, 12.83s/it]
+100% 10/10 [00:18<00:00,  2.29s/it]
+                                   /usr/local/lib/python3.12/dist-packages/transformers/tokenization_utils_base.py:3921: UserWarning: `as_target_tokenizer` is deprecated and will be removed in v5 of Transformers. You can tokenize your labels by using the argument `text_target` of the regular `__call__` method (either in the same call as your input texts if you use the same keyword arguments, or in a separate call.
+  warnings.warn(
+/usr/local/lib/python3.12/dist-packages/torch/_dynamo/eval_frame.py:632: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.5 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  return fn(*args, **kwargs)
+ 21% 104/500 [25:17<2:11:59, 20.00s/it]
