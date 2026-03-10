@@ -423,11 +423,15 @@ def main():
     download_config = DownloadConfig
     download_config.local_files_only = True
     # Get the CL dataset
+    dataset_script_path = os.path.join(CURRENT_DIR, "cl_dataset.py")
+    abs_data_dir = os.path.abspath(data_args.data_dir) if data_args.data_dir else None
+    abs_task_config_dir = os.path.abspath(data_args.task_config_dir) if data_args.task_config_dir else None
     raw_datasets = load_dataset(
-        os.path.join(CURRENT_DIR, "cl_dataset.py"),
-        data_dir=data_args.data_dir,
+        dataset_script_path,
+        data_dir=abs_data_dir,
         download_config=download_config,
-        task_config_dir=data_args.task_config_dir,
+        task_config_dir=abs_task_config_dir,
+        trust_remote_code=True,
         # cache_dir=data_cache_dir,  # for debug, change dataset size, otherwise open it
         max_num_instances_per_task=data_args.max_num_instances_per_task,
         max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
@@ -652,12 +656,14 @@ def main():
         replay_dataset_dict, replay_label_dict = None, None
         if model_args.load_checkpoint_from:
             replay_dataset_dict = {}
+            abs_data_dir_replay = os.path.abspath(data_dir) if data_dir else None
             for idx in range(cur_task_id):
                 raw_datasets_gen = load_dataset(
-                    os.path.join(CURRENT_DIR, "cl_dataset.py"),
-                    data_dir=data_dir,
+                    dataset_script_path,
+                    data_dir=abs_data_dir_replay,
                     download_config=download_config,
-                    task_config_dir=task_config[task_order[idx]],
+                    task_config_dir=os.path.abspath(task_config[task_order[idx]]) if task_config[task_order[idx]] else None,
+                    trust_remote_code=True,
                     cache_dir=data_cache_dir,  # for debug, change dataset size, otherwise open it
                     max_num_instances_per_task=data_args.max_num_instances_per_task,
                     max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
