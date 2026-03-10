@@ -758,32 +758,9 @@ def main():
                         "Prediction": pred
                     }) + "\n")
         return result
-    # ===== CRITICAL: enable_input_require_grads =====
-    # When all base model weights are frozen (only lora_B trainable),
-    # embedding outputs don't have requires_grad=True.
-    # This breaks gradient flow through DataParallel's Broadcast/Reduce.
-    # enable_input_require_grads() adds a hook that sets requires_grad_(True)
-    # on embedding outputs, ensuring the full computation graph tracks gradients.
-    if training_args.model_name in ['specroute', 'inflora', 'gainlora_inflora']:
-        model.enable_input_require_grads()
-        print("-----Enabled input_require_grads (critical for frozen base + LoRA)-----")
-
     print(f"-----Gradient checkpointing: {training_args.gradient_checkpointing} -----")
     if training_args.gradient_checkpointing:
-        # MUST use use_reentrant=False: with reentrant=True (default),
-        # checkpoint() requires input tensors to have requires_grad=True,
-        # otherwise gradients are silently dropped or backward crashes.
-        model.gradient_checkpointing_enable(
-            gradient_checkpointing_kwargs={"use_reentrant": False}
-        )
-        # Verify new format is active (should have _gradient_checkpointing_func)
-        _enc = getattr(model, 'encoder', None)
-        if _enc is not None:
-            _gc_func = getattr(_enc, '_gradient_checkpointing_func', None)
-            print(f"[GC FORMAT] encoder._gradient_checkpointing_func = {_gc_func}")
-            print(f"[GC FORMAT] encoder.gradient_checkpointing = {getattr(_enc, 'gradient_checkpointing', 'N/A')}")
-        else:
-            print("[GC FORMAT] WARNING: model has no 'encoder' attribute")
+        model.gradient_checkpointing_enable()
 
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     training_args.step_per_epoch = math.ceil(len(raw_datasets["train"]) / training_args.per_device_train_batch_size / world_size / training_args.gradient_accumulation_steps)
