@@ -191,12 +191,16 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 try:
                     U, S, V = torch.linalg.svd(cur_trans_matrix)
                 except Exception:
-                    # SVD failed due to ill-conditioning; add regularization and retry
-                    reg = 1e-6 * torch.eye(
-                        cur_trans_matrix.shape[0], cur_trans_matrix.shape[1],
-                        device=cur_trans_matrix.device, dtype=cur_trans_matrix.dtype
-                    )
-                    U, S, V = torch.linalg.svd(cur_trans_matrix + reg)
+                    try:
+                        # Retry with more robust LAPACK driver
+                        U, S, V = torch.linalg.svd(cur_trans_matrix, driver='gesvd')
+                    except Exception:
+                        # Last resort: add regularization and retry
+                        reg = 1e-3 * torch.eye(
+                            cur_trans_matrix.shape[0], cur_trans_matrix.shape[1],
+                            device=cur_trans_matrix.device, dtype=cur_trans_matrix.dtype
+                        )
+                        U, S, V = torch.linalg.svd(cur_trans_matrix + reg, driver='gesvd')
                 module.prompt_key.data[:,index*module.step:(index+1)*module.step].copy_(U[:,:1].T)
                 # ipdb.set_trace()
                 module.matrix_trans_1[index].zero_()
