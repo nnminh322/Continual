@@ -1,8 +1,0 @@
-{
-  "SuperNI": [
-    {
-      "sampling strategy": "full",
-      "dataset name": "task591_sciq_answer_generation"
-    }
-  ]
-}
