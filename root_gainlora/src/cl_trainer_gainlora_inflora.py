@@ -28,6 +28,13 @@ except NameError:
     from types import SimpleNamespace
     ShardedDDPOption = SimpleNamespace(SIMPLE='simple')
 
+# Compat: is_torch_tpu_available removed in transformers >= 4.40
+try:
+    is_torch_tpu_available
+except NameError:
+    def is_torch_tpu_available():
+        return False
+
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
     predictions_ids = np.where(predictions_ids == ignore_idx, tokenizer.pad_token_id, predictions_ids)
 
