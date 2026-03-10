@@ -190,10 +190,13 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 cur_trans_matrix = module.matrix_trans_3[index]
                 try:
                     U, S, V = torch.linalg.svd(cur_trans_matrix)
-                except RuntimeError:
-                    # SVD failed due to ill-conditioning; use pseudoinverse fallback
-                    p_inv = torch.linalg.pinv(cur_trans_matrix)
-                    U, S, V = torch.linalg.svd(p_inv + 1e-4 * torch.eye(p_inv.shape[0], device=p_inv.device, dtype=p_inv.dtype))
+                except Exception:
+                    # SVD failed due to ill-conditioning; add regularization and retry
+                    reg = 1e-6 * torch.eye(
+                        cur_trans_matrix.shape[0], cur_trans_matrix.shape[1],
+                        device=cur_trans_matrix.device, dtype=cur_trans_matrix.dtype
+                    )
+                    U, S, V = torch.linalg.svd(cur_trans_matrix + reg)
                 module.prompt_key.data[:,index*module.step:(index+1)*module.step].copy_(U[:,:1].T)
                 # ipdb.set_trace()
                 module.matrix_trans_1[index].zero_()
