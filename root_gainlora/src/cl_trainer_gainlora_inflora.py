@@ -544,7 +544,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
             # deepspeed handles loss scaling by gradient_accumulation_steps in its `backward`
             loss = loss / self.args.gradient_accumulation_steps
         
-        if self.do_grad_scaling:
+        if getattr(self, 'do_grad_scaling', False):
             self.scaler.scale(loss).backward()
         elif getattr(self, 'use_apex', False):
             with amp.scale_loss(loss, self.optimizer) as scaled_loss:
@@ -577,7 +577,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 if self.args.n_gpu > 1:
                     kl_loss = kl_loss.mean()  # mean() to average on multi-gpu parallel trainin
         
-                if self.do_grad_scaling:
+                if getattr(self, 'do_grad_scaling', False):
                     self.scaler.scale(kl_loss).backward()
                 elif getattr(self, 'use_apex', False):
                     with amp.scale_loss(kl_loss, self.optimizer) as scaled_loss:
@@ -1321,7 +1321,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                     if args.max_grad_norm is not None and args.max_grad_norm > 0:
                         # deepspeed does its own clipping
 
-                        if self.do_grad_scaling:
+                        if getattr(self, 'do_grad_scaling', False):
                             # Reduce gradients first for XLA
                             if is_torch_tpu_available():
                                 gradients = xm._fetch_gradients(self.optimizer)
@@ -1352,12 +1352,12 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                     # Optimizer step
                     optimizer_was_run = True
                     if is_torch_tpu_available():
-                        if self.do_grad_scaling:
+                        if getattr(self, 'do_grad_scaling', False):
                             self.scaler.step(self.optimizer)
                             self.scaler.update()
                         else:
                             xm.optimizer_step(self.optimizer)
-                    elif self.do_grad_scaling:
+                    elif getattr(self, 'do_grad_scaling', False):
                         scale_before = self.scaler.get_scale()
                         self.scaler.step(self.optimizer)
                         self.scaler.update()
