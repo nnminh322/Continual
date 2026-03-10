@@ -21,6 +21,13 @@ try:
 except ImportError:
     ipdb = None
 
+# Compat: ShardedDDPOption removed in transformers >= 4.40
+try:
+    ShardedDDPOption
+except NameError:
+    from types import SimpleNamespace
+    ShardedDDPOption = SimpleNamespace(SIMPLE='simple')
+
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
     predictions_ids = np.where(predictions_ids == ignore_idx, tokenizer.pad_token_id, predictions_ids)
 
@@ -643,7 +650,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
 
             optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args)
 
-            if self.sharded_ddp == ShardedDDPOption.SIMPLE:
+            if getattr(self, 'sharded_ddp', None) == ShardedDDPOption.SIMPLE:
                 self.optimizer = OSS(
                     params=optimizer_grouped_parameters,
                     optim=optimizer_cls,
@@ -1048,8 +1055,8 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 debug_overflow = DebugUnderflowOverflow(self.model)  # noqa
 
         delay_optimizer_creation = (
-            self.sharded_ddp is not None
-            and self.sharded_ddp != ShardedDDPOption.SIMPLE
+            getattr(self, 'sharded_ddp', None) is not None
+            and getattr(self, 'sharded_ddp', None) != ShardedDDPOption.SIMPLE
             or is_sagemaker_mp_enabled()
             or self.fsdp is not None
         )
