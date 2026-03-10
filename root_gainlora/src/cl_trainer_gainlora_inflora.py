@@ -4,13 +4,22 @@ from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.trainer import *
 from transformers.trainer_callback import TrainerCallback
 import numpy as np
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+try:
+    from transformers.trainer_pt_utils import IterableDatasetShard
+except ImportError:
+    from torch.utils.data import IterableDataset as IterableDatasetShard
 
 from cl_collator import SUPPORTED_DECODER_MODELS, check_model
 from cl_dataset import ANSWER_PREFIX
 import cupy as cp
 from torch.utils.dlpack import to_dlpack, from_dlpack
 from cupy import fromDlpack
-import ipdb
+try:
+    import ipdb
+except ImportError:
+    ipdb = None
 
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
     predictions_ids = np.where(predictions_ids == ignore_idx, tokenizer.pad_token_id, predictions_ids)
