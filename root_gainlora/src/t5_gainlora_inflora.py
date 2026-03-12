@@ -124,7 +124,7 @@ class LoRALayer(nn.Module):
     
     def forward(self, x: torch.Tensor):
         result = (self.lora_dropout(x) @ self.lora_A.transpose(0, 1) @ self.lora_B.transpose(0, 1)) * self.scaling
-        return result.reshape(x.shape[0], -1, x.shape[-1])
+        return result  # shape: (batch, seq, out_features=inner_dim)
 
 ####################################################
 # This is a conversion method from TF 1.0 to PyTorch
