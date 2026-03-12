@@ -948,6 +948,7 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
         if "attention_mask" in inputs:
             gen_kwargs["attention_mask"] = inputs.get("attention_mask", None)
 
+        synced_gpus = gen_kwargs.pop("synced_gpus", False)
         generation_config = GenerationConfig(**gen_kwargs)
 
         # prepare generation inputs
@@ -959,6 +960,7 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
             generated_tokens = self.model.generate(
                 input_ids=generation_inputs, 
                 generation_config=generation_config,
+                synced_gpus=synced_gpus,
             )
         else:
             generation_inputs = inputs[self.model.main_input_name]
@@ -968,12 +970,14 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
                     input_ids=generation_inputs,
                     input_ids_wo_label=inputs["input_ids_wo_label"],
                     generation_config=generation_config,
+                    synced_gpus=synced_gpus,
                 )
             
             else:
                 generated_tokens = self.model.generate(
                     input_ids=generation_inputs,
                     generation_config=generation_config,
+                    synced_gpus=synced_gpus,
                 )
 
         bs, source_len = inputs['input_ids'].shape
