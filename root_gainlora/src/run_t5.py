@@ -376,6 +376,15 @@ def main():
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     training_args._frozen = False
 
+    # Safety: T5 models produce NaN/zero gradients with fp16. Force disable.
+    if training_args.fp16:
+        print("=" * 60)
+        print("WARNING: --fp16 detected. T5 models are unstable with fp16")
+        print("(causes NaN loss or zero gradients). Forcing fp16=False.")
+        print("Use --gradient_checkpointing for memory savings instead.")
+        print("=" * 60)
+        training_args.fp16 = False
+
     # Setup logging
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -424,6 +433,9 @@ def main():
     download_config.local_files_only = True
     # Get the CL dataset
     dataset_script_path = os.path.join(CURRENT_DIR, "cl_dataset.py")
+    if not os.path.exists(dataset_script_path):
+        raise FileNotFoundError(f"Dataset script not found: {dataset_script_path}")
+
     abs_data_dir = os.path.abspath(data_args.data_dir) if data_args.data_dir else None
     abs_task_config_dir = os.path.abspath(data_args.task_config_dir) if data_args.task_config_dir else None
     raw_datasets = load_dataset(
@@ -819,6 +831,25 @@ def main():
 
     trainer.is_deepspeed_enabled = False
     print("is_deepspeed_enabled", trainer.is_deepspeed_enabled)
+
+    # ============ QUICK SANITY CHECK: LoRA weights ============
+    if training_args.do_train:
+        print("=" * 60)
+        print("[SANITY] Checking LoRA layer initialization...")
+        model.to(device)
+        _lora = None
+        for _m in model.modules():
+            if hasattr(_m, 'lora_A') and hasattr(_m, 'lora_B'):
+                _lora = _m
+                break
+        if _lora is not None:
+            _a_ok = _lora.lora_A.data.norm().item() > 0
+            print(f"  lora_A norm={_lora.lora_A.data.norm().item():.6f}, requires_grad={_lora.lora_A.requires_grad} {'OK' if _a_ok else 'ZERO - BUG!'}")
+            print(f"  lora_B norm={_lora.lora_B.data.norm().item():.6f}, requires_grad={_lora.lora_B.requires_grad}")
+            if not _a_ok:
+                raise RuntimeError("lora_A is all zeros! from_pretrained no_init_weights fix failed.")
+        print("=" * 60)
+    # ============ END SANITY CHECK ============
 
     all_metrics = {"run_name": training_args.run_name}
 
