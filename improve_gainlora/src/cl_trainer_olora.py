@@ -580,8 +580,7 @@ class OLoRATrainer(Seq2SeqTrainer):
                 
             gen_kwargs["synced_gpus"] = False
 
-        if "attention_mask" in inputs:
-            gen_kwargs["attention_mask"] = inputs.get("attention_mask", None)
+        attention_mask = inputs.get("attention_mask", None)
 
         generation_config = GenerationConfig(**gen_kwargs)
 

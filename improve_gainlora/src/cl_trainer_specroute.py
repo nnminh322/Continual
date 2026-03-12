@@ -585,12 +585,11 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 }
             gen_kwargs["synced_gpus"] = False
 
-        if "attention_mask" in inputs:
-            gen_kwargs["attention_mask"] = inputs.get("attention_mask", None)
+        attention_mask = inputs.get("attention_mask", None)
 
         # synced_gpus and attention_mask must be passed to generate(), not GenerationConfig
         _synced_gpus = gen_kwargs.pop("synced_gpus", False)
-        _attention_mask = gen_kwargs.pop("attention_mask", None)
+        _attention_mask = inputs.get("attention_mask", None)  # from inputs, not gen_kwargs
 
         generation_config = GenerationConfig(**gen_kwargs)
 

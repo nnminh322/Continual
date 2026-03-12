@@ -765,8 +765,7 @@ class InfLoRATrainer(Seq2SeqTrainer):
                 
             gen_kwargs["synced_gpus"] = False
 
-        if "attention_mask" in inputs:
-            gen_kwargs["attention_mask"] = inputs.get("attention_mask", None)
+        attention_mask = inputs.get("attention_mask", None)
 
         synced_gpus = gen_kwargs.pop("synced_gpus", False)
         generation_config = GenerationConfig(**gen_kwargs)
@@ -780,6 +779,7 @@ class InfLoRATrainer(Seq2SeqTrainer):
             generated_tokens = self.model.generate(
                 input_ids=generation_inputs, 
                 generation_config=generation_config,
+                attention_mask=attention_mask,
                 synced_gpus=synced_gpus,
             )
         else:
@@ -790,6 +790,7 @@ class InfLoRATrainer(Seq2SeqTrainer):
                     input_ids=generation_inputs,
                     input_ids_wo_label=inputs["input_ids_wo_label"],
                     generation_config=generation_config,
+                attention_mask=attention_mask,
                     synced_gpus=synced_gpus,
                 )
             
@@ -797,6 +798,7 @@ class InfLoRATrainer(Seq2SeqTrainer):
                 generated_tokens = self.model.generate(
                     input_ids=generation_inputs,
                     generation_config=generation_config,
+                attention_mask=attention_mask,
                     synced_gpus=synced_gpus,
                 )
 
