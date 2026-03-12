@@ -44,13 +44,28 @@ SPECROUTE_SUPERNI_MODES = {
 
 
 def replace_experiment_names(content: str) -> str:
-    """Replace gen_script_X_t5_METHOD  →  gen_script_X_t5_small_METHOD."""
-    # Works in output_dir, run_name, checkpoint paths
-    return re.sub(
-        r'(gen_script_(?:long_order[34]|superni_order[12])_t5_)(?!small_)',
+    """Replace gen_script_X_t5_METHOD  →  gen_script_X_t5_small_METHOD.
+    
+    Only in:
+      - --output_dir paths (logs_and_outputs/...)
+      - --run_name values
+      - checkpoint loading paths (load_checkpoint_from, previous_lora_path, etc.)
+    
+    NOT in --task_config_dir (configs/... stays unchanged)
+    """
+    # Replace in logs_and_outputs/ output directories
+    content = re.sub(
+        r'(logs_and_outputs/)(gen_script_(?:long_order[34]|superni_order[12])_t5_)(?!small_)',
+        r'\1\2small_',
+        content,
+    )
+    # Replace in --run_name
+    content = re.sub(
+        r'(--run_name gen_script_(?:long_order[34]|superni_order[12])_t5_)(?!small_)',
         r'\1small_',
         content,
     )
+    return content
 
 
 def remove_gradient_checkpointing_flag(content: str) -> str:

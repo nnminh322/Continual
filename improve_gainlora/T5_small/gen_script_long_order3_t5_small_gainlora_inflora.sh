@@ -17,7 +17,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --model_name_or_path $2 \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/yelp \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/yelp \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/1-yelp \
    --per_device_train_batch_size 32 \
    --per_device_eval_batch_size 256 \
@@ -67,7 +67,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
    --gen_data_dir generated_data/lora_gen_long_t5 \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/amazon \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/amazon \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/2-amazon \
    --per_device_train_batch_size 32 \
    --per_device_eval_batch_size 256 \
@@ -117,7 +117,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
    --gen_data_dir generated_data/lora_gen_long_t5 \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/mnli \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/mnli \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/3-mnli \
    --per_device_train_batch_size 32 \
    --per_device_eval_batch_size 256 \
@@ -167,7 +167,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
    --gen_data_dir generated_data/lora_gen_long_t5 \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/cb \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/cb \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/4-cb \
    --per_device_train_batch_size 32 \
    --per_device_eval_batch_size 256 \
@@ -217,7 +217,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
    --gen_data_dir generated_data/lora_gen_long_t5 \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/copa \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/copa \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/5-copa \
    --per_device_train_batch_size 32 \
    --per_device_eval_batch_size 256 \
@@ -267,7 +267,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
    --gen_data_dir generated_data/lora_gen_long_t5 \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/qqp \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/qqp \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/6-qqp \
    --per_device_train_batch_size 32 \
    --per_device_eval_batch_size 256 \
@@ -317,7 +317,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
    --gen_data_dir generated_data/lora_gen_long_t5 \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/rte \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/rte \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/7-rte \
    --per_device_train_batch_size 32 \
    --per_device_eval_batch_size 256 \
@@ -367,7 +367,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
    --gen_data_dir generated_data/lora_gen_long_t5 \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/imdb \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/imdb \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/8-imdb \
    --per_device_train_batch_size 32 \
    --per_device_eval_batch_size 256 \
@@ -417,7 +417,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
    --gen_data_dir generated_data/lora_gen_long_t5 \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/sst2 \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/sst2 \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/9-sst2 \
    --per_device_train_batch_size 32 \
    --per_device_eval_batch_size 256 \
@@ -467,7 +467,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
    --gen_data_dir generated_data/lora_gen_long_t5 \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/dbpedia \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/dbpedia \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/10-dbpedia \
    --per_device_train_batch_size 32 \
    --per_device_eval_batch_size 256 \
@@ -517,7 +517,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
    --gen_data_dir generated_data/lora_gen_long_t5 \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/agnews \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/agnews \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/11-agnews \
    --per_device_train_batch_size 32 \
    --per_device_eval_batch_size 256 \
@@ -567,7 +567,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
    --gen_data_dir generated_data/lora_gen_long_t5 \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/yahoo \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/yahoo \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/12-yahoo \
    --per_device_train_batch_size 32 \
    --per_device_eval_batch_size 256 \
@@ -617,7 +617,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
    --gen_data_dir generated_data/lora_gen_long_t5 \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/multirc \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/multirc \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/13-multirc \
    --per_device_train_batch_size 32 \
    --per_device_eval_batch_size 256 \
@@ -667,7 +667,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
    --gen_data_dir generated_data/lora_gen_long_t5 \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/boolq \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/boolq \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/14-boolq \
    --per_device_train_batch_size 32 \
    --per_device_eval_batch_size 256 \
@@ -718,7 +718,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
    --gen_data_dir generated_data/lora_gen_long_t5 \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/wic \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/wic \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/15-wic \
    --per_device_train_batch_size 32 \
    --per_device_eval_batch_size 256 \
@@ -757,7 +757,7 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs
    
 sleep 5
 
-CUDA_VISIBLE_DEVICES=$1 python score.py gen_script_long_order3_t5_small_gainlora_inflora gen_script_long_order3_t5_small_gainlora_inflora
+CUDA_VISIBLE_DEVICES=$1 python score.py gen_script_long_order3_t5_gainlora_inflora gen_script_long_order3_t5_gainlora_inflora
 
 
 

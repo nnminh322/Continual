@@ -67,7 +67,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --model_name_or_path $2 \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/yelp \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/yelp \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/1-yelp \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
@@ -121,7 +121,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --previous_lora_path logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/1-yelp/saved_weights \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/amazon \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/amazon \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/2-amazon \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
@@ -174,7 +174,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --previous_lora_path logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/1-yelp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/2-amazon/saved_weights \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/mnli \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/mnli \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/3-mnli \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
@@ -227,7 +227,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --previous_lora_path logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/1-yelp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/2-amazon/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/3-mnli/saved_weights \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/cb \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/cb \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/4-cb \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
@@ -280,7 +280,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --previous_lora_path logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/1-yelp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/2-amazon/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/3-mnli/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/4-cb/saved_weights \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/copa \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/copa \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/5-copa \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
@@ -333,7 +333,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --previous_lora_path logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/1-yelp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/2-amazon/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/3-mnli/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/4-cb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/5-copa/saved_weights \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/qqp \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/qqp \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/6-qqp \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
@@ -386,7 +386,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --previous_lora_path logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/1-yelp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/2-amazon/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/3-mnli/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/4-cb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/5-copa/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/6-qqp/saved_weights \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/rte \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/rte \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/7-rte \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
@@ -439,7 +439,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --previous_lora_path logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/1-yelp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/2-amazon/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/3-mnli/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/4-cb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/5-copa/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/6-qqp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/7-rte/saved_weights \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/imdb \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/imdb \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/8-imdb \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
@@ -492,7 +492,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --previous_lora_path logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/1-yelp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/2-amazon/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/3-mnli/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/4-cb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/5-copa/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/6-qqp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/7-rte/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/8-imdb/saved_weights \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/sst2 \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/sst2 \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/9-sst2 \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
@@ -545,7 +545,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --previous_lora_path logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/1-yelp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/2-amazon/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/3-mnli/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/4-cb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/5-copa/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/6-qqp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/7-rte/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/8-imdb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/9-sst2/saved_weights \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/dbpedia \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/dbpedia \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/10-dbpedia \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
@@ -598,7 +598,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --previous_lora_path logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/1-yelp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/2-amazon/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/3-mnli/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/4-cb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/5-copa/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/6-qqp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/7-rte/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/8-imdb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/9-sst2/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/10-dbpedia/saved_weights \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/agnews \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/agnews \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/11-agnews \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
@@ -651,7 +651,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --previous_lora_path logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/1-yelp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/2-amazon/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/3-mnli/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/4-cb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/5-copa/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/6-qqp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/7-rte/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/8-imdb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/9-sst2/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/10-dbpedia/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/11-agnews/saved_weights \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/yahoo \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/yahoo \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/12-yahoo \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
@@ -704,7 +704,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --previous_lora_path logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/1-yelp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/2-amazon/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/3-mnli/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/4-cb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/5-copa/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/6-qqp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/7-rte/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/8-imdb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/9-sst2/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/10-dbpedia/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/11-agnews/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/12-yahoo/saved_weights \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/multirc \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/multirc \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/13-multirc \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
@@ -757,7 +757,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --previous_lora_path logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/1-yelp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/2-amazon/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/3-mnli/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/4-cb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/5-copa/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/6-qqp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/7-rte/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/8-imdb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/9-sst2/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/10-dbpedia/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/11-agnews/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/12-yahoo/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/13-multirc/saved_weights \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/boolq \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/boolq \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/14-boolq \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
@@ -810,7 +810,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --previous_lora_path logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/1-yelp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/2-amazon/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/3-mnli/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/4-cb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/5-copa/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/6-qqp/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/7-rte/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/8-imdb/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/9-sst2/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/10-dbpedia/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/11-agnews/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/12-yahoo/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/13-multirc/saved_weights,logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/14-boolq/saved_weights \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
-   --task_config_dir configs/gen_script_long_order3_t5_small_configs/wic \
+   --task_config_dir configs/gen_script_long_order3_t5_configs/wic \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_specroute/outputs/15-wic \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \

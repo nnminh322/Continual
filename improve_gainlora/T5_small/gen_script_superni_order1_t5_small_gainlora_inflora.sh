@@ -18,7 +18,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --model_name_or_path $2 \
    --data_dir CL_Benchmark \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
-   --task_config_dir configs/gen_script_superni_order1_t5_small_configs/task1572_samsum_summary \
+   --task_config_dir configs/gen_script_superni_order1_t5_configs/task1572_samsum_summary \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_small_gainlora_inflora/outputs/1-task1572_samsum_summary \
    --per_device_train_batch_size 16 \
    --per_device_eval_batch_size 8 \
@@ -67,7 +67,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
-   --task_config_dir configs/gen_script_superni_order1_t5_small_configs/task363_sst2_polarity_classification \
+   --task_config_dir configs/gen_script_superni_order1_t5_configs/task363_sst2_polarity_classification \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_small_gainlora_inflora/outputs/2-task363_sst2_polarity_classification \
    --per_device_train_batch_size 16 \
    --per_device_eval_batch_size 8 \
@@ -116,7 +116,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
-   --task_config_dir configs/gen_script_superni_order1_t5_small_configs/task1290_xsum_summarization \
+   --task_config_dir configs/gen_script_superni_order1_t5_configs/task1290_xsum_summarization \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_small_gainlora_inflora/outputs/3-task1290_xsum_summarization \
    --per_device_train_batch_size 16 \
    --per_device_eval_batch_size 8 \
@@ -165,7 +165,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
-   --task_config_dir configs/gen_script_superni_order1_t5_small_configs/task181_outcome_extraction \
+   --task_config_dir configs/gen_script_superni_order1_t5_configs/task181_outcome_extraction \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_small_gainlora_inflora/outputs/4-task181_outcome_extraction \
    --per_device_train_batch_size 16 \
    --per_device_eval_batch_size 8 \
@@ -214,7 +214,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
-   --task_config_dir configs/gen_script_superni_order1_t5_small_configs/task002_quoref_answer_generation \
+   --task_config_dir configs/gen_script_superni_order1_t5_configs/task002_quoref_answer_generation \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_small_gainlora_inflora/outputs/5-task002_quoref_answer_generation \
    --per_device_train_batch_size 16 \
    --per_device_eval_batch_size 8 \
@@ -263,7 +263,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
-   --task_config_dir configs/gen_script_superni_order1_t5_small_configs/task1510_evalution_relation_extraction \
+   --task_config_dir configs/gen_script_superni_order1_t5_configs/task1510_evalution_relation_extraction \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_small_gainlora_inflora/outputs/6-task1510_evalution_relation_extraction \
    --per_device_train_batch_size 16 \
    --per_device_eval_batch_size 8 \
@@ -312,7 +312,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
-   --task_config_dir configs/gen_script_superni_order1_t5_small_configs/task639_multi_woz_user_utterance_generation \
+   --task_config_dir configs/gen_script_superni_order1_t5_configs/task639_multi_woz_user_utterance_generation \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_small_gainlora_inflora/outputs/7-task639_multi_woz_user_utterance_generation \
    --per_device_train_batch_size 16 \
    --per_device_eval_batch_size 8 \
@@ -361,7 +361,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
-   --task_config_dir configs/gen_script_superni_order1_t5_small_configs/task1729_personachat_generate_next \
+   --task_config_dir configs/gen_script_superni_order1_t5_configs/task1729_personachat_generate_next \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_small_gainlora_inflora/outputs/8-task1729_personachat_generate_next \
    --per_device_train_batch_size 16 \
    --per_device_eval_batch_size 8 \
@@ -410,7 +410,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
-   --task_config_dir configs/gen_script_superni_order1_t5_small_configs/task073_commonsenseqa_answer_generation \
+   --task_config_dir configs/gen_script_superni_order1_t5_configs/task073_commonsenseqa_answer_generation \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_small_gainlora_inflora/outputs/9-task073_commonsenseqa_answer_generation \
    --per_device_train_batch_size 16 \
    --per_device_eval_batch_size 8 \
@@ -459,7 +459,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
-   --task_config_dir configs/gen_script_superni_order1_t5_small_configs/task1590_diplomacy_text_generation \
+   --task_config_dir configs/gen_script_superni_order1_t5_configs/task1590_diplomacy_text_generation \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_small_gainlora_inflora/outputs/10-task1590_diplomacy_text_generation \
    --per_device_train_batch_size 16 \
    --per_device_eval_batch_size 8 \
@@ -508,7 +508,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
-   --task_config_dir configs/gen_script_superni_order1_t5_small_configs/task748_glucose_reverse_cause_event_detection \
+   --task_config_dir configs/gen_script_superni_order1_t5_configs/task748_glucose_reverse_cause_event_detection \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_small_gainlora_inflora/outputs/11-task748_glucose_reverse_cause_event_detection \
    --per_device_train_batch_size 16 \
    --per_device_eval_batch_size 8 \
@@ -557,7 +557,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
-   --task_config_dir configs/gen_script_superni_order1_t5_small_configs/task511_reddit_tifu_long_text_summarization \
+   --task_config_dir configs/gen_script_superni_order1_t5_configs/task511_reddit_tifu_long_text_summarization \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_small_gainlora_inflora/outputs/12-task511_reddit_tifu_long_text_summarization \
    --per_device_train_batch_size 16 \
    --per_device_eval_batch_size 8 \
@@ -606,7 +606,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
-   --task_config_dir configs/gen_script_superni_order1_t5_small_configs/task591_sciq_answer_generation \
+   --task_config_dir configs/gen_script_superni_order1_t5_configs/task591_sciq_answer_generation \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_small_gainlora_inflora/outputs/13-task591_sciq_answer_generation \
    --per_device_train_batch_size 16 \
    --per_device_eval_batch_size 8 \
@@ -655,7 +655,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
-   --task_config_dir configs/gen_script_superni_order1_t5_small_configs/task1687_sentiment140_classification \
+   --task_config_dir configs/gen_script_superni_order1_t5_configs/task1687_sentiment140_classification \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_small_gainlora_inflora/outputs/14-task1687_sentiment140_classification \
    --per_device_train_batch_size 16 \
    --per_device_eval_batch_size 8 \
@@ -704,7 +704,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
-   --task_config_dir configs/gen_script_superni_order1_t5_small_configs/task875_emotion_classification \
+   --task_config_dir configs/gen_script_superni_order1_t5_configs/task875_emotion_classification \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_small_gainlora_inflora/outputs/15-task875_emotion_classification \
    --per_device_train_batch_size 16 \
    --per_device_eval_batch_size 8 \
@@ -741,4 +741,4 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --threshold 0.995 \
    --transthreshold 0.995
 
-python score.py gen_script_superni_order1_t5_small_gainlora_inflora gen_script_superni_order1_t5_small_gainlora_inflora
+python score.py gen_script_superni_order1_t5_gainlora_inflora gen_script_superni_order1_t5_gainlora_inflora
