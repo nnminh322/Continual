@@ -1,7 +1,10 @@
 import json
 import os
 import sys
-import ipdb
+try:
+    import ipdb
+except ImportError:
+    ipdb = None
 
 def load_json(path):
     with open(path, 'r', encoding='utf-8') as f:
