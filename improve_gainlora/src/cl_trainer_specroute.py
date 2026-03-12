@@ -15,7 +15,10 @@ from torch.utils.data.distributed import DistributedSampler
 from transformers import GenerationConfig
 from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.trainer import *
-from transformers.trainer_pt_utils import nested_truncate
+from transformers.trainer_pt_utils import (
+    nested_truncate, nested_concat, nested_numpify,
+    denumpify_detensorize, find_batch_size,
+)
 from transformers.trainer_callback import TrainerCallback
 
 # ShardedDDPOption was removed in transformers>=4.38
