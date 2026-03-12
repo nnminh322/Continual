@@ -487,22 +487,36 @@ def main():
     model.persent = training_args.persent
     model.resize_token_embeddings(len(tokenizer))
 
+    # FIX: from_pretrained wraps model construction in no_init_weights() context,
+    # which replaces nn.init.kaiming_uniform_ with a no-op. This leaves lora_A
+    # as all zeros (from torch.zeros in constructor), making LoRA output = 0
+    # and all lora_B gradients = 0. Re-initialize lora_A here.
+    _n_reinit = 0
+    for _module in model.modules():
+        if hasattr(_module, 'lora_A') and hasattr(_module, 'lora_B') and hasattr(_module, 'reset_parameters'):
+            nn.init.kaiming_uniform_(_module.lora_A, a=math.sqrt(5))
+            _n_reinit += 1
+    print(f"[FIX] Re-initialized lora_A in {_n_reinit} LoRA layers with kaiming_uniform_")
+
     try:
         local_rank = int(os.environ['LOCAL_RANK'])
         device = torch.device(f"cuda:{local_rank}")
     except:
         device = torch.device(f"cuda:0")
     if model_args.load_checkpoint_from:
-        print("----------Loading Previous Query Projection Layer----------")
-        model.encoder.trans_input.load_state_dict(torch.load(model_args.load_checkpoint_from, map_location=device))
-        if training_args.model_name in ['gainlora_inflora', 'gainlora_olora']:
-            model.encoder.previous_trans_input.input_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device)['0.weight'])
-            model.encoder.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device)['2.weight'])
-            model.encoder.previous_trans_input.state_dict()
-            if cur_task_id > 1:
-                model.encoder.previous_trans_input.input_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device)['input_linear'])
-                model.encoder.previous_trans_input.output_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device)['output_linear'])
-        print("----------Loading Previous Query Projection Layer Done----------")
+        if not os.path.exists(model_args.load_checkpoint_from):
+            logger.warning(f"load_checkpoint_from not found: {model_args.load_checkpoint_from}, skipping load")
+        else:
+            print("----------Loading Previous Query Projection Layer----------")
+            model.encoder.trans_input.load_state_dict(torch.load(model_args.load_checkpoint_from, map_location=device))
+            if training_args.model_name in ['gainlora_inflora', 'gainlora_olora']:
+                model.encoder.previous_trans_input.input_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device)['0.weight'])
+                model.encoder.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device)['2.weight'])
+                model.encoder.previous_trans_input.state_dict()
+                if cur_task_id > 1:
+                    model.encoder.previous_trans_input.input_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device)['input_linear'])
+                    model.encoder.previous_trans_input.output_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device)['output_linear'])
+            print("----------Loading Previous Query Projection Layer Done----------")
 
     if model_args.previous_lora_path:
         previous_lora_list = model_args.previous_lora_path.split(',')
@@ -707,7 +721,11 @@ def main():
         return result
     print(f"-----Gradient checkpointing: {training_args.gradient_checkpointing} -----")
     if training_args.gradient_checkpointing:
-        model.gradient_checkpointing_enable()
+        # use_reentrant=False: don't require input requires_grad=True
+        # Recommended by PyTorch 2.5+ (will be mandatory in future versions)
+        model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
 
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     training_args.step_per_epoch = math.ceil(len(raw_datasets["train"]) / training_args.per_device_train_batch_size / world_size / training_args.gradient_accumulation_steps)

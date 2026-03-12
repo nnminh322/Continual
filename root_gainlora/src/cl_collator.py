@@ -112,9 +112,18 @@ class DataCollator:
         if self.text_only:
             model_inputs = {"inputs": sources, "labels": labels}
         else:
+            # Ensure max_length is compatible with pad_to_multiple_of
+            _pad_mult = self.pad_to_multiple_of
+            _src_len = self.max_source_length
+            _tgt_len = self.max_target_length
+            if _pad_mult and _src_len and _src_len % _pad_mult != 0:
+                _src_len = ((_src_len + _pad_mult - 1) // _pad_mult) * _pad_mult
+            if _pad_mult and _tgt_len and _tgt_len % _pad_mult != 0:
+                _tgt_len = ((_tgt_len + _pad_mult - 1) // _pad_mult) * _pad_mult
+
             model_inputs = self.tokenizer(
                 sources,
-                max_length=self.max_source_length,
+                max_length=_src_len,
                 padding=self.padding,
                 return_tensors=return_tensors,
                 truncation=True,
@@ -123,7 +132,7 @@ class DataCollator:
             with self.tokenizer.as_target_tokenizer():
                 labels = self.tokenizer(
                     labels,
-                    max_length=self.max_target_length,
+                    max_length=_tgt_len,
                     padding=self.padding,
                     return_tensors=return_tensors,
                     truncation=True,
