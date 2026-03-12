@@ -14,6 +14,26 @@ from llama_inflora import LlamaAttention
 import ipdb
 
 
+# Compat: ShardedDDPOption removed in transformers >= 4.40
+try:
+    from transformers.trainer_utils import ShardedDDPOption
+except ImportError:
+    from types import SimpleNamespace
+    ShardedDDPOption = SimpleNamespace(SIMPLE='simple')
+
+# Compat: is_torch_tpu_available removed in transformers >= 4.40
+try:
+    from transformers import is_torch_tpu_available
+except ImportError:
+    def is_torch_tpu_available():
+        return False
+
+# Compat: IterableDatasetShard moved/removed in transformers >= 4.40
+try:
+    from transformers.trainer_pt_utils import IterableDatasetShard
+except ImportError:
+    from torch.utils.data import IterableDataset as IterableDatasetShard
+
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
     predictions_ids = np.where(predictions_ids == ignore_idx, tokenizer.pad_token_id, predictions_ids)
 
@@ -155,9 +175,9 @@ class OLoRATrainer(Seq2SeqTrainer):
         ######################################################################
 
 
-        if self.do_grad_scaling:
+        if getattr(self, 'do_grad_scaling', False):
             self.scaler.scale(loss).backward()
-        elif self.use_apex:
+        elif getattr(self, 'use_apex', False):
             with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward()
         elif self.is_deepspeed_enabled:
@@ -188,9 +208,9 @@ class OLoRATrainer(Seq2SeqTrainer):
                 if self.args.n_gpu > 1:
                     kl_loss = kl_loss.mean()  # mean() to average on multi-gpu parallel trainin
         
-                if self.do_grad_scaling:
+                if getattr(self, 'do_grad_scaling', False):
                     self.scaler.scale(kl_loss).backward()
-                elif self.use_apex:
+                elif getattr(self, 'use_apex', False):
                     with amp.scale_loss(kl_loss, self.optimizer) as scaled_loss:
                         scaled_loss.backward()
                 elif self.is_deepspeed_enabled:
@@ -273,7 +293,7 @@ class OLoRATrainer(Seq2SeqTrainer):
 
             optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args)
 
-            if self.sharded_ddp == ShardedDDPOption.SIMPLE:
+            if getattr(self, 'sharded_ddp', None) == ShardedDDPOption.SIMPLE:
                 self.optimizer = OSS(
                     params=optimizer_grouped_parameters,
                     optim=optimizer_cls,

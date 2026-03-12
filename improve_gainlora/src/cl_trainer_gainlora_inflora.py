@@ -12,6 +12,26 @@ from torch.utils.dlpack import to_dlpack, from_dlpack
 from cupy import fromDlpack
 import ipdb
 
+# Compat: ShardedDDPOption removed in transformers >= 4.40
+try:
+    from transformers.trainer_utils import ShardedDDPOption
+except ImportError:
+    from types import SimpleNamespace
+    ShardedDDPOption = SimpleNamespace(SIMPLE='simple')
+
+# Compat: is_torch_tpu_available removed in transformers >= 4.40
+try:
+    from transformers import is_torch_tpu_available
+except ImportError:
+    def is_torch_tpu_available():
+        return False
+
+# Compat: IterableDatasetShard moved/removed in transformers >= 4.40
+try:
+    from transformers.trainer_pt_utils import IterableDatasetShard
+except ImportError:
+    from torch.utils.data import IterableDataset as IterableDatasetShard
+
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
     predictions_ids = np.where(predictions_ids == ignore_idx, tokenizer.pad_token_id, predictions_ids)
 
@@ -516,9 +536,9 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
             # deepspeed handles loss scaling by gradient_accumulation_steps in its `backward`
             loss = loss / self.args.gradient_accumulation_steps
         
-        if self.do_grad_scaling:
+        if getattr(self, 'do_grad_scaling', False):
             self.scaler.scale(loss).backward()
-        elif self.use_apex:
+        elif getattr(self, 'use_apex', False):
             with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward()
         elif self.is_deepspeed_enabled:
@@ -549,9 +569,9 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 if self.args.n_gpu > 1:
                     kl_loss = kl_loss.mean()  # mean() to average on multi-gpu parallel trainin
         
-                if self.do_grad_scaling:
+                if getattr(self, 'do_grad_scaling', False):
                     self.scaler.scale(kl_loss).backward()
-                elif self.use_apex:
+                elif getattr(self, 'use_apex', False):
                     with amp.scale_loss(kl_loss, self.optimizer) as scaled_loss:
                         scaled_loss.backward()
                 elif self.is_deepspeed_enabled:
@@ -634,7 +654,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
 
             optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args)
 
-            if self.sharded_ddp == ShardedDDPOption.SIMPLE:
+            if getattr(self, 'sharded_ddp', None) == ShardedDDPOption.SIMPLE:
                 self.optimizer = OSS(
                     params=optimizer_grouped_parameters,
                     optim=optimizer_cls,
@@ -1043,10 +1063,10 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 debug_overflow = DebugUnderflowOverflow(self.model)  # noqa
 
         delay_optimizer_creation = (
-            self.sharded_ddp is not None
-            and self.sharded_ddp != ShardedDDPOption.SIMPLE
+            getattr(self, 'sharded_ddp', None) is not None
+            and getattr(self, 'sharded_ddp', None) != ShardedDDPOption.SIMPLE
             or is_sagemaker_mp_enabled()
-            or self.fsdp is not None
+            or getattr(self, 'fsdp', None) is not None
         )
 
         if self.is_deepspeed_enabled:
@@ -1078,7 +1098,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         # prepare using `accelerator` prepare
         if use_accelerator_prepare:
             if hasattr(self.lr_scheduler, "step"):
-                if self.use_apex:
+                if getattr(self, 'use_apex', False):
                     model = self.accelerator.prepare(self.model)
                 else:
                     model, self.optimizer = self.accelerator.prepare(self.model, self.optimizer)
@@ -1297,7 +1317,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                     if args.max_grad_norm is not None and args.max_grad_norm > 0:
                         # deepspeed does its own clipping
 
-                        if self.do_grad_scaling:
+                        if getattr(self, 'do_grad_scaling', False):
                             # Reduce gradients first for XLA
                             if is_torch_tpu_available():
                                 gradients = xm._fetch_gradients(self.optimizer)
@@ -1313,7 +1333,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                         elif hasattr(model, "clip_grad_norm_"):
                             # Some models (like FullyShardedDDP) have a specific way to do gradient clipping
                             model.clip_grad_norm_(args.max_grad_norm)
-                        elif self.use_apex:
+                        elif getattr(self, 'use_apex', False):
                             # Revert to normal clipping otherwise, handling Apex or full precision
                             nn.utils.clip_grad_norm_(
                                 amp.master_params(self.optimizer),
@@ -1328,12 +1348,12 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                     # Optimizer step
                     optimizer_was_run = True
                     if is_torch_tpu_available():
-                        if self.do_grad_scaling:
+                        if getattr(self, 'do_grad_scaling', False):
                             self.scaler.step(self.optimizer)
                             self.scaler.update()
                         else:
                             xm.optimizer_step(self.optimizer)
-                    elif self.do_grad_scaling:
+                    elif getattr(self, 'do_grad_scaling', False):
                         scale_before = self.scaler.get_scale()
                         self.scaler.step(self.optimizer)
                         self.scaler.update()

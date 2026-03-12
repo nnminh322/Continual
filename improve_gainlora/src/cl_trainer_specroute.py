@@ -639,5 +639,5 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
 
     # _inner_training_loop: removed — base Seq2SeqTrainer handles it correctly.
     # The override was a wholesale copy from old transformers with deprecated attrs
-    # (self.do_grad_scaling, self.use_apex, is_torch_less_than_1_11, etc.)
+    # (getattr(self, 'do_grad_scaling', False), getattr(self, 'use_apex', False), is_torch_less_than_1_11, etc.)
     # and contained NO SpecRoute-specific logic.
