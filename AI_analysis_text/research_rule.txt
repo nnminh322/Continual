@@ -1,3 +1,0 @@
-Về nguyên tắc nghiên cứu, một idea chặt chẽ phải được đi từ phân tích lý thuyết -> giải pháp cải thiện -> thực nghiệm chứng minh -> củng cố phân tích và giải pháp
-Việc làm "thử-sai" để tìm ra cải thiện tốt nhất rồi từ đó suy ngược ra phân tích lý thuyết đúng với tinh thần thực nghiệm nhưng không đủ sức nặng để tạo ra impact lớn, do vậy không được khuyến khích trong nghiên cứu (tất nghiên không khuyến khích chứ không cấm)
-Quy trình hợp lý là: phân tích cặn kẽ lý thuyết -> chỉ ra weakness của nghiên cứu cú -> xây dựng motivation đủ lớn để đề xuất ra cải tiến mới -> xây dựng tổng thể cải tiến -> thử một số thực nghiệm mới một vài config nhưng không đi xa khởi đề xuất cải thiện -> chứng minh được hiệu quả, củng cố lý thuyết

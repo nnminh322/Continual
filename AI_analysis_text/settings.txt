@@ -1,4 +1,0 @@
-thông thường trong nghiên cứu, một hướng nghiên cứu là một tập hợp các paper, trong đó có cùng một số điều kiện ràng buộc được gọi là các settings
-
-- Đối với bài toán này, điều kiện ràng buộc cho hướng nghiên cứu là zero-replay, tức là, không được phép sử dụng lại bất kỳ dữ liệu cũ dưới bất kỳ hình thức nào bao gồm dữ liệu thô, dữ liệu synthetic, phân phối dữ liệu (được tạo ra nhờ các công cụ thống kê) tất cả đều không được phép
-- Một paper theo hướng nghiên cứu này phải đảm bảo chặt chẽ điều kiện đó, nếu không nó sẽ trở thành 1 hướng nghiên cứu khác

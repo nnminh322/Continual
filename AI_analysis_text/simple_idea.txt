@@ -1,6 +1,0 @@
-idea start bắt đầu từ ý nghĩ:
-- contribution 1: với mục tiêu anti-forgetting: đề xuất cơ chế thống kê gồm có 2 bước: sử dụng công cụ thống kê mạnh để khái quát phân phối của dữ liệu (hoặc biểu diễn dữ liệu) sao cho công cụ thống kê này chứa đặt trưng hình học phù hợp với đặc trưng hình học của không gian dữ liệu (hoặc không gian đặc trưng nếu thống kê trên feature - output của encoder). Phân phối này sẽ được hiệu chỉnh cho phù hợp bởi một nguồn external knowledge nào đó
-
-- idea cũ đã áp dụng: cho rằng catastrophic forgetting có nguyên nhân chính là drift representation, do đó phải có cơ chế chống hiện tượng biểu diễn bị trôi dạt. Đối với bài toán cũ, backbone encoder là bert, mà feature bert space là hypersphere do đó sử dụng vMF để khái quát phân phối, bổ sung thành phần 2 loss  để phạt model nếu dịch chuyển tâm cụm cũ quá xa, và phạt model nếu để các class mới xâm lấn vào vùng cũ. cũng có 1 cơ chế để hiệu chỉnh tâm 
-
-- Idea dựa trên một single model - không có các submodule/adaptive, chỉ hiệu chỉnh 1 model duy nhất
