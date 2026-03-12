@@ -84,6 +84,15 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
         self._grad_check_done = False
         # No replay data needed for SpecRoute
 
+    def _save(self, output_dir=None, state_dict=None):
+        # T5 shared embeddings are incompatible with safetensors; force pytorch format
+        old = getattr(self.args, 'save_safetensors', True)
+        self.args.save_safetensors = False
+        try:
+            super()._save(output_dir=output_dir, state_dict=state_dict)
+        finally:
+            self.args.save_safetensors = old
+
     def training_step(self, model, inputs, **kwargs):
         """Override to add one-time gradient diagnostic."""
         loss = super().training_step(model, inputs, **kwargs)

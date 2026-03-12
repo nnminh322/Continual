@@ -120,6 +120,15 @@ class OLoRATrainer(Seq2SeqTrainer):
                         worker_init_fn=seed_worker)
             self.replay_iterator_dict = create_memory_replay_generators(task_order[cur_task_id], task_order, self.replay_dataloader_dict)
 
+    def _save(self, output_dir=None, state_dict=None):
+        # T5 shared embeddings are incompatible with safetensors; force pytorch format
+        old = getattr(self.args, 'save_safetensors', True)
+        self.args.save_safetensors = False
+        try:
+            super()._save(output_dir=output_dir, state_dict=state_dict)
+        finally:
+            self.args.save_safetensors = old
+
     def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
         """
         Perform a training step on a batch of inputs.
