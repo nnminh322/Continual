@@ -5,8 +5,12 @@ from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.trainer import *
 from transformers.trainer_pt_utils import (
     nested_truncate, nested_concat, nested_numpify,
-    denumpify_detensorize, find_batch_size,
+    find_batch_size,
 )
+try:
+    from transformers.trainer_pt_utils import denumpify_detensorize
+except ImportError:
+    from transformers.trainer_utils import denumpify_detensorize
 from transformers.trainer_callback import TrainerCallback
 import numpy as np
 from torch.utils.data import DataLoader
