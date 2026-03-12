@@ -38,7 +38,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -89,7 +89,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_cb \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -140,7 +140,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_wic \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -191,7 +191,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_copa \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -242,7 +242,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_qqp \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -293,7 +293,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_boolq \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -344,7 +344,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_rte \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -395,7 +395,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_imdb \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -446,7 +446,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_yelp \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -497,7 +497,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_amazon \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -548,7 +548,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_sst2 \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -599,7 +599,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_dbpedia \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -650,7 +650,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_agnews \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -701,7 +701,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_multirc \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -752,7 +752,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_yahoo \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \

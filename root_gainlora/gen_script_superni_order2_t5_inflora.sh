@@ -38,7 +38,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --lora_r 4 \
@@ -84,7 +84,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task073_commonsenseqa_answer_generation \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -131,7 +131,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task1590_diplomacy_text_generation \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -178,7 +178,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task639_multi_woz_user_utterance_generation \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -225,7 +225,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task1572_samsum_summary \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -272,7 +272,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task1687_sentiment140_classification \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -319,7 +319,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task591_sciq_answer_generation \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -366,7 +366,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task363_sst2_polarity_classification \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -413,7 +413,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task1510_evalution_relation_extraction \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -460,7 +460,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task1729_personachat_generate_next \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -507,7 +507,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task181_outcome_extraction \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -554,7 +554,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task511_reddit_tifu_long_text_summarization \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -601,7 +601,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task002_quoref_answer_generation \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -648,7 +648,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task1290_xsum_summarization \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
@@ -695,7 +695,7 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task875_emotion_classification \
-   --eval_strategy steps \
+   --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
    --load_best_model_at_end \
