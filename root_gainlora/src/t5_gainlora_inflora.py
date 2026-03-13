@@ -1204,8 +1204,8 @@ class T5Stack(T5PreTrainedModel):
         else:
             attn_temperature = math.sqrt(2*self.model_dim)
         
-        x=x/x.norm(dim=-1,keepdim=True)
-        prompt_key = prompt_key/prompt_key.norm(dim=-1,keepdim=True)
+        x=x/(x.norm(dim=-1,keepdim=True) + 1e-12)
+        prompt_key = prompt_key/(prompt_key.norm(dim=-1,keepdim=True) + 1e-12)
         
         # attn_scores = prompt_key.bmm(
         #     x.transpose(1, 2))

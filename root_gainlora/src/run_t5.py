@@ -510,6 +510,26 @@ def main():
             _n_reinit += 1
     print(f"[FIX] Re-initialized lora_A in {_n_reinit} LoRA layers with kaiming_uniform_")
 
+    # FIX: Also re-initialize trans_input nn.Linear layers and prompt_key.
+    # no_init_weights() makes nn.Linear.reset_parameters() a no-op,
+    # leaving weights as torch.empty() (uninitialized). If weights=0,
+    # trans_input output=0, then cal_attention does x/x.norm() = 0/0 = NaN,
+    # which propagates to loss=NaN (reported as train_loss=0.0 by nan filter).
+    if hasattr(model, 'encoder') and hasattr(model.encoder, 'trans_input'):
+        _n_linear = 0
+        for _layer in model.encoder.trans_input:
+            if isinstance(_layer, nn.Linear):
+                nn.init.kaiming_uniform_(_layer.weight, a=math.sqrt(5))
+                if _layer.bias is not None:
+                    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(_layer.weight)
+                    bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+                    nn.init.uniform_(_layer.bias, -bound, bound)
+                _n_linear += 1
+        print(f"[FIX] Re-initialized {_n_linear} trans_input Linear layers")
+    if hasattr(model, 'encoder') and hasattr(model.encoder, 'prompt_key'):
+        nn.init.uniform_(model.encoder.prompt_key.data, -1, 1)
+        print(f"[FIX] Re-initialized prompt_key with uniform(-1, 1)")
+
     try:
         local_rank = int(os.environ['LOCAL_RANK'])
         device = torch.device(f"cuda:{local_rank}")
@@ -733,8 +753,9 @@ def main():
         return result
     print(f"-----Gradient checkpointing: {training_args.gradient_checkpointing} -----")
     if training_args.gradient_checkpointing:
-        model.gradient_checkpointing_enable()
-        model.enable_input_require_grads()
+        model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
 
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     training_args.step_per_epoch = math.ceil(len(raw_datasets["train"]) / training_args.per_device_train_batch_size / world_size / training_args.gradient_accumulation_steps)
@@ -843,8 +864,23 @@ def main():
             _a_ok = _lora.lora_A.data.norm().item() > 0
             print(f"  lora_A norm={_lora.lora_A.data.norm().item():.6f}, requires_grad={_lora.lora_A.requires_grad} {'OK' if _a_ok else 'ZERO - BUG!'}")
             print(f"  lora_B norm={_lora.lora_B.data.norm().item():.6f}, requires_grad={_lora.lora_B.requires_grad}")
+            # Quick forward+backward test to verify gradient flow
+            _test_x = torch.randn(1, 3, _lora.lora_A.shape[1], device=device)
+            _lora.lora_B.grad = None
+            _y = _lora(_test_x)
+            _y.sum().backward()
+            _b_grad = _lora.lora_B.grad.norm().item() if _lora.lora_B.grad is not None else 0
+            print(f"  lora_B.grad norm={_b_grad:.6e} {'OK' if _b_grad > 0 else 'ZERO - BUG!'}")
+            model.zero_grad()
             if not _a_ok:
                 raise RuntimeError("lora_A is all zeros! from_pretrained no_init_weights fix failed.")
+        # Check trans_input weights
+        if hasattr(model, 'encoder') and hasattr(model.encoder, 'trans_input'):
+            for _i, _layer in enumerate(model.encoder.trans_input):
+                if isinstance(_layer, nn.Linear):
+                    _w_norm = _layer.weight.data.norm().item()
+                    _w_zero = (_layer.weight.data == 0).all().item()
+                    print(f"  trans_input[{_i}] weight norm={_w_norm:.6f}, all_zero={_w_zero} {'BUG!' if _w_zero else 'OK'}")
         print("=" * 60)
     # ============ END SANITY CHECK ============
 
