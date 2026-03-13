@@ -637,32 +637,19 @@ class T5Attention(nn.Module):
             return hidden_states
         
         def agg_lora_states(hidden_states, lora_layer, pre_lora_layer, key_attention_weights):
+            # Memory-efficient: accumulate weighted sum one task at a time instead of
+            # materializing all N_prev outputs simultaneously (avoids O(N) VRAM at late tasks).
+            # key_attention_weights: (batch_size, 1+N_prev, 1)
+            # Each lora output: (batch_size, seq_len, inner_dim)
+            w_cur = key_attention_weights[:, 0:1, :]  # (batch_size, 1, 1), grad flows through key_attn
+            result = lora_layer(hidden_states) * w_cur  # grad flows through lora_layer + w_cur
             if pre_lora_layer is not None:
-                cur_lora_states = lora_layer(hidden_states).unsqueeze(0)
-                with torch.no_grad():
-                    pre_lora_states = torch.cat([pre_lora(hidden_states).unsqueeze(0) for pre_lora in pre_lora_layer], dim=0)
-                concat_q = torch.cat([cur_lora_states, pre_lora_states], dim=0).transpose(0, 1).reshape(batch_size, -1, hidden_states.shape[1]*self.inner_dim)
-                # if not self.training:
-                #     print("ori", key_attention_weights[0])
-                
-                # if not self.training:
-                    # key_attention_weights = torch.tensor([[0.05, 0.95]]).repeat(batch_size, 1, 1).to(dtype=torch.bfloat16, device=concat_q.device).transpose(1, 2)
-                    # print("oral", key_attention_weights[0])
-                    # print("-"*20)
-                # import ipdb
-                agg_lora_states = torch.matmul(key_attention_weights.transpose(1, 2), concat_q).squeeze()
-                # if not self.training:
-                #     # key_attention_weights = torch.tensor([[0, 1]]).repeat(batch_size, 1, 1).to(dtype=torch.bfloat16, device=concat_q.device)
-                #     # key_attention_weights = key_attention_weights.transpose(1, 2)
-                    
-                #     agg_lora_states = pre_lora_states
-                
-            else:
-                # ipdb.set_trace()
-                cur_lora_states = lora_layer(hidden_states).unsqueeze(0).transpose(0, 1).reshape(batch_size, -1, hidden_states.shape[1]*self.inner_dim)
-                agg_lora_states = torch.matmul(key_attention_weights.transpose(1, 2), cur_lora_states).squeeze()
-            
-            return agg_lora_states.reshape(batch_size, -1, self.inner_dim)
+                for i, pre_lora in enumerate(pre_lora_layer):
+                    w_i = key_attention_weights[:, i + 1:i + 2, :]  # (batch_size, 1, 1), grad flows
+                    with torch.no_grad():
+                        pre_out = pre_lora(hidden_states)  # no grad through frozen previous LoRA
+                    result = result + pre_out * w_i  # grad flows through w_i only
+            return result  # (batch_size, seq_len, inner_dim)
 
         # modified
         if self.get_feature:
