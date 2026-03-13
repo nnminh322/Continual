@@ -9,9 +9,62 @@
 
 export CUDA_DEVICE_ORDER="PCI_BUS_ID"
 
-port=$(shuf -i25000-30000 -n1)  
+port=$(shuf -i25000-30000 -n1)
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+# ============================================================
+# Auto-detect GPU count and type for optimal parallelism
+# ============================================================
+NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
+GPU_MEM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
+
+if [ -z "$GPU_MEM" ]; then
+    echo "ERROR: No GPU detected!"
+    # Default fallback
+    GPU_MEM=16000
+    NUM_GPUS=1
+fi
+
+# Determine GPU type
+if [ "$GPU_MEM" -lt 20000 ]; then
+    IS_T4=1
+    echo "[GPU] Detected T4 GPUs (${GPU_MEM}MB VRAM each)"
+else
+    IS_T4=0
+    echo "[GPU] Detected high-memory GPUs (${GPU_MEM}MB VRAM each)"
+fi
+
+# Determine parallelism strategy
+if [ "$IS_T4" -eq 1 ] && [ "$NUM_GPUS" -ge 2 ]; then
+    GPU_MODE="t4_2gpu"
+    GPU_IDS="0,1"
+    FP16_FLAG="--gradient_checkpointing"
+    echo "[GPU] Strategy: 2x T4 DataParallel + fp32 + gradient_checkpointing"
+elif [ "$IS_T4" -eq 1 ]; then
+    GPU_MODE="t4_1gpu"
+    GPU_IDS="${1:-0}"
+    FP16_FLAG="--gradient_checkpointing"
+    echo "[GPU] Strategy: 1x T4 + fp32 + gradient_checkpointing"
+else
+    GPU_MODE="a100"
+    GPU_IDS="${1:-0}"
+    FP16_FLAG=""
+    echo "[GPU] Strategy: A100 (single GPU, fp32)"
+fi
+
+echo "[GPU] Using CUDA_VISIBLE_DEVICES=$GPU_IDS"
+echo "============================================================"
+echo ""
+  
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=8; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=8; GA=4; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
@@ -20,9 +73,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification \
    --task_config_dir configs/gen_script_superni_order1_t5_configs/task1572_samsum_summary \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_gainlora_inflora/outputs/1-task1572_samsum_summary \
-   --per_device_train_batch_size 16 \
-   --per_device_eval_batch_size 4 \
-   --gradient_accumulation_steps 2 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
    --run_name gen_script_superni_order1_t5_gainlora_inflora \
@@ -56,7 +109,15 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
 
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
@@ -69,9 +130,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order1_t5_configs/task363_sst2_polarity_classification \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_gainlora_inflora/outputs/2-task363_sst2_polarity_classification \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 4 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
    --run_name gen_script_superni_order1_t5_gainlora_inflora \
@@ -105,7 +166,15 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --transthreshold 0.995
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
@@ -118,9 +187,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order1_t5_configs/task1290_xsum_summarization \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_gainlora_inflora/outputs/3-task1290_xsum_summarization \
-   --per_device_train_batch_size 16 \
-   --per_device_eval_batch_size 4 \
-   --gradient_accumulation_steps 2 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
    --run_name gen_script_superni_order1_t5_gainlora_inflora \
@@ -154,7 +223,15 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --transthreshold 0.995 
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
@@ -167,9 +244,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order1_t5_configs/task181_outcome_extraction \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_gainlora_inflora/outputs/4-task181_outcome_extraction \
-   --per_device_train_batch_size 16 \
-   --per_device_eval_batch_size 4 \
-   --gradient_accumulation_steps 2 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
    --run_name gen_script_superni_order1_t5_gainlora_inflora \
@@ -203,7 +280,15 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --transthreshold 0.995
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
@@ -216,9 +301,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order1_t5_configs/task002_quoref_answer_generation \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_gainlora_inflora/outputs/5-task002_quoref_answer_generation \
-   --per_device_train_batch_size 16 \
-   --per_device_eval_batch_size 4 \
-   --gradient_accumulation_steps 2 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
    --run_name gen_script_superni_order1_t5_gainlora_inflora \
@@ -252,7 +337,15 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --transthreshold 0.995
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
@@ -265,9 +358,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order1_t5_configs/task1510_evalution_relation_extraction \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_gainlora_inflora/outputs/6-task1510_evalution_relation_extraction \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 4 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
    --run_name gen_script_superni_order1_t5_gainlora_inflora \
@@ -301,7 +394,15 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --transthreshold 0.995
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
@@ -314,9 +415,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order1_t5_configs/task639_multi_woz_user_utterance_generation \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_gainlora_inflora/outputs/7-task639_multi_woz_user_utterance_generation \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 4 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
    --run_name gen_script_superni_order1_t5_gainlora_inflora \
@@ -350,7 +451,15 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --transthreshold 0.995
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
@@ -363,9 +472,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order1_t5_configs/task1729_personachat_generate_next \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_gainlora_inflora/outputs/8-task1729_personachat_generate_next \
-   --per_device_train_batch_size 16 \
-   --per_device_eval_batch_size 4 \
-   --gradient_accumulation_steps 2 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
    --run_name gen_script_superni_order1_t5_gainlora_inflora \
@@ -399,7 +508,15 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --transthreshold 0.995
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
@@ -412,9 +529,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order1_t5_configs/task073_commonsenseqa_answer_generation \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_gainlora_inflora/outputs/9-task073_commonsenseqa_answer_generation \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 4 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
    --run_name gen_script_superni_order1_t5_gainlora_inflora \
@@ -448,7 +565,15 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --transthreshold 0.995
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
@@ -461,9 +586,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order1_t5_configs/task1590_diplomacy_text_generation \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_gainlora_inflora/outputs/10-task1590_diplomacy_text_generation \
-   --per_device_train_batch_size 16 \
-   --per_device_eval_batch_size 4 \
-   --gradient_accumulation_steps 2 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
    --run_name gen_script_superni_order1_t5_gainlora_inflora \
@@ -497,7 +622,15 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --transthreshold 0.995
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
@@ -510,9 +643,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order1_t5_configs/task748_glucose_reverse_cause_event_detection \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_gainlora_inflora/outputs/11-task748_glucose_reverse_cause_event_detection \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 4 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
    --run_name gen_script_superni_order1_t5_gainlora_inflora \
@@ -546,7 +679,15 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --transthreshold 0.995
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
@@ -559,9 +700,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order1_t5_configs/task511_reddit_tifu_long_text_summarization \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_gainlora_inflora/outputs/12-task511_reddit_tifu_long_text_summarization \
-   --per_device_train_batch_size 16 \
-   --per_device_eval_batch_size 4 \
-   --gradient_accumulation_steps 2 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
    --run_name gen_script_superni_order1_t5_gainlora_inflora \
@@ -595,7 +736,15 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --transthreshold 0.995
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
@@ -608,9 +757,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order1_t5_configs/task591_sciq_answer_generation \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_gainlora_inflora/outputs/13-task591_sciq_answer_generation \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 4 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
    --run_name gen_script_superni_order1_t5_gainlora_inflora \
@@ -644,7 +793,15 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --transthreshold 0.995
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
@@ -657,9 +814,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order1_t5_configs/task1687_sentiment140_classification \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_gainlora_inflora/outputs/14-task1687_sentiment140_classification \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 4 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
    --run_name gen_script_superni_order1_t5_gainlora_inflora \
@@ -693,7 +850,15 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --transthreshold 0.995
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
@@ -706,9 +871,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order1_t5_configs/task875_emotion_classification \
    --output_dir logs_and_outputs/gen_script_superni_order1_t5_gainlora_inflora/outputs/15-task875_emotion_classification \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 4 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
    --run_name gen_script_superni_order1_t5_gainlora_inflora \

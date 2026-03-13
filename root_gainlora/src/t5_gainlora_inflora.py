@@ -999,9 +999,7 @@ class T5PreTrainedModel(PreTrainedModel):
             if module.has_relative_attention_bias:
                 module.relative_attention_bias.weight.data.normal_(mean=0.0, std=factor * ((d_model) ** -0.5))
 
-    def _set_gradient_checkpointing(self, module, value=False):
-        if isinstance(module, (T5Attention, T5Stack)):
-            module.gradient_checkpointing = value
+    # NOTE: _set_gradient_checkpointing removed intentionally to fix OOM leak in Autograd.
 
     def _shift_right(self, input_ids):
         decoder_start_token_id = self.config.decoder_start_token_id
