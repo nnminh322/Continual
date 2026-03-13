@@ -540,14 +540,14 @@ def main():
             logger.warning(f"load_checkpoint_from not found: {model_args.load_checkpoint_from}, skipping load")
         else:
             print("----------Loading Previous Query Projection Layer----------")
-            model.encoder.trans_input.load_state_dict(torch.load(model_args.load_checkpoint_from, map_location=device))
+            model.encoder.trans_input.load_state_dict(torch.load(model_args.load_checkpoint_from, map_location=device, weights_only=True))
             if training_args.model_name in ['gainlora_inflora', 'gainlora_olora']:
-                model.encoder.previous_trans_input.input_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device)['0.weight'])
-                model.encoder.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device)['2.weight'])
+                model.encoder.previous_trans_input.input_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device, weights_only=True)['0.weight'])
+                model.encoder.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device, weights_only=True)['2.weight'])
                 model.encoder.previous_trans_input.state_dict()
                 if cur_task_id > 1:
-                    model.encoder.previous_trans_input.input_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device)['input_linear'])
-                    model.encoder.previous_trans_input.output_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device)['output_linear'])
+                    model.encoder.previous_trans_input.input_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device, weights_only=True)['input_linear'])
+                    model.encoder.previous_trans_input.output_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device, weights_only=True)['output_linear'])
             print("----------Loading Previous Query Projection Layer Done----------")
 
     if model_args.previous_lora_path:
@@ -556,8 +556,8 @@ def main():
         print(previous_lora_list)
         print("----------Loading Previous LoRA Weights----------")
         for i, path in enumerate(previous_lora_list):
-            lora_A = torch.load(os.path.join(path, "lora_weights_A.pt"), map_location=device)
-            lora_B = torch.load(os.path.join(path, "lora_weights_B.pt"), map_location=device)
+            lora_A = torch.load(os.path.join(path, "lora_weights_A.pt"), map_location=device, weights_only=True)
+            lora_B = torch.load(os.path.join(path, "lora_weights_B.pt"), map_location=device, weights_only=True)
             ## Encoder Layer       
             for j in range(config.num_layers):
                 model.encoder.block[j].layer[0].SelfAttention.previous_lora_weights_q[i].lora_A.data.copy_(

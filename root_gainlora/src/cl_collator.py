@@ -130,9 +130,8 @@ class DataCollator:
                 truncation=True,
                 pad_to_multiple_of=self.pad_to_multiple_of
             )
-            with self.tokenizer.as_target_tokenizer():
-                labels = self.tokenizer(
-                    labels,
+            labels = self.tokenizer(
+                    text_target=labels,
                     max_length=_tgt_len,
                     padding=self.padding,
                     return_tensors=return_tensors,

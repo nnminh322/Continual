@@ -23,8 +23,9 @@ except ImportError:
 from cl_collator import SUPPORTED_DECODER_MODELS, check_model
 from cl_dataset import ANSWER_PREFIX
 import cupy as cp
-from torch.utils.dlpack import to_dlpack, from_dlpack
-from cupy import fromDlpack
+from torch.utils.dlpack import from_dlpack
+# Compatibility: cupy.fromDlpack deprecated; use cp.from_dlpack
+def fromDlpack(x): return cp.from_dlpack(x)
 try:
     import ipdb
 except ImportError:
@@ -155,11 +156,11 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 i = 0
                 for module in self.model.modules():
                     if hasattr(module, 'get_feature'):
-                        reg_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir), "reg_{}.pt".format(i))))
+                        reg_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir), "reg_{}.pt".format(i)), weights_only=True))
                         i += 1
-                reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_0.pt")))
-                reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_1.pt")))
-                reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_2.pt")))
+                reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_0.pt"), weights_only=True))
+                reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_1.pt"), weights_only=True))
+                reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_2.pt"), weights_only=True))
                 # for module in self.model.modules():
                 #     if hasattr(module, 'get_trans_feature'):
                 #         reg_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_{}.pt".format(i))))
@@ -357,7 +358,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 activation = mat_list[i]
                 feature = {}
                 for index in activation.keys():
-                    U,S,Vh = cp.linalg.svd(fromDlpack(to_dlpack(activation[index])), full_matrices=False)
+                    U,S,Vh = cp.linalg.svd(fromDlpack(activation[index]), full_matrices=False)
                     U = from_dlpack(U.toDlpack())
                     S = from_dlpack(S.toDlpack())
                     # criteria (Eq-5)
@@ -372,7 +373,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 activation_trans = mat_trans_list[i]
                 feature_trans = {}
                 for index in activation_trans.keys():
-                    U,S,Vh = cp.linalg.svd(fromDlpack(to_dlpack(activation_trans[index])), full_matrices=False)
+                    U,S,Vh = cp.linalg.svd(fromDlpack(activation_trans[index]), full_matrices=False)
                     U = from_dlpack(U.toDlpack())
                     S = from_dlpack(S.toDlpack())
                     # criteria (Eq-5)
@@ -383,7 +384,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 self.feature_trans_list.append(feature_trans)
 
             activation_trans = mat_trans_list[1]
-            U,S,Vh = cp.linalg.svd(fromDlpack(to_dlpack(activation_trans)), full_matrices=False)
+            U,S,Vh = cp.linalg.svd(fromDlpack(activation_trans), full_matrices=False)
             U = from_dlpack(U.toDlpack())
             S = from_dlpack(S.toDlpack())
             # criteria (Eq-5)
@@ -399,11 +400,11 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 activation = mat_list[i]
                 feature = {}
                 for index in activation.keys():
-                    U1,S1,Vh1=cp.linalg.svd(fromDlpack(to_dlpack(activation[index])), full_matrices=False)
+                    U1,S1,Vh1=cp.linalg.svd(fromDlpack(activation[index]), full_matrices=False)
                     # S1 = from_dlpack(S1.toDlpack())
                     sval_total = (S1**2).sum()
                     # Projected Representation (Eq-8)
-                    act_hat = fromDlpack(to_dlpack(activation[index])) - cp.dot(cp.dot(fromDlpack(to_dlpack(self.feature_list[i][index])),fromDlpack(to_dlpack(self.feature_list[i][index].T))),fromDlpack(to_dlpack(activation[index])))
+                    act_hat = fromDlpack(activation[index]) - cp.dot(cp.dot(fromDlpack(self.feature_list[i][index]),fromDlpack(self.feature_list[i][index].T)),fromDlpack(activation[index]))
                     U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
                     # criteria (Eq-9)
                     sval_hat = (S**2).sum()
@@ -421,7 +422,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                         print ('Skip Updating GPM for layer: {}'.format(i+1)) 
                         continue
                     # update GPM
-                    Ui=cp.hstack((fromDlpack(to_dlpack(self.feature_list[i][index])),U[:,0:r]))  
+                    Ui=cp.hstack((fromDlpack(self.feature_list[i][index]),U[:,0:r]))  
 
                     # import ipdb
                     # ipdb.set_trace()
@@ -437,11 +438,11 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 activation_trans = mat_trans_list[i]
                 feature_trans = {}
                 for index in activation_trans.keys():
-                    U1,S1,Vh1=cp.linalg.svd(fromDlpack(to_dlpack(activation_trans[index])), full_matrices=False)
+                    U1,S1,Vh1=cp.linalg.svd(fromDlpack(activation_trans[index]), full_matrices=False)
                     # S1 = from_dlpack(S1.toDlpack())
                     sval_total = (S1**2).sum()
                     # Projected Representation (Eq-8)
-                    act_hat = fromDlpack(to_dlpack(activation_trans[index])) - cp.dot(cp.dot(fromDlpack(to_dlpack(self.feature_trans_list[i][index])),fromDlpack(to_dlpack(self.feature_trans_list[i][index].T))),fromDlpack(to_dlpack(activation_trans[index])))
+                    act_hat = fromDlpack(activation_trans[index]) - cp.dot(cp.dot(fromDlpack(self.feature_trans_list[i][index]),fromDlpack(self.feature_trans_list[i][index].T)),fromDlpack(activation_trans[index]))
                     U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
                     # criteria (Eq-9)
                     sval_hat = (S**2).sum()
@@ -459,7 +460,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                         print ('Skip Updating GPM for layer: {}'.format(i+1)) 
                         continue
                     # update GPM
-                    Ui=cp.hstack((fromDlpack(to_dlpack(self.feature_trans_list[i][index])),U[:,0:r]))  
+                    Ui=cp.hstack((fromDlpack(self.feature_trans_list[i][index]),U[:,0:r]))  
 
                     if Ui.shape[1] > Ui.shape[0]:
                         self.feature_trans_list[i][index]=from_dlpack(Ui[:,0:Ui.shape[0]].toDlpack())
@@ -468,11 +469,11 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
 
             activation_trans = mat_trans_list[1]
             feature_trans = {}
-            U1,S1,Vh1=cp.linalg.svd(fromDlpack(to_dlpack(activation_trans)), full_matrices=False)
+            U1,S1,Vh1=cp.linalg.svd(fromDlpack(activation_trans), full_matrices=False)
             # S1 = from_dlpack(S1.toDlpack())
             sval_total = (S1**2).sum()
             # Projected Representation (Eq-8)
-            act_hat = fromDlpack(to_dlpack(activation_trans)) - cp.dot(cp.dot(fromDlpack(to_dlpack(self.feature_trans_list[1])),fromDlpack(to_dlpack(self.feature_trans_list[1].T))),fromDlpack(to_dlpack(activation_trans)))
+            act_hat = fromDlpack(activation_trans) - cp.dot(cp.dot(fromDlpack(self.feature_trans_list[1]),fromDlpack(self.feature_trans_list[1].T)),fromDlpack(activation_trans))
             U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
             # criteria (Eq-9)
             sval_hat = (S**2).sum()
@@ -490,7 +491,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 print ('Skip Updating GPM for layer: {}'.format(1+1)) 
             else:
                 # update GPM
-                Ui=cp.hstack((fromDlpack(to_dlpack(self.feature_trans_list[1])),U[:,0:r]))  
+                Ui=cp.hstack((fromDlpack(self.feature_trans_list[1]),U[:,0:r]))  
 
                 # import ipdb
                 # ipdb.set_trace()

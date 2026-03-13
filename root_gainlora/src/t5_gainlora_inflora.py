@@ -1075,7 +1075,7 @@ class T5Stack(T5PreTrainedModel):
             if prompt_config["previous_prompt_key_path"] is not None and prompt_config["task_id"]:
                 print("----------Loading Previous Keys----------")
                 self.previous_prompts_keys = nn.Parameter(torch.randn((prompt_config["task_id"], config.d_model)))
-                self.previous_prompts_keys.data = torch.load(prompt_config["previous_prompt_key_path"])
+                self.previous_prompts_keys.data = torch.load(prompt_config["previous_prompt_key_path"], weights_only=True)
                 self.previous_prompts_keys.requires_grad = False
                 
                 self.previous_trans_input = Trans_input(config.d_model, prompt_config["mlp_hidden_dim"], prompt_config["task_id"])
