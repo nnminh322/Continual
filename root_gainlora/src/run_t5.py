@@ -599,6 +599,16 @@ def main():
                     lora_B[f"decoder.block.{j}.layer.1.EncDecAttention.lora_v.lora_B"]
                 )
 
+    # Move all previous LoRA weights to CPU to free GPU VRAM.
+    # They will be moved to GPU temporarily during forward in agg_lora_states.
+    if model_args.previous_lora_path:
+        for module in model.modules():
+            for attr in ('previous_lora_weights_q', 'previous_lora_weights_v'):
+                prev = getattr(module, attr, None)
+                if prev is not None:
+                    prev.to('cpu')
+        print("[FIX] Moved all previous LoRA weights to CPU")
+
     for name, param in model.named_parameters():
         if  training_args.model_name in ['gainlora_olora', 'olora']:
             param.requires_grad = False

@@ -637,19 +637,25 @@ class T5Attention(nn.Module):
             return hidden_states
         
         def agg_lora_states(hidden_states, lora_layer, pre_lora_layer, key_attention_weights):
-            # Memory-efficient: accumulate weighted sum one task at a time instead of
-            # materializing all N_prev outputs simultaneously (avoids O(N) VRAM at late tasks).
             # key_attention_weights: (batch_size, 1+N_prev, 1)
-            # Each lora output: (batch_size, seq_len, inner_dim)
-            w_cur = key_attention_weights[:, 0:1, :]  # (batch_size, 1, 1), grad flows through key_attn
-            result = lora_layer(hidden_states) * w_cur  # grad flows through lora_layer + w_cur
+            w_cur = key_attention_weights[:, 0:1, :]
+            cur_contribution = lora_layer(hidden_states) * w_cur  # grad flows through lora_layer + w_cur
+
             if pre_lora_layer is not None:
-                for i, pre_lora in enumerate(pre_lora_layer):
-                    w_i = key_attention_weights[:, i + 1:i + 2, :]  # (batch_size, 1, 1), grad flows
-                    with torch.no_grad():
-                        pre_out = pre_lora(hidden_states)  # no grad through frozen previous LoRA
-                    result = result + pre_out * w_i  # grad flows through w_i only
-            return result  # (batch_size, seq_len, inner_dim)
+                # Compute ALL previous contributions under no_grad to avoid saving
+                # O(N_prev) tensors for backward. Previous LoRA are frozen anyway.
+                # Previous LoRA live on CPU; move each to GPU temporarily.
+                device = hidden_states.device
+                with torch.no_grad():
+                    prev_contribution = torch.zeros_like(cur_contribution)
+                    for i, pre_lora in enumerate(pre_lora_layer):
+                        w_i = key_attention_weights[:, i + 1:i + 2, :]
+                        pre_lora.to(device)
+                        prev_contribution = prev_contribution + pre_lora(hidden_states) * w_i
+                        pre_lora.to('cpu')
+                return cur_contribution + prev_contribution  # only cur_contribution carries grad
+
+            return cur_contribution
 
         # modified
         if self.get_feature:
