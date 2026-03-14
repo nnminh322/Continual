@@ -66,6 +66,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --data_dir CL_Benchmark \
@@ -122,6 +123,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_gainlora_inflora/outputs/1-yelp/saved_weights/trans_input.pt \
@@ -182,6 +184,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_gainlora_inflora/outputs/2-amazon/saved_weights/trans_input.pt \
@@ -242,6 +245,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_gainlora_inflora/outputs/3-mnli/saved_weights/trans_input.pt \
@@ -302,6 +306,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_gainlora_inflora/outputs/4-cb/saved_weights/trans_input.pt \
@@ -362,6 +367,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_gainlora_inflora/outputs/5-copa/saved_weights/trans_input.pt \
@@ -422,6 +428,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_gainlora_inflora/outputs/6-qqp/saved_weights/trans_input.pt \
@@ -482,6 +489,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_gainlora_inflora/outputs/7-rte/saved_weights/trans_input.pt \
@@ -542,6 +550,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_gainlora_inflora/outputs/8-imdb/saved_weights/trans_input.pt \
@@ -602,6 +611,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_gainlora_inflora/outputs/9-sst2/saved_weights/trans_input.pt \
@@ -662,6 +672,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_gainlora_inflora/outputs/10-dbpedia/saved_weights/trans_input.pt \
@@ -722,6 +733,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_gainlora_inflora/outputs/11-agnews/saved_weights/trans_input.pt \
@@ -782,6 +794,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_gainlora_inflora/outputs/12-yahoo/saved_weights/trans_input.pt \
@@ -842,6 +855,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_gainlora_inflora/outputs/13-multirc/saved_weights/trans_input.pt \
@@ -902,6 +916,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \

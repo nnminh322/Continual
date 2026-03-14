@@ -156,6 +156,38 @@ python src/compute_ap_ft.py \
 
 ---
 
+## Table 3: T5-Small — Long Benchmark (Order 3)
+
+| Method | Order 3 AP↑ | Order 3 FT↓ |
+|--------|-------------|-------------|
+| **GainLoRA (Root)** | 59.70 | N/A* |
+| **SpecRoute (Improve)** | *(chờ chạy)* | *(chờ chạy)* |
+
+> *\*FT = N/A: Log chỉ chứa Evaluation ở task cuối (15-wic). Các task trước không có bước `--do_predict` để xuất cross-task matrix. Lần chạy sau dùng script trong `T5_small/` đã được sửa để có FT.*
+
+## Per-Task Breakdown — Order 3 (T5-Small)
+
+| # | Task | GainLoRA (Root) Final | SpecRoute (Improve) Final |
+|---|------|-----------------------|---------------------------|
+| 1 | yelp | 56.01 | |
+| 2 | amazon | 52.05 | |
+| 3 | mnli | 34.07 | |
+| 4 | cb | 3.57 | |
+| 5 | copa | 42.00 | |
+| 6 | qqp | 76.96 | |
+| 7 | rte | 45.85 | |
+| 8 | imdb | 89.51 | |
+| 9 | sst2 | 85.21 | |
+| 10 | dbpedia | 98.16 | |
+| 11 | agnews | 88.37 | |
+| 12 | yahoo | 57.28 | |
+| 13 | multirc | 50.52 | |
+| 14 | boolq | 60.43 | |
+| 15 | wic | 55.49 | |
+| | **AP / FT** | **59.70 / N/A** | |
+
+---
+
 ## Quick Harvest (chạy sau khi xong cả 4 orders)
 
 ```bash

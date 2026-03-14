@@ -76,6 +76,23 @@ def remove_gradient_checkpointing_flag(content: str) -> str:
     return content
 
 
+def ensure_do_predict(content: str) -> str:
+    """Add --do_predict right after each --do_train line if not already present."""
+    lines = content.split('\n')
+    result = []
+    for i, line in enumerate(lines):
+        result.append(line)
+        # If this is --do_train and next is NOT --do_predict, insert it
+        if re.match(r'[ \t]*--do_train[ \t]*\\?\s*$', line):
+            # Check if --do_predict is among the next few lines
+            upcoming = '\n'.join(lines[i+1:i+5])
+            if '--do_predict' not in upcoming:
+                # Insert with same indentation and trailing backslash
+                indent = re.match(r'^([ \t]*)', line).group(1)
+                result.append(f'{indent}--do_predict \\')
+    return '\n'.join(result)
+
+
 def set_non_specroute_batch_sizes(content: str, script_type: str) -> str:
     """Replace hardcoded --per_device_* and --gradient_accumulation_steps."""
     if script_type == 'long':
@@ -123,6 +140,12 @@ def fix_specroute_gpu_modes(content: str, script_type: str) -> str:
 def transform(content: str, is_specroute: bool, script_type: str) -> str:
     content = replace_experiment_names(content)
     content = remove_gradient_checkpointing_flag(content)
+    # FORCIBLY REMOVE --run_single flag to enable Matrix Evaluation (Cross Task)
+    content = re.sub(r'[ \t]*--run_single (?:True|False) \\\n', '', content)
+    content = re.sub(r'[ \t]*--run_single (?:True|False)\n', '', content)
+    # ENSURE --do_predict is present so all_results.json has cross-task scores
+    content = ensure_do_predict(content)
+
     if is_specroute:
         content = fix_specroute_gpu_modes(content, script_type)
     else:

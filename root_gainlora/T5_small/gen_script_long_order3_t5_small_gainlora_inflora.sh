@@ -9,19 +9,73 @@
 
 export CUDA_DEVICE_ORDER="PCI_BUS_ID"
 
-port=$(shuf -i25000-30000 -n1)  
+port=$(shuf -i25000-30000 -n1)
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+# ============================================================
+# Auto-detect GPU count and type for optimal parallelism
+# ============================================================
+NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
+GPU_MEM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
+
+if [ -z "$GPU_MEM" ]; then
+    echo "ERROR: No GPU detected!"
+    # Default fallback
+    GPU_MEM=16000
+    NUM_GPUS=1
+fi
+
+# Determine GPU type
+if [ "$GPU_MEM" -lt 20000 ]; then
+    IS_T4=1
+    echo "[GPU] Detected T4 GPUs (${GPU_MEM}MB VRAM each)"
+else
+    IS_T4=0
+    echo "[GPU] Detected high-memory GPUs (${GPU_MEM}MB VRAM each)"
+fi
+
+# Determine parallelism strategy
+if [ "$IS_T4" -eq 1 ] && [ "$NUM_GPUS" -ge 2 ]; then
+    GPU_MODE="t4_2gpu"
+    GPU_IDS="0,1"
+    FP16_FLAG="--gradient_checkpointing"
+    echo "[GPU] Strategy: 2x T4 DataParallel + fp32 + gradient_checkpointing"
+elif [ "$IS_T4" -eq 1 ]; then
+    GPU_MODE="t4_1gpu"
+    GPU_IDS="${1:-0}"
+    FP16_FLAG="--gradient_checkpointing"
+    echo "[GPU] Strategy: 1x T4 + fp32 + gradient_checkpointing"
+else
+    GPU_MODE="a100"
+    GPU_IDS="${1:-0}"
+    FP16_FLAG=""
+    echo "[GPU] Strategy: A100 (single GPU, fp32)"
+fi
+
+echo "[GPU] Using CUDA_VISIBLE_DEVICES=$GPU_IDS"
+echo "============================================================"
+echo ""
+  
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=8; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=8; GA=4; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --data_dir CL_Benchmark \
    --task_order yelp,amazon,mnli,cb,copa,qqp,rte,imdb,sst2,dbpedia,agnews,yahoo,multirc,boolq,wic \
    --task_config_dir configs/gen_script_long_order3_t5_configs/yelp \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/1-yelp \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 256 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 10 \
    --run_name gen_script_long_order3_t5_small_gainlora_inflora \
@@ -50,15 +104,25 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
-   --transthreshold 0.995
+   --transthreshold 0.995 \
+   $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/1-yelp/checkpoint*
 
 sleep 5
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/1-yelp/saved_weights/trans_input.pt \
@@ -69,9 +133,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_long_t5 \
    --task_config_dir configs/gen_script_long_order3_t5_configs/amazon \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/2-amazon \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 256 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 10 \
    --run_name gen_script_long_order3_t5_small_gainlora_inflora \
@@ -100,15 +164,25 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
-   --transthreshold 0.995
+   --transthreshold 0.995 \
+   $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/2-amazon/checkpoint*
    
 sleep 5
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/2-amazon/saved_weights/trans_input.pt \
@@ -119,9 +193,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_long_t5 \
    --task_config_dir configs/gen_script_long_order3_t5_configs/mnli \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/3-mnli \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 256 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 10 \
    --run_name gen_script_long_order3_t5_small_gainlora_inflora \
@@ -150,15 +224,25 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
-   --transthreshold 0.995
+   --transthreshold 0.995 \
+   $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/3-mnli/checkpoint*
    
 sleep 5
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/3-mnli/saved_weights/trans_input.pt \
@@ -169,9 +253,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_long_t5 \
    --task_config_dir configs/gen_script_long_order3_t5_configs/cb \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/4-cb \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 256 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 10 \
    --run_name gen_script_long_order3_t5_small_gainlora_inflora \
@@ -200,15 +284,25 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
-   --transthreshold 0.995
+   --transthreshold 0.995 \
+   $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/4-cb/checkpoint*
    
 sleep 5
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/4-cb/saved_weights/trans_input.pt \
@@ -219,9 +313,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_long_t5 \
    --task_config_dir configs/gen_script_long_order3_t5_configs/copa \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/5-copa \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 256 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 10 \
    --run_name gen_script_long_order3_t5_small_gainlora_inflora \
@@ -250,15 +344,25 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
-   --transthreshold 0.995
+   --transthreshold 0.995 \
+   $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/5-copa/checkpoint*
    
 sleep 5
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/5-copa/saved_weights/trans_input.pt \
@@ -269,9 +373,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_long_t5 \
    --task_config_dir configs/gen_script_long_order3_t5_configs/qqp \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/6-qqp \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 256 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 10 \
    --run_name gen_script_long_order3_t5_small_gainlora_inflora \
@@ -300,15 +404,25 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
-   --transthreshold 0.995
+   --transthreshold 0.995 \
+   $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/6-qqp/checkpoint*
    
 sleep 5
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/6-qqp/saved_weights/trans_input.pt \
@@ -319,9 +433,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_long_t5 \
    --task_config_dir configs/gen_script_long_order3_t5_configs/rte \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/7-rte \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 256 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 10 \
    --run_name gen_script_long_order3_t5_small_gainlora_inflora \
@@ -350,15 +464,25 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
-   --transthreshold 0.995
+   --transthreshold 0.995 \
+   $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/7-rte/checkpoint*
    
 sleep 5
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/7-rte/saved_weights/trans_input.pt \
@@ -369,9 +493,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_long_t5 \
    --task_config_dir configs/gen_script_long_order3_t5_configs/imdb \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/8-imdb \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 256 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 10 \
    --run_name gen_script_long_order3_t5_small_gainlora_inflora \
@@ -400,15 +524,25 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
-   --transthreshold 0.995
+   --transthreshold 0.995 \
+   $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/8-imdb/checkpoint*
    
 sleep 5
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/8-imdb/saved_weights/trans_input.pt \
@@ -419,9 +553,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_long_t5 \
    --task_config_dir configs/gen_script_long_order3_t5_configs/sst2 \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/9-sst2 \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 256 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 10 \
    --run_name gen_script_long_order3_t5_small_gainlora_inflora \
@@ -450,15 +584,25 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
-   --transthreshold 0.995
+   --transthreshold 0.995 \
+   $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/9-sst2/checkpoint*
    
 sleep 5
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/9-sst2/saved_weights/trans_input.pt \
@@ -469,9 +613,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_long_t5 \
    --task_config_dir configs/gen_script_long_order3_t5_configs/dbpedia \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/10-dbpedia \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 256 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 10 \
    --run_name gen_script_long_order3_t5_small_gainlora_inflora \
@@ -500,15 +644,25 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
-   --transthreshold 0.995
+   --transthreshold 0.995 \
+   $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/10-dbpedia/checkpoint*
    
 sleep 5
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/10-dbpedia/saved_weights/trans_input.pt \
@@ -519,9 +673,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_long_t5 \
    --task_config_dir configs/gen_script_long_order3_t5_configs/agnews \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/11-agnews \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 256 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 10 \
    --run_name gen_script_long_order3_t5_small_gainlora_inflora \
@@ -550,15 +704,25 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
-   --transthreshold 0.995
+   --transthreshold 0.995 \
+   $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/11-agnews/checkpoint*
    
 sleep 5
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/11-agnews/saved_weights/trans_input.pt \
@@ -569,9 +733,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_long_t5 \
    --task_config_dir configs/gen_script_long_order3_t5_configs/yahoo \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/12-yahoo \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 256 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 10 \
    --run_name gen_script_long_order3_t5_small_gainlora_inflora \
@@ -600,15 +764,25 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
-   --transthreshold 0.995
+   --transthreshold 0.995 \
+   $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/12-yahoo/checkpoint*
    
 sleep 5
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/12-yahoo/saved_weights/trans_input.pt \
@@ -619,9 +793,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_long_t5 \
    --task_config_dir configs/gen_script_long_order3_t5_configs/multirc \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/13-multirc \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 256 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 10 \
    --run_name gen_script_long_order3_t5_small_gainlora_inflora \
@@ -650,15 +824,25 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
-   --transthreshold 0.995
+   --transthreshold 0.995 \
+   $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/13-multirc/checkpoint*
    
 sleep 5
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/13-multirc/saved_weights/trans_input.pt \
@@ -669,9 +853,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_long_t5 \
    --task_config_dir configs/gen_script_long_order3_t5_configs/boolq \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/14-boolq \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 256 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 10 \
    --run_name gen_script_long_order3_t5_small_gainlora_inflora \
@@ -700,15 +884,25 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
-   --transthreshold 0.995
+   --transthreshold 0.995 \
+   $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/14-boolq/checkpoint*
    
 sleep 5
 
 
-CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
+
+CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
@@ -720,9 +914,9 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --gen_data_dir generated_data/lora_gen_long_t5 \
    --task_config_dir configs/gen_script_long_order3_t5_configs/wic \
    --output_dir logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/15-wic \
-   --per_device_train_batch_size 32 \
-   --per_device_eval_batch_size 256 \
-   --gradient_accumulation_steps 1 \
+   --per_device_train_batch_size $BSZ \
+   --per_device_eval_batch_size $EVAL_BSZ \
+   --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 10 \
    --run_name gen_script_long_order3_t5_small_gainlora_inflora \
@@ -751,13 +945,14 @@ CUDA_VISIBLE_DEVICES=$1 python src/run_t5.py \
    --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
-   --transthreshold 0.995
+   --transthreshold 0.995 \
+   $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_gainlora_inflora/outputs/15-wic/checkpoint*
    
 sleep 5
 
-CUDA_VISIBLE_DEVICES=$1 python score.py gen_script_long_order3_t5_gainlora_inflora gen_script_long_order3_t5_gainlora_inflora
+CUDA_VISIBLE_DEVICES=$GPU_IDS python score.py gen_script_long_order3_t5_gainlora_inflora gen_script_long_order3_t5_gainlora_inflora
 
 
 

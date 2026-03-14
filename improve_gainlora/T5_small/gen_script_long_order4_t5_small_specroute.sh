@@ -63,6 +63,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --data_dir CL_Benchmark \
@@ -94,7 +95,6 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --run_single True \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
@@ -116,6 +116,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/1-mnli/saved_weights \
@@ -169,6 +170,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/1-mnli/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/2-cb/saved_weights \
@@ -222,6 +224,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/1-mnli/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/2-cb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/3-wic/saved_weights \
@@ -275,6 +278,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/1-mnli/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/2-cb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/3-wic/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/4-copa/saved_weights \
@@ -328,6 +332,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/1-mnli/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/2-cb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/3-wic/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/4-copa/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/5-qqp/saved_weights \
@@ -381,6 +386,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/1-mnli/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/2-cb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/3-wic/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/4-copa/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/5-qqp/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/6-boolq/saved_weights \
@@ -434,6 +440,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/1-mnli/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/2-cb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/3-wic/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/4-copa/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/5-qqp/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/6-boolq/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/7-rte/saved_weights \
@@ -487,6 +494,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/1-mnli/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/2-cb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/3-wic/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/4-copa/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/5-qqp/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/6-boolq/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/7-rte/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/8-imdb/saved_weights \
@@ -540,6 +548,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/1-mnli/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/2-cb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/3-wic/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/4-copa/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/5-qqp/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/6-boolq/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/7-rte/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/8-imdb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/9-yelp/saved_weights \
@@ -593,6 +602,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/1-mnli/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/2-cb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/3-wic/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/4-copa/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/5-qqp/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/6-boolq/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/7-rte/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/8-imdb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/9-yelp/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/10-amazon/saved_weights \
@@ -646,6 +656,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/1-mnli/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/2-cb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/3-wic/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/4-copa/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/5-qqp/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/6-boolq/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/7-rte/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/8-imdb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/9-yelp/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/10-amazon/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/11-sst2/saved_weights \
@@ -699,6 +710,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/1-mnli/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/2-cb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/3-wic/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/4-copa/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/5-qqp/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/6-boolq/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/7-rte/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/8-imdb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/9-yelp/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/10-amazon/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/11-sst2/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/12-dbpedia/saved_weights \
@@ -752,6 +764,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/1-mnli/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/2-cb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/3-wic/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/4-copa/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/5-qqp/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/6-boolq/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/7-rte/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/8-imdb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/9-yelp/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/10-amazon/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/11-sst2/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/12-dbpedia/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/13-agnews/saved_weights \
@@ -805,6 +818,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/1-mnli/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/2-cb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/3-wic/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/4-copa/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/5-qqp/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/6-boolq/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/7-rte/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/8-imdb/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/9-yelp/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/10-amazon/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/11-sst2/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/12-dbpedia/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/13-agnews/saved_weights,logs_and_outputs/gen_script_long_order4_t5_small_specroute/outputs/14-multirc/saved_weights \
