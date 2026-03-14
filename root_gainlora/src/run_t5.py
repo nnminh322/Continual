@@ -766,6 +766,10 @@ def main():
         model.gradient_checkpointing_enable(
             gradient_checkpointing_kwargs={"use_reentrant": False}
         )
+        # REQUIRED for use_reentrant=False: if embedding inputs don't have requires_grad,
+        # no grad_fn is created and loss.backward() crashes with
+        # "element 0 of tensors does not require grad and does not have a grad_fn"
+        model.enable_input_require_grads()
 
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     training_args.step_per_epoch = math.ceil(len(raw_datasets["train"]) / training_args.per_device_train_batch_size / world_size / training_args.gradient_accumulation_steps)
