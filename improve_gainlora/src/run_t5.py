@@ -712,12 +712,20 @@ def main():
         if _need_replay_data:
             replay_dataset_dict = {}
             abs_data_dir_replay = os.path.abspath(data_dir) if data_dir else None
+            # Derive replay config dirs from current task's config dir parent (robust, avoids stale assets.py mappings)
+            _configs_parent = os.path.dirname(os.path.abspath(data_args.task_config_dir)) if data_args.task_config_dir else None
             for idx in range(cur_task_id):
+                if _configs_parent:
+                    _replay_task_config_dir = os.path.join(_configs_parent, task_order[idx])
+                elif task_config.get(task_order[idx]):
+                    _replay_task_config_dir = os.path.abspath(task_config[task_order[idx]])
+                else:
+                    _replay_task_config_dir = None
                 raw_datasets_gen = load_dataset(
                     dataset_script_path,
                     data_dir=abs_data_dir_replay,
                     download_config=download_config,
-                    task_config_dir=os.path.abspath(task_config[task_order[idx]]) if task_config[task_order[idx]] else None,
+                    task_config_dir=_replay_task_config_dir,
                     trust_remote_code=True,
                     cache_dir=data_cache_dir,  # for debug, change dataset size, otherwise open it
                     max_num_instances_per_task=data_args.max_num_instances_per_task,

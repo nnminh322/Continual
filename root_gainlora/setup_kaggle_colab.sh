@@ -116,6 +116,18 @@ echo "[Cache] Clearing stale HuggingFace dataset module cache..."
 rm -rf ~/.cache/huggingface/modules/datasets_modules/ 2>/dev/null || true
 echo "[Cache] HF dataset module cache cleared"
 
+echo "[Symlink] Creating config directory aliases..."
+# assets.py references configs/Long_Sequence/* and configs/SuperNI/*
+if [ -d configs/gen_script_long_order3_t5_configs ] && [ ! -e configs/Long_Sequence ]; then
+  ln -s gen_script_long_order3_t5_configs configs/Long_Sequence
+  echo "  Created symlink: configs/Long_Sequence -> gen_script_long_order3_t5_configs"
+fi
+if [ -d configs/gen_script_superni_order1_t5_configs ] && [ ! -e configs/SuperNI ]; then
+  ln -s gen_script_superni_order1_t5_configs configs/SuperNI
+  echo "  Created symlink: configs/SuperNI -> gen_script_superni_order1_t5_configs"
+fi
+echo "[Cache] HF dataset module cache cleared"
+
 echo ""
 echo "[Check] Verifying installation..."
 ${PY_CMD} - <<'PY'
