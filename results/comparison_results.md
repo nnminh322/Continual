@@ -152,43 +152,7 @@ python src/compute_ap_ft.py \
 | 13 | agnews | | | | |
 | 14 | multirc | | | | |
 | 15 | yahoo | | | | |
-| | **AP / FT** | **77.54 / 1.20** | | | |
 
----
-
-## Table 3: T5-Small — Long Benchmark (Order 3)
-
-| Method | Order 3 AP↑ | Order 3 FT↓ |
-|--------|-------------|-------------|
-| **GainLoRA (Root)** | 59.70 | N/A* |
-| **SpecRoute (Improve)** | *(chờ chạy)* | *(chờ chạy)* |
-
-> *\*FT = N/A: Log chỉ chứa Evaluation ở task cuối (15-wic). Các task trước không có bước `--do_predict` để xuất cross-task matrix. Lần chạy sau dùng script trong `T5_small/` đã được sửa để có FT.*
-
-## Per-Task Breakdown — Order 3 (T5-Small)
-
-| # | Task | GainLoRA (Root) Final | SpecRoute (Improve) Final |
-|---|------|-----------------------|---------------------------|
-| 1 | yelp | 56.01 | |
-| 2 | amazon | 52.05 | |
-| 3 | mnli | 34.07 | |
-| 4 | cb | 3.57 | |
-| 5 | copa | 42.00 | |
-| 6 | qqp | 76.96 | |
-| 7 | rte | 45.85 | |
-| 8 | imdb | 89.51 | |
-| 9 | sst2 | 85.21 | |
-| 10 | dbpedia | 98.16 | |
-| 11 | agnews | 88.37 | |
-| 12 | yahoo | 57.28 | |
-| 13 | multirc | 50.52 | |
-| 14 | boolq | 60.43 | |
-| 15 | wic | 55.49 | |
-| | **AP / FT** | **59.70 / N/A** | |
-
----
-
-## Quick Harvest (chạy sau khi xong cả 4 orders)
 
 ```bash
 # Chạy 4 lệnh này để lấy đủ số cho cả 2 bảng:
@@ -200,3 +164,41 @@ python src/compute_ap_ft.py --output_base logs_and_outputs/ot_sign_order3_t5larg
 
 python src/compute_ap_ft.py --output_base logs_and_outputs/ot_sign_order4_t5large/outputs --task_order "mnli,cb,wic,copa,qqp,boolq,rte,imdb,yelp,amazon,sst2,dbpedia,agnews,multirc,yahoo" --save
 ```
+
+---
+
+## Table 3: T5-Small — Long Benchmark (Order 3)
+
+| Method | Order 3 AP↑ | Order 3 FT↓ |
+|--------|-------------|-------------|
+| **GainLoRA (Root)** | **59.70** | N/A* |
+| **SpecRoute (Improve)** | 39.74† | N/A* |
+
+> *\*FT = N/A: cả 2 log chạy thiếu `--do_predict`. Lần tiếp theo dùng script `T5_small/` đã sửa sẽ có đủ FT.*  
+> *†Điểm Improve tính từ `predict_eval_predictions.jsonl` của từng task (hàng chéo score matrix). imdb/sst2/wic về 0 do Catastrophic Forgetting.*
+
+### ⚠️ Root GainLoRA tốt hơn SpecRoute trên T5-Small (−19.96 AP)
+
+SpecRoute bị Catastrophic Forgetting nghiêm trọng ở các task phân loại sentiment (imdb=0.21, sst2=0.00, yahoo=8.12, wic=0.00). Nguyên nhân có thể do SVD rank không đủ lớn ở T5-Small, làm routing mechanism không phân tách được subspace của các task.
+
+## Per-Task Breakdown — Order 3 (T5-Small)
+
+| # | Task | GainLoRA (Root) | SpecRoute (Improve) | Δ (Improve−Root) |
+|---|------|-----------------|--------------------|-----------------|
+| 1 | yelp | 56.01 | 54.36 | −1.65 |
+| 2 | amazon | 52.05 | 50.01 | −2.04 |
+| 3 | mnli | 34.07 | 35.50 | +1.43 |
+| 4 | cb | 3.57 | 0.00 | −3.57 |
+| 5 | copa | 42.00 | 44.00 | +2.00 |
+| 6 | qqp | 76.96 | 76.72 | −0.24 |
+| 7 | rte | 45.85 | 50.90 | +5.05 |
+| 8 | imdb | 89.51 | 0.21 | **−89.30 ⚠️** |
+| 9 | sst2 | 85.21 | 0.00 | **−85.21 ⚠️** |
+| 10 | dbpedia | 98.16 | 92.22 | −5.94 |
+| 11 | agnews | 88.37 | 68.76 | −19.61 |
+| 12 | yahoo | 57.28 | 8.12 | **−49.16 ⚠️** |
+| 13 | multirc | 50.52 | 54.23 | +3.71 |
+| 14 | boolq | 60.43 | 61.13 | +0.70 |
+| 15 | wic | 55.49 | 0.00 | **−55.49 ⚠️** |
+| | **AP / FT** | **59.70 / N/A** | **39.74 / N/A** | **−19.96** |
+

@@ -10,3 +10,8 @@ __pycache__/
 *.pyd
 */logs/*
 */logs
+logs/*
+logs
+*.log
+
+

@@ -68,9 +68,21 @@ class DenserEvalCallback(TrainerCallback):
         return control
 
 
+def create_memory_replay_generators(task, task_list, replay_data_dict):
+    """Create cycling iterators for previous tasks' replay data."""
+    print('Creating generators for previous tasks (SpecRoute replay) ...')
+    tasks_to_generators = {}
+    curr_task_num = task_list.index(task)
+    for idx in np.arange(curr_task_num):
+        prev_task = task_list[idx]
+        tasks_to_generators[prev_task] = iter(replay_data_dict[prev_task])
+    return tasks_to_generators
+
+
 class SpecRoute_Trainer(Seq2SeqTrainer):
 
     def __init__(self, model, args, train_dataset, cur_task_id, task_order,
+                 data_collator_replay=None, replay_dataset_dict=None,
                  eval_dataset=None, tokenizer=None, data_collator=None,
                  compute_metrics=None, callbacks=None):
         super().__init__(
@@ -82,7 +94,32 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
         self.task_order = task_order
         self.cur_task_id = cur_task_id
         self._grad_check_done = False
-        # No replay data needed for SpecRoute
+
+        # Experience replay setup
+        self.data_collator_replay = data_collator_replay
+        self.replay_dataset_dict = replay_dataset_dict
+        if self.args.data_replay_freq != -1 and replay_dataset_dict is not None:
+            from torch.utils.data import RandomSampler
+            from transformers.trainer_utils import seed_worker
+            seed = self.args.data_seed if self.args.data_seed is not None else self.args.seed
+            generator = torch.Generator()
+            generator.manual_seed(seed)
+            self.replay_dataloader_dict = {}
+            for dataset_name, dataset in self.replay_dataset_dict.items():
+                train_sampler = RandomSampler(dataset, generator=generator)
+                self.replay_dataloader_dict[dataset_name] = DataLoader(
+                    dataset,
+                    batch_size=self._train_batch_size,
+                    sampler=train_sampler,
+                    collate_fn=self.data_collator_replay,
+                    drop_last=self.args.dataloader_drop_last,
+                    num_workers=self.args.dataloader_num_workers,
+                    pin_memory=False,
+                    worker_init_fn=seed_worker)
+            self.replay_iterator_dict = create_memory_replay_generators(
+                task_order[cur_task_id], task_order, self.replay_dataloader_dict)
+            print(f"[SpecRoute Replay] Enabled: {len(self.replay_dataloader_dict)} tasks, "
+                  f"freq={self.args.data_replay_freq}, ratio={self.args.kl_ratio}")
 
     def _save(self, output_dir=None, state_dict=None):
         # T5 shared embeddings are incompatible with safetensors; force pytorch format
@@ -94,8 +131,56 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
             self.args.save_safetensors = old
 
     def training_step(self, model, inputs, **kwargs):
-        """Override to add one-time gradient diagnostic."""
-        loss = super().training_step(model, inputs, **kwargs)
+        """Override to add experience replay and one-time gradient diagnostic."""
+        model.train()
+        inputs = self._prepare_inputs(inputs)
+
+        with self.compute_loss_context_manager():
+            loss = self.compute_loss(model, inputs)
+
+        if self.args.n_gpu > 1:
+            loss = loss.mean()
+
+        if self.args.gradient_accumulation_steps > 1 and not self.is_deepspeed_enabled:
+            loss = loss / self.args.gradient_accumulation_steps
+
+        if self.is_deepspeed_enabled:
+            self.accelerator.backward(loss)
+        else:
+            loss.backward()
+
+        # === Experience Replay: CE loss on old task data ===
+        replay_freq = getattr(self.args, 'data_replay_freq', -1)
+        if (replay_freq != -1
+                and hasattr(self, 'replay_iterator_dict')
+                and self.state.global_step > getattr(self.args, 'replay_after_n_epoch', 0) * getattr(self.args, 'step_per_epoch', 0)
+                and self.state.global_step % replay_freq == 0):
+            for item in list(self.replay_iterator_dict.keys()):
+                generator_mem = self.replay_iterator_dict[item]
+                try:
+                    b = next(generator_mem)
+                except StopIteration:
+                    generator_mem = iter(self.replay_dataloader_dict[item])
+                    self.replay_iterator_dict[item] = generator_mem
+                    b = next(generator_mem)
+
+                # Remove replay_labels if present (not needed for CE replay)
+                b.pop("replay_labels", None)
+                replay_inputs = self._prepare_inputs(b)
+
+                with self.compute_loss_context_manager():
+                    replay_loss = self.compute_loss(model, replay_inputs)
+
+                kl_ratio = getattr(self.args, 'kl_ratio', 0.1)
+                replay_loss = kl_ratio * replay_loss
+
+                if self.args.n_gpu > 1:
+                    replay_loss = replay_loss.mean()
+
+                if self.is_deepspeed_enabled:
+                    self.accelerator.backward(replay_loss)
+                else:
+                    replay_loss.backward()
 
         # One-time gradient check after first backward
         if not self._grad_check_done:

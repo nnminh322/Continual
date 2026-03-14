@@ -707,7 +707,9 @@ def main():
             input_record_file=data_args.input_record_file)
 
         replay_dataset_dict, replay_label_dict = None, None
-        if model_args.load_checkpoint_from:
+        # Load replay datasets for methods that need it
+        _need_replay_data = model_args.load_checkpoint_from or (training_args.model_name == 'specroute' and cur_task_id > 0)
+        if _need_replay_data:
             replay_dataset_dict = {}
             abs_data_dir_replay = os.path.abspath(data_dir) if data_dir else None
             for idx in range(cur_task_id):
@@ -725,12 +727,14 @@ def main():
                 replay_dataset_dict[task_order[idx]] = raw_datasets_gen["train"]
                 print(raw_datasets_gen)
 
-            replay_label_dict = {}
-            for idx in range(0,cur_task_id):
-                with open(os.path.join("../logs_and_outputs/" + training_args.run_name + "/outputs/", str(idx+1)+"-"+task_order[idx], "saved_weights", "attention_weights.pkl"), 'rb') as f:
-                    attn_weights = pickle.load(f)
-                replay_label_dict[task_order[idx]] = torch.cat([torch.tensor([0.] * (cur_task_id - idx)), torch.tensor(attn_weights)], dim=0).to(dtype=torch.bfloat16, device='cuda')
-            print(replay_label_dict)
+            # Load attention weights for KL replay (GainLoRA only, not SpecRoute)
+            if model_args.load_checkpoint_from:
+                replay_label_dict = {}
+                for idx in range(0,cur_task_id):
+                    with open(os.path.join("../logs_and_outputs/" + training_args.run_name + "/outputs/", str(idx+1)+"-"+task_order[idx], "saved_weights", "attention_weights.pkl"), 'rb') as f:
+                        attn_weights = pickle.load(f)
+                    replay_label_dict[task_order[idx]] = torch.cat([torch.tensor([0.] * (cur_task_id - idx)), torch.tensor(attn_weights)], dim=0).to(dtype=torch.bfloat16, device='cuda')
+                print(replay_label_dict)
         print('-'*50)
 
     # Metric
@@ -866,6 +870,8 @@ def main():
             train_dataset=train_dataset if training_args.do_train else None,
             cur_task_id=cur_task_id,
             task_order=task_order,
+            data_collator_replay=data_collator_replay,
+            replay_dataset_dict=replay_dataset_dict,
             eval_dataset=eval_dataset if training_args.do_eval else None,
             tokenizer=tokenizer,
             data_collator=data_collator,
