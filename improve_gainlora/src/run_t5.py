@@ -712,15 +712,24 @@ def main():
         if _need_replay_data:
             replay_dataset_dict = {}
             abs_data_dir_replay = os.path.abspath(data_dir) if data_dir else None
-            # Derive replay config dirs from current task's config dir parent (robust, avoids stale assets.py mappings)
+            # Derive replay config dirs from current task's config dir parent
+            # This avoids dependency on stale assets.py mappings (e.g. Long_Sequence vs gen_script_*)
             _configs_parent = os.path.dirname(os.path.abspath(data_args.task_config_dir)) if data_args.task_config_dir else None
+            print(f"[Replay] configs_parent={_configs_parent}, cur_task_id={cur_task_id}, tasks_to_replay={task_order[:cur_task_id]}")
             for idx in range(cur_task_id):
+                # Primary: derive from current task's config dir parent
                 if _configs_parent:
                     _replay_task_config_dir = os.path.join(_configs_parent, task_order[idx])
-                elif task_config.get(task_order[idx]):
-                    _replay_task_config_dir = os.path.abspath(task_config[task_order[idx]])
                 else:
                     _replay_task_config_dir = None
+
+                # Fallback: use assets.py mapping if primary path doesn't exist
+                if _replay_task_config_dir and not os.path.isdir(_replay_task_config_dir):
+                    _fallback = os.path.abspath(task_config[task_order[idx]]) if task_config.get(task_order[idx]) else None
+                    print(f"[Replay] WARNING: {_replay_task_config_dir} not found, trying fallback: {_fallback}")
+                    _replay_task_config_dir = _fallback
+
+                print(f"[Replay] Loading task {idx}: {task_order[idx]} config_dir={_replay_task_config_dir}")
                 raw_datasets_gen = load_dataset(
                     dataset_script_path,
                     data_dir=abs_data_dir_replay,
