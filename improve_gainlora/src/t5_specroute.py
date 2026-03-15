@@ -23,6 +23,12 @@ from torch import nn
 from torch.nn import CrossEntropyLoss
 from torch.utils.checkpoint import checkpoint
 
+# Prefer magma backend for linalg ops (cusolver can crash on some GPU configs)
+try:
+    torch.backends.cuda.preferred_linalg_library("magma")
+except Exception:
+    pass
+
 from transformers.modeling_outputs import (
     BaseModelOutput,
     BaseModelOutputWithPastAndCrossAttentions,
@@ -183,7 +189,15 @@ class T5Stack(T5PreTrainedModel):
                 A = lora.lora_A.data.float()  # (r, d_model)
                 B = lora.lora_B.data.float()  # (inner_dim, r)
                 delta_W = B @ A  # (inner_dim, d_model)
-                _, S, Vt = torch.linalg.svd(delta_W, full_matrices=False)
+                # Clamp NaN/Inf to avoid cusolver crash
+                if not torch.isfinite(delta_W).all():
+                    delta_W = torch.nan_to_num(delta_W, nan=0.0, posinf=1e6, neginf=-1e6)
+                try:
+                    _, S, Vt = torch.linalg.svd(delta_W, full_matrices=False)
+                except RuntimeError:
+                    # cusolver can fail on certain GPU configs; fall back to CPU
+                    _, S, Vt = torch.linalg.svd(delta_W.cpu(), full_matrices=False)
+                    S, Vt = S.to(delta_W.device), Vt.to(delta_W.device)
                 r = lora.r
                 V = Vt[:r].to(h.device, dtype=h.dtype)  # (r, d_model)
                 sigma = S[:r].to(h.device, dtype=h.dtype)  # (r,)
