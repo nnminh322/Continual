@@ -21,3 +21,4 @@ tqdm==4.67.1
 fsspec==2024.6.1
 pynvml==11.5.3
 cupy-cuda12x==13.6.0
+absl-py==1.4.0
