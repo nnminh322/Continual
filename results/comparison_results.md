@@ -41,6 +41,59 @@
 
 ---
 
+---
+
+## Table 3: Llama — SuperNI Benchmark (from GainLoRA paper)
+
+### Llama-2-7B
+
+| Method | Order 1 AP↑ | Order 1 FT↓ | Order 2 AP↑ | Order 2 FT↓ |
+|--------|-------------|-------------|-------------|-------------|
+| O-LoRA | 39.37 | 15.84 | 37.55 | 20.23 |
+| GainLoRA (O-LoRA) | 51.10 | 4.96 | 51.14 | 5.57 |
+| InfLoRA | 42.93 | 11.23 | 39.94 | 15.00 |
+| **GainLoRA (InfLoRA)** | **51.27** | **2.84** | **50.17** | **4.71** |
+| **SpecRoute (ours)** | | | | |
+
+### Llama-2-13B
+
+| Method | Order 1 AP↑ | Order 1 FT↓ | Order 2 AP↑ | Order 2 FT↓ |
+|--------|-------------|-------------|-------------|-------------|
+| O-LoRA | 43.92 | 14.15 | 40.05 | 19.53 |
+| GainLoRA (O-LoRA) | 52.47 | 4.78 | 51.68 | 5.86 |
+| InfLoRA | 43.64 | 14.85 | 45.74 | 10.61 |
+| **GainLoRA (InfLoRA)** | **53.64** | **2.87** | **52.46** | **4.90** |
+| **SpecRoute (ours)** | | | | |
+
+### Llama-3-8B
+
+| Method | Order 1 AP↑ | Order 1 FT↓ | Order 2 AP↑ | Order 2 FT↓ |
+|--------|-------------|-------------|-------------|-------------|
+| O-LoRA | 42.49 | 8.85 | 38.67 | 19.28 |
+| GainLoRA (O-LoRA) | 53.39 | 3.56 | 51.69 | 6.20 |
+| InfLoRA | 43.27 | 6.02 | 48.77 | 5.88 |
+| **GainLoRA (InfLoRA)** | **52.18** | **1.40** | **52.48** | **4.21** |
+| **SpecRoute (ours)** | | | | |
+
+---
+
+## Table 4: Ablation Study — GainLoRA with T5-Large & Llama-2-7B (from paper)
+
+| Method | T5-Large O1 AP↑ | T5-Large O1 FT↓ | T5-Large O2 AP↑ | T5-Large O2 FT↓ | Llama-2-7B O1 AP↑ | Llama-2-7B O1 FT↓ | Llama-2-7B O2 AP↑ | Llama-2-7B O2 FT↓ |
+|--------|---|---|---|---|---|---|---|---|
+| GainLoRA (O-LoRA) | 47.84 | 2.26 | 46.84 | 2.91 | 51.10 | 4.96 | 51.14 | 5.57 |
+| No Init Constraints | 35.30 | 17.19 | 39.82 | 12.90 | 44.02 | 11.71 | 42.89 | 14.77 |
+| No Update Constraints | 23.01 | 30.32 | 24.96 | 28.14 | 33.74 | 23.06 | 34.71 | 22.36 |
+| No Constraints | 26.32 | 26.00 | 30.63 | 22.37 | 34.48 | 23.46 | 36.87 | 21.24 |
+| GainLoRA (InfLoRA) | 46.21 | 2.40 | 46.44 | 2.61 | 51.27 | 2.84 | 50.17 | 4.71 |
+| No Init Constraints | 45.38 | 3.40 | 43.05 | 5.15 | 50.48 | 3.48 | 48.17 | 6.45 |
+| No Update Constraints | 37.69 | 10.94 | 38.85 | 9.31 | 48.52 | 5.68 | 47.85 | 7.00 |
+| No Constraints | 36.75 | 12.18 | 41.00 | 6.66 | 49.10 | 6.07 | 45.77 | 8.70 |
+
+> **Note**: "Init Constraints" = LoRA_A null-space projection (GPM), "Update Constraints" = GainLoRA gating + prompt_key routing
+
+---
+
 ## Per-Task Breakdown — Order 1 (fill after running)
 
 Chạy lệnh sau để lấy số điền vào:

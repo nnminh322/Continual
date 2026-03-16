@@ -13,8 +13,8 @@ source venv_llama_specroute/bin/activate
 # 3. Install dependencies (one-time, ~5 minutes)
 pip install --upgrade pip setuptools wheel
 pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
-pip install deepspeed==0.13.1 transformers==4.36.0 datasets==2.14.7 nltk==3.8.1 rouge-score==0.1.2 tqdm==4.66.1
-
+pip install deepspeed==0.13.1 transformers==4.36.0 sentencepiece==0.1.99 datasets==2.14.7 nltk==3.8.1 rouge-score==0.1.2 tqdm==4.66.1
+pip install --upgrade accelerate
 # 4. Download model (first time, ~20 minutes)
 python -c "from transformers import LlamaForCausalLM, AutoTokenizer; m = LlamaForCausalLM.from_pretrained('meta-llama/Llama-2-7b-hf'); t = AutoTokenizer.from_pretrained('meta-llama/Llama-2-7b-hf')"
 python -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('wordnet', quiet=True)"

@@ -52,11 +52,14 @@ pip install deepspeed==0.13.1
 # Install HuggingFace transformers (for Llama model loading)
 pip install transformers==4.36.0
 
+# Install sentencepiece (required for LlamaTokenizer)
+pip install sentencepiece==0.1.99
+
 # Install datasets and evaluation metrics
 pip install datasets==2.14.7
 pip install nltk==3.8.1
 pip install rouge-score==0.1.2
-
+pip install ipdb
 # Install tqdm for progress bars
 pip install tqdm==4.66.1
 
@@ -93,7 +96,7 @@ Transformers OK
 ```bash
 # Set Hugging Face cache directory (optional, avoids default ~/.cache/)
 export HF_HOME=$(pwd)/.hf_cache
-
+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
 # Pre-download Llama-2-7B
 python -c "from transformers import LlamaForCausalLM, AutoTokenizer; \
     model = LlamaForCausalLM.from_pretrained('meta-llama/Llama-2-7b-hf'); \
