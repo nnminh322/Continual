@@ -540,6 +540,22 @@ def main():
     #     model.bfloat16().to(torch.device(f"cuda:{int(os.environ['LOCAL_RANK'])}"))
 
     # ipdb.set_trace()
+
+    # FIX: from_pretrained wraps model construction in no_init_weights() context,
+    # which replaces nn.init.kaiming_uniform_ with a no-op. This leaves lora_A
+    # as all zeros (from torch.zeros in constructor), making LoRA output = 0
+    # and all lora_B gradients = 0. Re-initialize lora_A here.
+    _n_reinit = 0
+    for _module in model.modules():
+        if hasattr(_module, 'lora_A') and hasattr(_module, 'lora_B') and hasattr(_module, 'reset_parameters'):
+            nn.init.kaiming_uniform_(_module.lora_A, a=math.sqrt(5))
+            _n_reinit += 1
+    print(f"[FIX] Re-initialized lora_A in {_n_reinit} LoRA layers with kaiming_uniform_")
+    for _module in model.modules():
+        if hasattr(_module, 'lora_A'):
+            print(f"  lora_A: norm={_module.lora_A.data.norm().item():.6f}, all_zero={(_module.lora_A.data == 0).all().item()}")
+            break
+
     model.persent = training_args.persent
     model.resize_token_embeddings(len(tokenizer))
 
