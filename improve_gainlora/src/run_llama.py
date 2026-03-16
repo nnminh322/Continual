@@ -493,6 +493,11 @@ def main():
             from llama_3_inflorap1 import LlamaForCausalLM
         else:
             raise NotImplementedError
+    elif training_args.model_name == 'specroute':
+        if 'llama-2' in model_args.model_name_or_path.lower():
+            from llama_specroute import LlamaForCausalLM
+        else:
+            raise NotImplementedError(f"SpecRoute not yet implemented for {model_args.model_name_or_path}")
     else:
         raise NotImplementedError
 
@@ -543,7 +548,7 @@ def main():
         model.generation_config.eos_token_id = 2
         model.generation_config.pad_token_id = 1
 
-    if model_args.load_checkpoint_from:
+    if model_args.load_checkpoint_from and training_args.model_name != 'specroute':
         model.model.load_checkpoint_from = model_args.load_checkpoint_from
         print("----------Loading Previous Query Projection Layer----------")
         model.model.trans_input.load_state_dict(torch.load(model_args.load_checkpoint_from))
@@ -579,6 +584,19 @@ def main():
                     lora_B[f"model.layers.{j}.self_attn.lora_v.lora_B"]
                 )
     
+    # Load spectral signatures for SpecRoute
+    if training_args.model_name == 'specroute' and model_args.previous_lora_path:
+        previous_lora_list_sig = model_args.previous_lora_path.split(',')
+        previous_lora_list_sig.reverse()
+        spectral_sigs = []
+        for path in previous_lora_list_sig:
+            sig_path = os.path.join(path, "spectral_signatures.pt")
+            if os.path.exists(sig_path):
+                sig = torch.load(sig_path, map_location='cpu')
+                spectral_sigs.append(sig)
+        model.model.spectral_signatures = spectral_sigs
+        print(f"----------Loaded {len(spectral_sigs)} spectral signatures----------")
+
     for name, param in model.named_parameters():
         if  training_args.model_name in ['olora', 'gainlora_olora']:
             param.requires_grad = False
@@ -587,6 +605,10 @@ def main():
         elif training_args.model_name in ['inflora', 'gainlora_inflora']:
             param.requires_grad = False
             if ("lora_B" in name and "previous_lora_weights" not in name) or ("trans_input" in name and "previous_trans_input" not in name) or "prompt_key" in name:
+                param.requires_grad = True
+        elif training_args.model_name == 'specroute':
+            param.requires_grad = False
+            if "lora_B" in name and "previous_lora_weights" not in name:
                 param.requires_grad = True
 
     total_params, params = 0, 0
@@ -747,6 +769,10 @@ def main():
             model.model.get_chunk(training_args.chunk)
     elif training_args.model_name in ['gainlora_olora']:
         model.model.get_chunk(training_args.chunk)
+    elif training_args.model_name == 'specroute':
+        for module in model.modules():
+            if hasattr(module, 'get_feature'):
+                module.get_chunk(training_args.chunk)
     if training_args.model_name == 'olora':
         if 'llama-2' in model_args.model_name_or_path.lower():
             from cl_trainer_olora_llama import OLoRATrainer
@@ -842,6 +868,23 @@ def main():
         )
         if training_args.do_train:
             trainer.get_reg_matrix()
+    elif training_args.model_name == 'specroute':
+        from cl_trainer_specroute_llama import SpecRoute_Trainer
+        from cl_trainer_specroute_llama import DenserEvalCallback as SpecRouteDenserEvalCallback
+        trainer = SpecRoute_Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset if training_args.do_train else None,
+            cur_task_id=cur_task_id,
+            task_order=task_order,
+            eval_dataset=eval_dataset if training_args.do_eval else None,
+            tokenizer=tokenizer,
+            data_collator=data_collator,
+            compute_metrics=compute_rouge_metrics,
+            callbacks=[SpecRouteDenserEvalCallback] if training_args.denser_evaluation else None
+        )
+        if training_args.do_train:
+            trainer.get_reg_matrix()
     else:
         raise NotImplementedError
 
@@ -870,22 +913,31 @@ def main():
             is_main_process = 1
 
         if is_main_process:
-            if training_args.model_name in ['gainlora_inflora', 'gainlora_olora'] and prompt_config["previous_prompt_key_path"] is not None:
-                previous_trans_input = deepcopy(trainer.model.model.previous_trans_input.state_dict())
-                torch.save(previous_trans_input, os.path.join(save_path, 'previous_trans_input.pt'))
+            if training_args.model_name != 'specroute':
+                if training_args.model_name in ['gainlora_inflora', 'gainlora_olora'] and prompt_config["previous_prompt_key_path"] is not None:
+                    previous_trans_input = deepcopy(trainer.model.model.previous_trans_input.state_dict())
+                    torch.save(previous_trans_input, os.path.join(save_path, 'previous_trans_input.pt'))
 
-            torch.save(trainer.model.model.trans_input.state_dict(), os.path.join(save_path, 'trans_input.pt'))
+                torch.save(trainer.model.model.trans_input.state_dict(), os.path.join(save_path, 'trans_input.pt'))
 
         
-            if prompt_config["previous_prompt_key_path"] is not None:
-                torch.save(lora_state_dict_A(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_A.pt'))
-                torch.save(lora_state_dict_B(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_B.pt'))
-                torch.save(torch.cat([trainer.model.model.prompt_key, trainer.model.model.previous_prompts_keys], dim=0).data, os.path.join(save_path, 'prompts_keys_till_now.pt'))
+                if prompt_config["previous_prompt_key_path"] is not None:
+                    torch.save(lora_state_dict_A(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_A.pt'))
+                    torch.save(lora_state_dict_B(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_B.pt'))
+                    torch.save(torch.cat([trainer.model.model.prompt_key, trainer.model.model.previous_prompts_keys], dim=0).data, os.path.join(save_path, 'prompts_keys_till_now.pt'))
+                else:
+                    torch.save(lora_state_dict_A(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_A.pt'))
+                    torch.save(lora_state_dict_B(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_B.pt'))
+                    torch.save(trainer.model.model.prompt_key.data, os.path.join(save_path, 'prompts_keys_till_now.pt'))
+                tokenizer.save_pretrained(save_path)
             else:
+                # SpecRoute: save lora weights and spectral signatures
                 torch.save(lora_state_dict_A(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_A.pt'))
                 torch.save(lora_state_dict_B(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_B.pt'))
-                torch.save(trainer.model.model.prompt_key.data, os.path.join(save_path, 'prompts_keys_till_now.pt'))
-            tokenizer.save_pretrained(save_path)
+                from llama_specroute import compute_spectral_signatures
+                signatures = compute_spectral_signatures(trainer.model, config)
+                torch.save(signatures, os.path.join(save_path, 'spectral_signatures.pt'))
+                print("----------Saved spectral signatures----------")
 
         metrics = train_result.metrics
         max_train_samples = (
@@ -899,7 +951,7 @@ def main():
         logger.info(f"Metrics {metrics}")
         all_metrics.update(metrics)
 
-        if training_args.model_name in ['inflora', 'gainlora_inflora', 'gainlora_olora']:
+        if training_args.model_name in ['inflora', 'gainlora_inflora', 'gainlora_olora', 'specroute']:
             trainer.get_repsentation()
 
     # Evaluation
