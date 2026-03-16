@@ -96,7 +96,7 @@ Transformers OK
 ```bash
 # Set Hugging Face cache directory (optional, avoids default ~/.cache/)
 export HF_HOME=$(pwd)/.hf_cache
-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
+
 # Pre-download Llama-2-7B
 python -c "from transformers import LlamaForCausalLM, AutoTokenizer; \
     model = LlamaForCausalLM.from_pretrained('meta-llama/Llama-2-7b-hf'); \
