@@ -61,11 +61,54 @@ logger = logging.get_logger(__name__)
 
 # ===================== Spectral Routing Functions =====================
 
+def _thin_svd_low_rank(B, A, device=None):
+    """
+    Compute SVD of delta_W = B @ A efficiently using QR decomposition.
+
+    Since delta_W = B(m×r) @ A(r×n) has rank ≤ r (typically 8), full SVD
+    of the m×n matrix is wasteful. Instead, we decompose via two small QR
+    factorizations and one tiny r×r SVD:
+      1. QR(B) → Q_B(m×r), R_B(r×r)
+      2. QR(A^T) → Q_A(n×r), R_A(r×r)
+      3. delta_W = Q_B @ (R_B @ R_A^T) @ Q_A^T
+      4. SVD(R_B @ R_A^T) → U_s, S, Vh_s   (all r×r)
+      5. Vt = Vh_s @ Q_A^T   (r×n)
+
+    Mathematically identical to full SVD, ~2000× faster for r=8, m=n=512.
+
+    Args:
+        B: (m, r) float tensor — lora_B weights
+        A: (r, n) float tensor — lora_A weights
+        device: target device for output (None = same as input)
+
+    Returns:
+        S:  (r,)    singular values (descending)
+        Vt: (r, n)  right singular vectors transposed
+    """
+    try:
+        Q_B, R_B = torch.linalg.qr(B)       # Q_B: (m, r), R_B: (r, r)
+        Q_A, R_A = torch.linalg.qr(A.T)     # Q_A: (n, r), R_A: (r, r)
+        small = R_B @ R_A.T                  # (r, r) — tiny matrix
+        _, S, Vh_s = torch.linalg.svd(small, full_matrices=False)
+        Vt = Vh_s @ Q_A.T                   # (r, n)
+    except RuntimeError:
+        # GPU linalg failure → CPU fallback
+        B_cpu, A_cpu = B.cpu(), A.cpu()
+        Q_B, R_B = torch.linalg.qr(B_cpu)
+        Q_A, R_A = torch.linalg.qr(A_cpu.T)
+        small = R_B @ R_A.T
+        _, S, Vh_s = torch.linalg.svd(small, full_matrices=False)
+        Vt = Vh_s @ Q_A.T
+        target = device if device is not None else B.device
+        S, Vt = S.to(target), Vt.to(target)
+    return S, Vt
+
+
 def compute_spectral_signatures(model, config):
     """
     Compute spectral signatures from all LoRA branches after training.
-    For each LoRA layer, computes SVD of B@A and stores top-r right singular
-    vectors (input directions) and singular values (importance).
+    For each LoRA layer, computes exact SVD of B@A and stores top-r right
+    singular vectors (input directions) and singular values (importance).
 
     Returns dict mapping layer keys to {'V': tensor, 'sigma': tensor}.
     """
@@ -75,14 +118,13 @@ def compute_spectral_signatures(model, config):
         for j in range(config.num_layers):
             attn = model.encoder.block[j].layer[0].SelfAttention
             for name, lora in [('q', attn.lora_q), ('v', attn.lora_v)]:
-                A = lora.lora_A.data.float()  # (r, d_model)
-                B = lora.lora_B.data.float()  # (inner_dim, r)
-                delta_W = B @ A  # (inner_dim, d_model)
-                U, S, Vt = torch.linalg.svd(delta_W, full_matrices=False)
+                A = lora.lora_A.data.float()
+                B = lora.lora_B.data.float()
                 r = lora.r
+                S, Vt = _thin_svd_low_rank(B, A)
                 signatures[f'enc.{j}.{name}'] = {
-                    'V': Vt[:r].cpu(),     # (r, d_model)
-                    'sigma': S[:r].cpu()   # (r,)
+                    'V': Vt[:r].cpu(),    # (r, d_model)
+                    'sigma': S[:r].cpu()  # (r,)
                 }
         # Decoder self-attention layers
         for j in range(config.num_decoder_layers):
@@ -90,9 +132,8 @@ def compute_spectral_signatures(model, config):
             for name, lora in [('q', attn.lora_q), ('v', attn.lora_v)]:
                 A = lora.lora_A.data.float()
                 B = lora.lora_B.data.float()
-                delta_W = B @ A
-                U, S, Vt = torch.linalg.svd(delta_W, full_matrices=False)
                 r = lora.r
+                S, Vt = _thin_svd_low_rank(B, A)
                 signatures[f'dec.{j}.self.{name}'] = {
                     'V': Vt[:r].cpu(),
                     'sigma': S[:r].cpu()
@@ -102,9 +143,8 @@ def compute_spectral_signatures(model, config):
             for name, lora in [('q', attn_cross.lora_q), ('v', attn_cross.lora_v)]:
                 A = lora.lora_A.data.float()
                 B = lora.lora_B.data.float()
-                delta_W = B @ A
-                U, S, Vt = torch.linalg.svd(delta_W, full_matrices=False)
                 r = lora.r
+                S, Vt = _thin_svd_low_rank(B, A)
                 signatures[f'dec.{j}.cross.{name}'] = {
                     'V': Vt[:r].cpu(),
                     'sigma': S[:r].cpu()
@@ -143,6 +183,10 @@ class T5Stack(T5PreTrainedModel):
             # Spectral signatures loaded from previous tasks' saved weights
             self.spectral_signatures = []  # List[dict] — one dict per old task
             self.routing_temperature = prompt_config.get('attn_temperature', 1.0)
+            # Training bias: ensures current task gets adequate routing weight
+            # during training (compensates for A-based fit being lower than
+            # SVD-based fits of established old tasks). Set to 0 at inference.
+            self.training_bias = prompt_config.get('training_bias', 1.0)
 
             # For inference logging
             self.all_attn_weights = []
@@ -180,34 +224,28 @@ class T5Stack(T5PreTrainedModel):
 
         fits = []
 
-        # 1. Current task fit: use SVD of B@A (same formula as previous tasks)
-        # This ensures symmetric/comparable fit scores across all tasks
+        # 1. Current task fit: use A rows directly (not SVD of B@A).
+        # Motivation: At training start B=0, so SVD(B@A) gives σ≈0 → fit≈0 →
+        # routing weight≈0 → gradient≈0 → B can't learn (cold-start problem).
+        # A rows define the input subspace available to the current task
+        # (post null-space projection). This gives a stable, non-zero signal
+        # from initialization, measuring "how much of h's energy falls into
+        # the current task's available input subspace".
+        # Formula: fit_cur(h) = Σ_i (a_i · h)² / (r · ||h||²)
         current_fits_layers = []
         for block in self.block:
             attn = block.layer[0].SelfAttention
             for lora in [attn.lora_q, attn.lora_v]:
-                A = lora.lora_A.data.float()  # (r, d_model)
-                B = lora.lora_B.data.float()  # (inner_dim, r)
-                delta_W = B @ A  # (inner_dim, d_model)
-                # Clamp NaN/Inf to avoid cusolver crash
-                if not torch.isfinite(delta_W).all():
-                    delta_W = torch.nan_to_num(delta_W, nan=0.0, posinf=1e6, neginf=-1e6)
-                try:
-                    _, S, Vt = torch.linalg.svd(delta_W, full_matrices=False)
-                except RuntimeError:
-                    # cusolver can fail on certain GPU configs; fall back to CPU
-                    _, S, Vt = torch.linalg.svd(delta_W.cpu(), full_matrices=False)
-                    S, Vt = S.to(delta_W.device), Vt.to(delta_W.device)
+                A = lora.lora_A.data.float()  # (r, d_model) — frozen
                 r = lora.r
-                V = Vt[:r].to(h.device, dtype=h.dtype)  # (r, d_model)
-                sigma = S[:r].to(h.device, dtype=h.dtype)  # (r,)
-                proj = torch.matmul(h, V.T)  # (B, 1, r)
-                sigma_sq = sigma ** 2
-                sigma_sq_sum = sigma_sq.sum() + 1e-8
-                weighted_proj = (proj ** 2 * sigma_sq.unsqueeze(0).unsqueeze(0)).sum(dim=-1)
-                fit = weighted_proj / (sigma_sq_sum * h_norm_sq)
+                A_h = A.to(h.device, dtype=h.dtype)
+                proj = torch.matmul(h, A_h.T)  # (B, 1, r)
+                fit = (proj ** 2).sum(dim=-1) / (r * h_norm_sq)  # (B, 1)
                 current_fits_layers.append(fit)
         current_fit = torch.stack(current_fits_layers).mean(dim=0)  # (B, 1)
+        # Training bias: boost current task during training (β>0 during train, 0 at inference)
+        if self.training and hasattr(self, 'training_bias'):
+            current_fit = current_fit + self.training_bias
         fits.append(current_fit)
 
         # 2. Previous tasks fit: use spectral signatures (V, sigma)

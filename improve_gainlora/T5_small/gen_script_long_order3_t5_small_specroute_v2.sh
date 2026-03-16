@@ -54,11 +54,11 @@ echo "============================================================"
 echo ""
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=16; GA=1; EVAL_BSZ=256
+    BSZ=2; GA=8; EVAL_BSZ=128
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=32; GA=1; EVAL_BSZ=256
+    BSZ=4; GA=8; EVAL_BSZ=128
 else
-    BSZ=64; GA=1; EVAL_BSZ=512
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -95,10 +95,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --data_replay_freq 5 \
+   --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
-   --kl_ratio 0.1 \
+   --training_bias 1.0 \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
@@ -109,11 +109,11 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/1-y
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=16; GA=1; EVAL_BSZ=256
+    BSZ=2; GA=8; EVAL_BSZ=128
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=32; GA=1; EVAL_BSZ=256
+    BSZ=4; GA=8; EVAL_BSZ=128
 else
-    BSZ=64; GA=1; EVAL_BSZ=512
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -151,10 +151,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --data_replay_freq 5 \
+   --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
-   --kl_ratio 0.1 \
+   --training_bias 1.0 \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
@@ -165,11 +165,11 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/2-a
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=16; GA=1; EVAL_BSZ=256
+    BSZ=2; GA=8; EVAL_BSZ=128
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=32; GA=1; EVAL_BSZ=256
+    BSZ=4; GA=8; EVAL_BSZ=128
 else
-    BSZ=64; GA=1; EVAL_BSZ=512
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -207,10 +207,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --data_replay_freq 5 \
+   --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
-   --kl_ratio 0.1 \
+   --training_bias 1.0 \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
@@ -221,11 +221,11 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/3-m
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=16; GA=1; EVAL_BSZ=256
+    BSZ=2; GA=8; EVAL_BSZ=128
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=32; GA=1; EVAL_BSZ=256
+    BSZ=4; GA=8; EVAL_BSZ=128
 else
-    BSZ=64; GA=1; EVAL_BSZ=512
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -263,10 +263,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --data_replay_freq 5 \
+   --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
-   --kl_ratio 0.1 \
+   --training_bias 1.0 \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
@@ -277,11 +277,11 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/4-c
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=16; GA=1; EVAL_BSZ=256
+    BSZ=2; GA=8; EVAL_BSZ=128
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=32; GA=1; EVAL_BSZ=256
+    BSZ=4; GA=8; EVAL_BSZ=128
 else
-    BSZ=64; GA=1; EVAL_BSZ=512
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -319,10 +319,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --data_replay_freq 5 \
+   --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
-   --kl_ratio 0.1 \
+   --training_bias 1.0 \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
@@ -333,11 +333,11 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/5-c
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=16; GA=1; EVAL_BSZ=256
+    BSZ=2; GA=8; EVAL_BSZ=128
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=32; GA=1; EVAL_BSZ=256
+    BSZ=4; GA=8; EVAL_BSZ=128
 else
-    BSZ=64; GA=1; EVAL_BSZ=512
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -375,10 +375,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --data_replay_freq 5 \
+   --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
-   --kl_ratio 0.1 \
+   --training_bias 1.0 \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
@@ -389,11 +389,11 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/6-q
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=16; GA=1; EVAL_BSZ=256
+    BSZ=2; GA=8; EVAL_BSZ=128
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=32; GA=1; EVAL_BSZ=256
+    BSZ=4; GA=8; EVAL_BSZ=128
 else
-    BSZ=64; GA=1; EVAL_BSZ=512
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -431,10 +431,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --data_replay_freq 5 \
+   --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
-   --kl_ratio 0.1 \
+   --training_bias 1.0 \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
@@ -445,11 +445,11 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/7-r
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=16; GA=1; EVAL_BSZ=256
+    BSZ=2; GA=8; EVAL_BSZ=128
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=32; GA=1; EVAL_BSZ=256
+    BSZ=4; GA=8; EVAL_BSZ=128
 else
-    BSZ=64; GA=1; EVAL_BSZ=512
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -487,10 +487,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --data_replay_freq 5 \
+   --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
-   --kl_ratio 0.1 \
+   --training_bias 1.0 \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
@@ -501,11 +501,11 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/8-i
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=16; GA=1; EVAL_BSZ=256
+    BSZ=2; GA=8; EVAL_BSZ=128
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=32; GA=1; EVAL_BSZ=256
+    BSZ=4; GA=8; EVAL_BSZ=128
 else
-    BSZ=64; GA=1; EVAL_BSZ=512
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -543,10 +543,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --data_replay_freq 5 \
+   --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
-   --kl_ratio 0.1 \
+   --training_bias 1.0 \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
@@ -557,11 +557,11 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/9-s
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=16; GA=1; EVAL_BSZ=256
+    BSZ=2; GA=8; EVAL_BSZ=128
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=32; GA=1; EVAL_BSZ=256
+    BSZ=4; GA=8; EVAL_BSZ=128
 else
-    BSZ=64; GA=1; EVAL_BSZ=512
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -599,10 +599,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --data_replay_freq 5 \
+   --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
-   --kl_ratio 0.1 \
+   --training_bias 1.0 \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
@@ -613,11 +613,11 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/10-
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=16; GA=1; EVAL_BSZ=256
+    BSZ=2; GA=8; EVAL_BSZ=128
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=32; GA=1; EVAL_BSZ=256
+    BSZ=4; GA=8; EVAL_BSZ=128
 else
-    BSZ=64; GA=1; EVAL_BSZ=512
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -655,10 +655,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --data_replay_freq 5 \
+   --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
-   --kl_ratio 0.1 \
+   --training_bias 1.0 \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
@@ -669,11 +669,11 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/11-
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=16; GA=1; EVAL_BSZ=256
+    BSZ=2; GA=8; EVAL_BSZ=128
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=32; GA=1; EVAL_BSZ=256
+    BSZ=4; GA=8; EVAL_BSZ=128
 else
-    BSZ=64; GA=1; EVAL_BSZ=512
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -711,10 +711,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --data_replay_freq 5 \
+   --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
-   --kl_ratio 0.1 \
+   --training_bias 1.0 \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
@@ -725,11 +725,11 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/12-
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=16; GA=1; EVAL_BSZ=256
+    BSZ=2; GA=8; EVAL_BSZ=128
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=32; GA=1; EVAL_BSZ=256
+    BSZ=4; GA=8; EVAL_BSZ=128
 else
-    BSZ=64; GA=1; EVAL_BSZ=512
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -767,10 +767,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --data_replay_freq 5 \
+   --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
-   --kl_ratio 0.1 \
+   --training_bias 1.0 \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
@@ -781,11 +781,11 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/13-
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=16; GA=1; EVAL_BSZ=256
+    BSZ=2; GA=8; EVAL_BSZ=128
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=32; GA=1; EVAL_BSZ=256
+    BSZ=4; GA=8; EVAL_BSZ=128
 else
-    BSZ=64; GA=1; EVAL_BSZ=512
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -823,10 +823,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --data_replay_freq 5 \
+   --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
-   --kl_ratio 0.1 \
+   --training_bias 1.0 \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
@@ -837,11 +837,11 @@ rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/14-
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=16; GA=1; EVAL_BSZ=256
+    BSZ=2; GA=8; EVAL_BSZ=128
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=32; GA=1; EVAL_BSZ=256
+    BSZ=4; GA=8; EVAL_BSZ=128
 else
-    BSZ=64; GA=1; EVAL_BSZ=512
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -879,10 +879,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --data_replay_freq 5 \
+   --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
-   --kl_ratio 0.1 \
+   --training_bias 1.0 \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \

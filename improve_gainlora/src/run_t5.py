@@ -156,6 +156,14 @@ class ModelArguments:
         },
     )
 
+    training_bias: Optional[float] = field(
+        default=1.0,
+        metadata={
+            "help": "Additive bias for current task routing during training (SpecRoute only). "
+                    "Compensates for cold-start where B=0 gives near-zero spectral fit."
+        },
+    )
+
     run_single: bool = field(
         default=False,
         metadata={
@@ -479,7 +487,8 @@ def main():
         'run_single': model_args.run_single,
         'lora_r': model_args.lora_r,
         'lora_alpha': model_args.lora_alpha,
-        'lora_dropout': model_args.lora_dropout
+        'lora_dropout': model_args.lora_dropout,
+        'training_bias': model_args.training_bias,
     }
 
     if training_args.model_name in ['inflora', 'olora']:
@@ -708,7 +717,7 @@ def main():
 
         replay_dataset_dict, replay_label_dict = None, None
         # Load replay datasets for methods that need it
-        _need_replay_data = model_args.load_checkpoint_from or (training_args.model_name == 'specroute' and cur_task_id > 0)
+        _need_replay_data = model_args.load_checkpoint_from
         if _need_replay_data:
             replay_dataset_dict = {}
             abs_data_dir_replay = os.path.abspath(data_dir) if data_dir else None
@@ -887,8 +896,6 @@ def main():
             train_dataset=train_dataset if training_args.do_train else None,
             cur_task_id=cur_task_id,
             task_order=task_order,
-            data_collator_replay=data_collator_replay,
-            replay_dataset_dict=replay_dataset_dict,
             eval_dataset=eval_dataset if training_args.do_eval else None,
             tokenizer=tokenizer,
             data_collator=data_collator,
@@ -973,7 +980,9 @@ def main():
             signatures = compute_spectral_signatures(trainer.model, config)
             torch.save(signatures, os.path.join(save_path, 'spectral_signatures.pt'))
             print("----------Saved spectral signatures----------")
-        tokenizer.save_pretrained(save_path)
+        # Only save tokenizer for non-specroute (specroute never reloads it)
+        if training_args.model_name != 'specroute':
+            tokenizer.save_pretrained(save_path)
 
         metrics = train_result.metrics
         max_train_samples = (
@@ -1011,23 +1020,24 @@ def main():
             predict_dataset = predict_dataset.select(range(data_args.max_predict_samples))
 
         trainer.model.encoder.is_inference = True
-        _ = trainer.predict(
-            eval_dataset,
-            metric_key_prefix="predict",
-            max_new_tokens=max_new_tokens,
-            num_beams=num_beams,
-            repetition_penalty=repetition_penalty,
-            pad_token_id=tokenizer.pad_token_id
-        )
-        
-        if not prompt_config["run_single"]:
-            # ipdb.set_trace()
-            save_path = training_args.output_dir + "/saved_weights"
-            with open(os.path.join(save_path, "attention_weights.pkl"), 'wb') as f:
-                print("*"*20, "Saving Attention Weights", "*"*20)
-                print(np.array(np.concatenate(trainer.model.encoder.all_attn_weights)).mean(axis=0))
-                pickle.dump(np.array(np.concatenate(trainer.model.encoder.all_attn_weights)).mean(axis=0), f)
-            trainer.model.encoder.is_inference = False
+
+        # Collect attention weights for GainLoRA KL replay (not needed for SpecRoute)
+        if training_args.model_name != 'specroute':
+            _ = trainer.predict(
+                eval_dataset,
+                metric_key_prefix="predict",
+                max_new_tokens=max_new_tokens,
+                num_beams=num_beams,
+                repetition_penalty=repetition_penalty,
+                pad_token_id=tokenizer.pad_token_id
+            )
+            if not prompt_config["run_single"]:
+                save_path = training_args.output_dir + "/saved_weights"
+                with open(os.path.join(save_path, "attention_weights.pkl"), 'wb') as f:
+                    print("*"*20, "Saving Attention Weights", "*"*20)
+                    print(np.array(np.concatenate(trainer.model.encoder.all_attn_weights)).mean(axis=0))
+                    pickle.dump(np.array(np.concatenate(trainer.model.encoder.all_attn_weights)).mean(axis=0), f)
+                trainer.model.encoder.is_inference = False
 
         if training_args.do_predict:
             predict_results = trainer.predict(

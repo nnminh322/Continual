@@ -1,0 +1,6 @@
+do các paper neurips, top conference (giới hạn 2025) quan tâm rất nhiều tới thiết kế cô lập tri thức (bằng submodule + rounting)
+- Ý tưởng: khái quát hoá không gian của tri thức bằng các công cụ thống kê mạnh như vMF... làm đặc trưng/ chữ ký của module (task - tri thức)
+- sử dụng Optimal Transport như là 1 cơ chế routing
+- Đối với backbone (phần chung) bổ sung một thành phần phạt chống drift representation và chống xâm lấn (ý tưởng tương tự như đã làm)
+
+Đối với Contribution thứ 2 thì tuỳ từng bài toán sẽ phát triển sau
