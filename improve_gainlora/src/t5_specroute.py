@@ -183,10 +183,16 @@ class T5Stack(T5PreTrainedModel):
             # Spectral signatures loaded from previous tasks' saved weights
             self.spectral_signatures = []  # List[dict] — one dict per old task
             self.routing_temperature = prompt_config.get('attn_temperature', 1.0)
-            # Training bias: ensures current task gets adequate routing weight
-            # during training (compensates for A-based fit being lower than
-            # SVD-based fits of established old tasks). Set to 0 at inference.
-            self.training_bias = prompt_config.get('training_bias', 1.0)
+
+            # Adaptive training bias: β = T·ln(α·n_old/(1−α))
+            # Ensures current task gets consistent routing weight ~α regardless
+            # of total number of tasks (fixes softmax dilution with constant bias).
+            # At inference, uses symmetric SVD-based routing instead (no bias needed).
+            self._target_routing_alpha = prompt_config.get('target_routing_alpha', 0.8)
+
+            # Precomputed SVD of current task's LoRA for symmetric inference routing.
+            # Populated by prepare_inference_routing() before prediction.
+            self._current_task_svd = None
 
             # For inference logging
             self.all_attn_weights = []
@@ -210,8 +216,13 @@ class T5Stack(T5PreTrainedModel):
         """
         Compute routing weights using spectral projection fits.
 
-        For each task, measures how much of the input's energy falls into that
-        task's operating subspace (defined by SVD of its LoRA weights).
+        Training mode: A-row fit + adaptive bias for current task (cold-start safe).
+        Inference mode: SVD-based fit for ALL tasks (symmetric, no bias needed).
+
+        The adaptive bias β = T·ln(α·n_old/(1−α)) ensures the current task gets
+        routing weight ≈ α regardless of the number of previous tasks, compensating
+        for softmax dilution. At inference, all tasks use the same σ²-weighted
+        Rayleigh quotient (SVD fit), eliminating the train-test asymmetry.
 
         Args:
             avg_inputs_embeds: (B, 1, d_model) — averaged input token embeddings
@@ -224,29 +235,64 @@ class T5Stack(T5PreTrainedModel):
 
         fits = []
 
-        # 1. Current task fit: use A rows directly (not SVD of B@A).
-        # Motivation: At training start B=0, so SVD(B@A) gives σ≈0 → fit≈0 →
-        # routing weight≈0 → gradient≈0 → B can't learn (cold-start problem).
-        # A rows define the input subspace available to the current task
-        # (post null-space projection). This gives a stable, non-zero signal
-        # from initialization, measuring "how much of h's energy falls into
-        # the current task's available input subspace".
-        # Formula: fit_cur(h) = Σ_i (a_i · h)² / (r · ||h||²)
-        current_fits_layers = []
-        for block in self.block:
-            attn = block.layer[0].SelfAttention
-            for lora in [attn.lora_q, attn.lora_v]:
-                A = lora.lora_A.data.float()  # (r, d_model) — frozen
-                r = lora.r
-                A_h = A.to(h.device, dtype=h.dtype)
-                proj = torch.matmul(h, A_h.T)  # (B, 1, r)
-                fit = (proj ** 2).sum(dim=-1) / (r * h_norm_sq)  # (B, 1)
-                current_fits_layers.append(fit)
-        current_fit = torch.stack(current_fits_layers).mean(dim=0)  # (B, 1)
-        # Training bias: boost current task during training (β>0 during train, 0 at inference)
-        if self.training and hasattr(self, 'training_bias'):
-            current_fit = current_fit + self.training_bias
-        fits.append(current_fit)
+        if self.training:
+            # === TRAINING MODE: A-row fit + adaptive bias for current task ===
+            # A rows give stable non-zero signal even when B=0 (cold-start).
+            current_fits_layers = []
+            for block in self.block:
+                attn = block.layer[0].SelfAttention
+                for lora in [attn.lora_q, attn.lora_v]:
+                    A = lora.lora_A.data.float()  # (r, d_model) — frozen
+                    r = lora.r
+                    A_h = A.to(h.device, dtype=h.dtype)
+                    proj = torch.matmul(h, A_h.T)  # (B, 1, r)
+                    fit = (proj ** 2).sum(dim=-1) / (r * h_norm_sq)  # (B, 1)
+                    current_fits_layers.append(fit)
+            current_fit = torch.stack(current_fits_layers).mean(dim=0)  # (B, 1)
+
+            # Adaptive training bias: β = T·ln(α·n_old/(1−α))
+            n_old = len(self.spectral_signatures)
+            if n_old > 0:
+                alpha = self._target_routing_alpha
+                beta = self.routing_temperature * math.log(alpha * n_old / (1.0 - alpha))
+                current_fit = current_fit + beta
+            fits.append(current_fit)
+        else:
+            # === INFERENCE MODE: SVD-based fit for current task (symmetric) ===
+            # After training, B≠0 so SVD(B@A) gives meaningful signatures.
+            # Using the same σ²-weighted formula as old tasks eliminates the
+            # A-row vs SVD measurement asymmetry.
+            if self._current_task_svd is not None:
+                cur_fits = []
+                for key, sig_data in self._current_task_svd.items():
+                    if not key.startswith('enc.'):
+                        continue
+                    V = sig_data['V'].to(h.device, dtype=h.dtype)
+                    sigma = sig_data['sigma'].to(h.device, dtype=h.dtype)
+                    proj = torch.matmul(h, V.T)
+                    sigma_sq = sigma ** 2
+                    sigma_sq_sum = sigma_sq.sum() + 1e-8
+                    weighted_proj = (proj ** 2 * sigma_sq.unsqueeze(0).unsqueeze(0)).sum(dim=-1)
+                    fit = weighted_proj / (sigma_sq_sum * h_norm_sq)
+                    cur_fits.append(fit)
+                if cur_fits:
+                    current_fit = torch.stack(cur_fits).mean(dim=0)
+                else:
+                    current_fit = torch.zeros(h.shape[0], 1, device=h.device, dtype=h.dtype)
+            else:
+                # Fallback: A-row fit without bias (backward compat)
+                current_fits_layers = []
+                for block in self.block:
+                    attn = block.layer[0].SelfAttention
+                    for lora in [attn.lora_q, attn.lora_v]:
+                        A = lora.lora_A.data.float()
+                        r = lora.r
+                        A_h = A.to(h.device, dtype=h.dtype)
+                        proj = torch.matmul(h, A_h.T)
+                        fit = (proj ** 2).sum(dim=-1) / (r * h_norm_sq)
+                        current_fits_layers.append(fit)
+                current_fit = torch.stack(current_fits_layers).mean(dim=0)
+            fits.append(current_fit)
 
         # 2. Previous tasks fit: use spectral signatures (V, sigma)
         for sig_dict in self.spectral_signatures:
@@ -277,6 +323,31 @@ class T5Stack(T5PreTrainedModel):
         weights = torch.softmax(fit_scores / self.routing_temperature, dim=1)  # (B, n_tasks)
 
         return weights.unsqueeze(2)  # (B, n_tasks, 1)
+
+    def prepare_inference_routing(self):
+        """
+        Precompute SVD of current task's LoRA for symmetric inference routing.
+
+        Must be called after training (B≠0) and before prediction. Computes
+        spectral signatures from the current (most recently trained) task's
+        LoRA weights, enabling the same σ²-weighted Rayleigh quotient formula
+        for all tasks during inference.
+        """
+        sigs = {}
+        with torch.no_grad():
+            for j, block in enumerate(self.block):
+                attn = block.layer[0].SelfAttention
+                for name, lora in [('q', attn.lora_q), ('v', attn.lora_v)]:
+                    A = lora.lora_A.data.float()
+                    B = lora.lora_B.data.float()
+                    r = lora.r
+                    S, Vt = _thin_svd_low_rank(B, A)
+                    sigs[f'enc.{j}.self.{name}'] = {
+                        'V': Vt[:r].cpu(),
+                        'sigma': S[:r].cpu()
+                    }
+        self._current_task_svd = sigs
+        print(f"[SpecRoute] Prepared inference routing: {len(sigs)} encoder SVD signatures for current task")
 
     def parallelize(self, device_map=None):
         self.device_map = (

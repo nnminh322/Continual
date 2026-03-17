@@ -185,17 +185,27 @@ $$B_t,\, A_t \;\xrightarrow[\text{QR + SVD}]{O(dr^2)}\; (V_t,\, \boldsymbol{\sig
 
 ### C2 — Spectral Affinity Routing
 
-**Inference** (all tasks available):
+**Inference** (all tasks available, symmetric SVD-based routing):
 
 $$w(h) = \mathrm{softmax}\!\left(\frac{[\alpha_1(h),\; \ldots,\; \alpha_T(h)]}{\tau}\right)$$
 
+All tasks (including the most recently trained) use the same $\sigma^2$-weighted spectral affinity formula (Definition 2). After training task $t$, we compute $\mathcal{S}_t$ once via `prepare_inference_routing()` and use it alongside old tasks' signatures.
+
 **Training** (task $t$, final SVD unknown because $B_t$ still training):
 
-$$\alpha_t^{\mathrm{train}}(h) = \frac{\|A_t\, h\|^2}{r\,\|h\|^2} + \beta$$
+$$\alpha_t^{\mathrm{train}}(h) = \frac{\|A_t\, h\|^2}{r\,\|h\|^2} + \beta(n), \qquad \beta(n) = \tau \cdot \ln\!\left(\frac{\alpha_{\mathrm{target}} \cdot n}{1 - \alpha_{\mathrm{target}}}\right)$$
+
+where $n = |\{\text{old tasks}\}|$ and $\alpha_{\mathrm{target}} \in (0,1)$ is the desired routing weight for the current task (default 0.8).
 
 **Justification of the A-row proxy:** For any full-rank $B_t$, the column span of $V_t$ (from SVD of $B_t A_t$) equals $\mathrm{range}(A_t^\top)$. So the A rows span the *same* input subspace that the converged $V_t$ will capture. The proxy measures input alignment with this subspace using uniform weighting (no $\sigma$ available yet).
 
-**Justification of $\beta$:** A rows (kaiming-initialised, unit-variance) produce systematically lower fits than $\sigma^2$-weighted SVD fits of trained old experts. Setting $\beta = 1.0$ makes the softmax produce $w_t > 0.95$, approximating the oracle assignment $w_t = 1$ (principled: during training on task $t$'s data, the optimal routing *is* $w_t = 1$) while allowing marginal knowledge transfer from relevant old experts.
+**Justification of adaptive $\beta(n)$:** A constant bias $\beta_0$ causes the current task's softmax routing weight to decay as $O(1/n)$ with task count (softmax dilution). The adaptive formula normalises this: solving $w_t = \alpha_{\mathrm{target}}$ in the softmax equation yields the closed-form above. This ensures the current task receives routing weight $\approx \alpha_{\mathrm{target}}$ regardless of $n$, providing consistent gradient flow throughout the CL sequence.
+
+*Derivation.* Let $f = \alpha_t^{\mathrm{train}}$, $g = \bar{\alpha}_{\mathrm{old}}$ (mean old task fit). The softmax weight for the current task among $n+1$ competitors:
+
+$$w_t = \frac{e^{f/\tau}}{e^{f/\tau} + n\, e^{g/\tau}} = \alpha_{\mathrm{target}} \;\;\Longrightarrow\;\; \beta = f - g = \tau \cdot \ln\!\left(\frac{\alpha_{\mathrm{target}} \cdot n}{1 - \alpha_{\mathrm{target}}}\right)$$
+
+**Justification of symmetric inference:** During training, the A-row proxy + adaptive bias is necessary because $B_t$ is evolving (cold-start). At inference, $B_t$ is frozen and $\Delta W_t = B_t A_t$ has well-defined SVD. Using the same $\sigma^2$-weighted Rayleigh quotient for all tasks ensures *measurement symmetry* — all affinities live on the same metric space, and the Routing–Protection Duality Theorem (Theorem 1) applies uniformly.
 
 ### C3 — Capacity-Aware Subspace Allocation
 
@@ -240,8 +250,9 @@ where $\varepsilon_0$ is the base threshold. This allocates incrementally strict
 | Theory | Implementation | File |
 |--------|---------------|------|
 | Spectral signature $\mathcal{S}_t$ | `compute_spectral_signatures()` (thin QR+SVD) | `t5_specroute.py` |
-| Spectral affinity $\alpha_t(h)$ (old tasks) | σ²-weighted Rayleigh quotient | `compute_spectral_routing()` |
-| A-row proxy $\alpha_t^{\mathrm{train}}$ (current) | `(proj**2).sum() / (r * h_norm_sq) + training_bias` | `compute_spectral_routing()` |
+| Spectral affinity $\alpha_t(h)$ (all tasks at inference) | σ²-weighted Rayleigh quotient | `compute_spectral_routing()` |
+| A-row proxy $\alpha_t^{\mathrm{train}}$ (current, training only) | A-row fit + adaptive bias $\beta(n)$ | `compute_spectral_routing()` |
+| Symmetric inference SVD | `prepare_inference_routing()` → SVD of current $B_t A_t$ | `t5_specroute.py` |
 | Routing $w = \mathrm{softmax}(\alpha / \tau)$ | `torch.softmax(fit_scores / temp)` | `compute_spectral_routing()` |
 | Drift-free input $h$ | `inputs_embeds = self.embed_tokens(input_ids)` → mean-pool | `T5Stack.forward()` |
 | GPM + InfLoRA null-space | `get_reg_matrix()` | `cl_trainer_specroute.py` |
@@ -262,8 +273,8 @@ where $\varepsilon_0$ is the base threshold. This allocates incrementally strict
 ### Task $t \geq 2$
 1. Load model + fresh LoRA; load old LoRA weights and spectral signatures.
 2. InfLoRA: project current $A_t$ into null-space of old GPM bases.
-3. Train `lora_B` with spectral affinity routing + training bias $\beta$.
-4. Post-training: compute $\mathcal{S}_t$ + update GPM bases.
+3. Train `lora_B` with spectral affinity routing + adaptive bias $\beta(n)$.
+4. Post-training: compute $\mathcal{S}_t$ (`prepare_inference_routing` for inference, `compute_spectral_signatures` for storage) + update GPM bases.
 5. Save all artifacts for next task.
 
 ---
@@ -276,8 +287,8 @@ where $\varepsilon_0$ is the base threshold. This allocates incrementally strict
 | Benchmarks | SuperNI (15 tasks, 2 orderings), Long (15 tasks, 2 orderings) |
 | Metrics | AP (Average Performance, ↑), FT (Forgetting, ↓) |
 | LoRA | $r = 4$, $\alpha = 32$, dropout 0.0 |
-| Routing | $\tau = 1.0$, $\beta = 1.0$ (train only) |
-| ESA | $\varepsilon_0 = 0.980$ (dynamic) |
+| Routing | $\tau = 1.0$, $\alpha_{\mathrm{target}} = 0.8$, adaptive $\beta(n)$ (train); symmetric SVD (inference) |
+| ESA | $\varepsilon_0 = 0.995$ (dynamic) |
 | Precision | fp32 + gradient checkpointing |
 | Comparison | Batch size, LR, scheduler match ROOT (GainLoRA) exactly |
 

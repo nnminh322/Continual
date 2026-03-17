@@ -164,6 +164,14 @@ class ModelArguments:
         },
     )
 
+    target_routing_alpha: Optional[float] = field(
+        default=0.8,
+        metadata={
+            "help": "Target softmax routing weight for current task during training (SpecRoute V3). "
+                    "Adaptive bias = T*ln(alpha*n_old/(1-alpha)). Set 0 to use fixed training_bias."
+        },
+    )
+
     run_single: bool = field(
         default=False,
         metadata={
@@ -489,6 +497,7 @@ def main():
         'lora_alpha': model_args.lora_alpha,
         'lora_dropout': model_args.lora_dropout,
         'training_bias': model_args.training_bias,
+        'target_routing_alpha': model_args.target_routing_alpha,
     }
 
     if training_args.model_name in ['inflora', 'olora']:
@@ -1020,6 +1029,10 @@ def main():
             predict_dataset = predict_dataset.select(range(data_args.max_predict_samples))
 
         trainer.model.encoder.is_inference = True
+
+        # SpecRoute V3: precompute SVD of current task's LoRA for symmetric inference routing
+        if training_args.model_name == 'specroute' and hasattr(trainer.model.encoder, 'prepare_inference_routing'):
+            trainer.model.encoder.prepare_inference_routing()
 
         # Collect attention weights for GainLoRA KL replay (not needed for SpecRoute)
         if training_args.model_name != 'specroute':
