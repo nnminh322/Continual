@@ -221,6 +221,32 @@ where $\varepsilon_0$ is the base threshold. This allocates incrementally strict
 
 ---
 
+### C4 — Spectrally-Conditioned LoRA Training
+
+While C1–C3 address **routing and protection**, C4 targets **single-task LoRA quality** — ensuring each adapter fully utilizes its rank budget.
+
+#### C4.1 Preconditioned Gradient
+
+In InfLoRA, $A$ is frozen after null-space projection, making $A$'s column space non-orthogonal. The gradient $\nabla_B \mathcal{L} = \nabla_{\Delta W} \mathcal{L} \cdot A^T$ is distorted by $A^T$'s conditioning. We correct this via:
+
+$$\tilde{\nabla}_B = \nabla_B \mathcal{L} \cdot (AA^T + \epsilon I)^{-1/2}$$
+
+This equalizes gradient magnitudes across all rank directions, equivalent to natural gradient in $B$'s parameter space. The preconditioner is computed **once** after `get_reg_matrix()` since $A$ is frozen — zero per-step overhead.
+
+#### C4.2 Spectral Entropy Regularization
+
+CE loss alone doesn't encourage full rank utilization. We add spectral entropy regularization:
+
+$$\mathcal{L}_{total} = \mathcal{L}_{CE} + \lambda \sum_{\ell} \left(\log(r) - H_\ell\right)$$
+
+where $H_\ell = -\sum_i \hat{\sigma}_i \log \hat{\sigma}_i$ is the spectral entropy of the $\ell$-th LoRA layer's $BA$ matrix, and $\hat{\sigma}_i = \sigma_i / \sum_j \sigma_j$ are normalized singular values.
+
+**Efficient QR trick**: Instead of SVD on full $BA$ ($d_{out} \times d_{in}$), compute $QR(B^T)$ and $QR(A)$ to get $r \times r$ matrices $R_B, R_A$, then $\text{svdvals}(R_B \cdot R_A^T)$ gives the same singular values at $O(r^3)$ cost.
+
+**Warmup**: Entropy loss is enabled only after a warmup fraction of training steps, preventing it from dominating early CE optimization.
+
+---
+
 ## 5. What's Removed from GainLoRA
 
 | Component | GainLoRA | SpecRoute | Why |
@@ -243,6 +269,8 @@ where $\varepsilon_0$ is the base threshold. This allocates incrementally strict
 
 **Claim 3 — Unified Geometric Framework** *(Conceptual).* We connect CL routing, protection, and capacity through Grassmannian geometry, providing the first capacity bound for expandable LoRA CL ($T_{\max} \leq d/r(1{-}\varepsilon)$) and linking CL design to established results in coding theory and information theory.
 
+**Claim 4 — Spectrally-Conditioned LoRA Training** *(Algorithmic).* We show that frozen-A LoRA training suffers from gradient distortion and rank under-utilization, and propose (i) spectral preconditioning $(AA^T + \epsilon I)^{-1/2}$ for condition-number-independent convergence, and (ii) spectral entropy regularization to maximize effective rank — improving single-task quality orthogonally to routing/protection.
+
 ---
 
 ## 7. Code–Idea Alignment
@@ -259,6 +287,8 @@ where $\varepsilon_0$ is the base threshold. This allocates incrementally strict
 | Dynamic ESA threshold | `(1−ε₀)·t/T + ε₀` | `cl_trainer_specroute.py` |
 | No routing parameters | No `trans_input`, no `prompt_key` in T5Stack | `t5_specroute.py` |
 | No replay | Clean `training_step` (CE only) | `cl_trainer_specroute.py` |
+| C4: Preconditioner $(AA^T+\epsilon I)^{-1/2}$ | `precompute_preconditioners()` → eigendecomposition | `cl_trainer_specroute.py` |
+| C4: Spectral entropy reg | `_compute_spectral_entropy_loss()` → QR trick + SVD | `cl_trainer_specroute.py` |
 
 ---
 
@@ -289,6 +319,7 @@ where $\varepsilon_0$ is the base threshold. This allocates incrementally strict
 | LoRA | $r = 4$, $\alpha = 32$, dropout 0.0 |
 | Routing | $\tau = 1.0$, $\alpha_{\mathrm{target}} = 0.8$, adaptive $\beta(n)$ (train); symmetric SVD (inference) |
 | ESA | $\varepsilon_0 = 0.995$ (dynamic) |
+| C4 Training | $\lambda_{entropy} = 0.01$, preconditioning on, $\epsilon = 10^{-6}$, warmup = 10% |
 | Precision | fp32 + gradient checkpointing |
 | Comparison | Batch size, LR, scheduler match ROOT (GainLoRA) exactly |
 

@@ -321,6 +321,62 @@ V2 đã tắt replay (`data_replay_freq=-1`), match ROOT. Runtime ước tính n
 
 ---
 
+## Version 4.0 — SpecRoute V4: Spectrally-Conditioned LoRA Training (C4)
+
+### Motivation
+V3 addresses routing and protection, but single-task LoRA quality remains limited by:
+1. **Gradient distortion**: Frozen A (after InfLoRA null-space projection) has non-orthogonal columns → B gradients are distorted
+2. **Low effective rank**: CE loss alone doesn't encourage full utilization of LoRA's rank-r budget
+
+### Methodology (C4)
+Two complementary components:
+
+**C4.1 Preconditioned Gradient**: Apply $(AA^T + \epsilon I)^{-1/2}$ to B's gradient after backward, equalizing gradient magnitudes across all rank directions. Computed ONCE after `get_reg_matrix()` (A is frozen → constant preconditioner).
+
+**C4.2 Spectral Entropy Regularization**: $\mathcal{L} = \mathcal{L}_{CE} + \lambda \sum_\ell (\log r - H_\ell)$ where $H_\ell$ is spectral entropy of the $\ell$-th LoRA layer. Efficient QR trick: $O(r^3)$ instead of full SVD.
+
+### Hyperparameters
+| Parameter | Value | Role |
+|-----------|-------|------|
+| `lambda_entropy` | 0.01 | Weight of spectral entropy loss |
+| `use_preconditioning` | True | Enable gradient preconditioning |
+| `precond_eps` | 1e-6 | Numerical stability |
+| `entropy_warmup_ratio` | 0.1 | 10% warmup before enabling entropy loss |
+
+### Code Changes
+1. **`cl_trainer_specroute.py`**:
+   - Added C4 params to `__init__` (lambda_entropy, use_preconditioning, precond_eps, entropy_warmup_ratio)
+   - Added `precompute_preconditioners()`: eigendecomposition of AA^T → $(AA^T+\epsilon I)^{-1/2}$
+   - Added `_compute_spectral_entropy_loss()`: QR trick → SVD of r×r matrix → entropy
+   - Added `_apply_preconditioning()`: post-backward gradient modification
+   - Modified `training_step()`: entropy loss + preconditioning
+
+2. **`run_t5.py`**:
+   - 4 new args: lambda_entropy, use_preconditioning, precond_eps, entropy_warmup_ratio
+   - Pass to SpecRoute_Trainer constructor
+   - Call `precompute_preconditioners()` after `get_reg_matrix()`
+
+3. **V4 shell script**: `gen_script_long_order3_t5_small_specroute_v4.sh`
+
+### Ablation Plan
+| Experiment | Precond | Entropy | Purpose |
+|------------|---------|---------|---------|
+| V3 (baseline) | ✗ | ✗ | Current best |
+| V4a | ✓ | ✗ | Isolate preconditioning |
+| V4b | ✗ | ✓ | Isolate entropy |
+| V4 (full) | ✓ | ✓ | Full C4 |
+
+### Kỳ vọng
+- Preconditioning: faster convergence, especially for tasks where A has high condition number
+- Entropy: higher effective rank → richer LoRA representations → better generalization
+- Combined: both effects are orthogonal and additive
+- Risk: entropy regularization may hurt tasks that genuinely need low-rank updates (mitigated by warmup + modest λ)
+
+### Kết quả
+*(Chưa chạy — cần chạy trên Long Sequence Order 3)*
+
+---
+
 ## Changelog
 
 | Date | Version | Change Type | Description |
@@ -331,3 +387,4 @@ V2 đã tắt replay (`data_replay_freq=-1`), match ROOT. Runtime ước tính n
 | 2025-XX-XX | V2.1 | Perf Optimization | Thin QR+SVD (~186× speedup per SVD, zero accuracy loss) |
 | 2026-03-17 | V2.0 | **Results** | AP(EM)=30.73 vs ROOT=59.70. 4 tasks EM=0 (imdb/sst2/wic/cb misrouting), 2 catastrophic forgetting |
 | 2026-03-17 | V3.0 | **Methodology** | Adaptive bias β(n)=τ·ln(α·n/(1-α)), symmetric SVD inference routing, threshold→0.995 |
+| 2026-03-17 | V4.0 | **C4 Implementation** | Preconditioned gradient + spectral entropy regularization for single-task LoRA quality |

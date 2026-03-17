@@ -172,6 +172,24 @@ class ModelArguments:
         },
     )
 
+    # C4: Spectrally-Conditioned LoRA Training
+    lambda_entropy: Optional[float] = field(
+        default=0.0,
+        metadata={"help": "Weight for spectral entropy regularization (C4). 0 = disabled."},
+    )
+    use_preconditioning: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Enable (AA^T+eps*I)^{-1/2} gradient preconditioning on lora_B (C4)."},
+    )
+    precond_eps: Optional[float] = field(
+        default=1e-6,
+        metadata={"help": "Epsilon for preconditioner numerical stability (C4)."},
+    )
+    entropy_warmup_ratio: Optional[float] = field(
+        default=0.1,
+        metadata={"help": "Fraction of training steps before enabling entropy loss (C4)."},
+    )
+
     run_single: bool = field(
         default=False,
         metadata={
@@ -909,10 +927,15 @@ def main():
             tokenizer=tokenizer,
             data_collator=data_collator,
             compute_metrics=compute_rouge_metrics,
-            callbacks=[SpecRouteDenserEvalCallback] if training_args.denser_evaluation else None
+            callbacks=[SpecRouteDenserEvalCallback] if training_args.denser_evaluation else None,
+            lambda_entropy=model_args.lambda_entropy,
+            use_preconditioning=model_args.use_preconditioning,
+            precond_eps=model_args.precond_eps,
+            entropy_warmup_ratio=model_args.entropy_warmup_ratio,
         )
         if training_args.do_train:
             trainer.get_reg_matrix()
+            trainer.precompute_preconditioners()
     else:
         raise NotImplementedError
 

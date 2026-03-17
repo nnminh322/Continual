@@ -7,9 +7,11 @@ Key differences from GainLoRA_InfLoRA_Trainer:
 - No memory replay (KL loss on gating — routing has no learned parameters)
 - Constant threshold for GPM (Elastic Subspace Allocation)
 - Simplified optimizer (no special lr for trans_input)
+- C4: Preconditioned gradient (AA^T)^{-1/2} + spectral entropy regularization
 """
 
 import torch
+import math as _math
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from transformers import GenerationConfig
@@ -72,7 +74,9 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
 
     def __init__(self, model, args, train_dataset, cur_task_id, task_order,
                  eval_dataset=None, tokenizer=None, data_collator=None,
-                 compute_metrics=None, callbacks=None):
+                 compute_metrics=None, callbacks=None,
+                 lambda_entropy=0.0, use_preconditioning=False,
+                 precond_eps=1e-6, entropy_warmup_ratio=0.1):
         super().__init__(
             model=model, args=args, train_dataset=train_dataset,
             eval_dataset=eval_dataset, tokenizer=tokenizer,
@@ -82,6 +86,12 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
         self.task_order = task_order
         self.cur_task_id = cur_task_id
         self._grad_check_done = False
+        # C4: Spectrally-Conditioned LoRA Training
+        self.lambda_entropy = lambda_entropy
+        self.use_preconditioning = use_preconditioning
+        self.precond_eps = precond_eps
+        self.entropy_warmup_ratio = entropy_warmup_ratio
+        self._precond_matrices = {}
 
     def _save(self, output_dir=None, state_dict=None):
         # T5 shared embeddings are incompatible with safetensors; force pytorch format
@@ -92,13 +102,79 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
         finally:
             self.args.save_safetensors = old
 
+    # ================================================================
+    # C4: Spectrally-Conditioned LoRA Training
+    # ================================================================
+
+    def precompute_preconditioners(self):
+        """Precompute (AA^T + eps*I)^{-1/2} for each LoRA-B layer.
+        Called once after get_reg_matrix() projects A into null-space."""
+        if not self.use_preconditioning:
+            return
+        self._precond_matrices = {}
+        for module in self.model.modules():
+            if not (hasattr(module, 'lora_q') and hasattr(module, 'lora_v')):
+                continue
+            for lora in [module.lora_q, module.lora_v]:
+                A = lora.lora_A.data.float()          # [d_in, r]
+                AAt = A.T @ A                          # [r, r]
+                AAt.add_(torch.eye(AAt.size(0), device=AAt.device) * self.precond_eps)
+                eigvals, eigvecs = torch.linalg.eigh(AAt)
+                inv_sqrt = eigvecs @ torch.diag(eigvals.clamp(min=1e-12).pow(-0.5)) @ eigvecs.T
+                self._precond_matrices[id(lora.lora_B)] = inv_sqrt.to(lora.lora_B.data.device)
+        print(f"[C4] Precomputed {len(self._precond_matrices)} preconditioner matrices")
+
+    def _compute_spectral_entropy_loss(self):
+        """Compute spectral entropy regularization via efficient QR trick.
+        For each LoRA layer: QR(B) and QR(A^T) -> SVD of r×r matrix -> entropy."""
+        ent_loss = torch.tensor(0.0, device=self.args.device)
+        count = 0
+        for module in self.model.modules():
+            if not (hasattr(module, 'lora_q') and hasattr(module, 'lora_v')):
+                continue
+            for lora in [module.lora_q, module.lora_v]:
+                B = lora.lora_B.float()    # [r, d_out]
+                A = lora.lora_A.float()    # [d_in, r]
+                if B.norm() < 1e-8:
+                    continue
+                _, R_B = torch.linalg.qr(B.T)      # R_B: [r, r]
+                _, R_A = torch.linalg.qr(A)         # R_A: [r, r]
+                sigma_hat = torch.linalg.svdvals(R_B @ R_A.T)  # [r]
+                sigma_hat = sigma_hat / (sigma_hat.sum() + 1e-12)
+                ent = -(sigma_hat * torch.log(sigma_hat + 1e-12)).sum()
+                max_ent = _math.log(sigma_hat.size(0))
+                ent_loss = ent_loss + (max_ent - ent)
+                count += 1
+        if count > 0:
+            ent_loss = ent_loss / count
+        return ent_loss
+
+    def _apply_preconditioning(self):
+        """Apply (AA^T + eps*I)^{-1/2} preconditioner to lora_B gradients after backward."""
+        if not self.use_preconditioning:
+            return
+        for module in self.model.modules():
+            if not (hasattr(module, 'lora_q') and hasattr(module, 'lora_v')):
+                continue
+            for lora in [module.lora_q, module.lora_v]:
+                precond = self._precond_matrices.get(id(lora.lora_B))
+                if precond is not None and lora.lora_B.grad is not None:
+                    lora.lora_B.grad.data = lora.lora_B.grad.data @ precond
+
     def training_step(self, model, inputs, **kwargs):
-        """Standard CE training step with one-time gradient diagnostic."""
+        """CE training step + C4 spectral entropy regularization + preconditioning."""
         model.train()
         inputs = self._prepare_inputs(inputs)
 
         with self.compute_loss_context_manager():
             loss = self.compute_loss(model, inputs)
+
+        # C4: Spectral entropy regularization (after warmup)
+        if self.lambda_entropy > 0:
+            warmup_steps = int(self.entropy_warmup_ratio * self.state.max_steps)
+            if self.state.global_step >= warmup_steps:
+                ent_loss = self._compute_spectral_entropy_loss()
+                loss = loss + self.lambda_entropy * ent_loss
 
         if self.args.n_gpu > 1:
             loss = loss.mean()
@@ -110,6 +186,9 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
             self.accelerator.backward(loss)
         else:
             loss.backward()
+
+        # C4: Apply spectral preconditioning to lora_B gradients
+        self._apply_preconditioning()
 
         # One-time gradient check after first backward
         if not self._grad_check_done:
