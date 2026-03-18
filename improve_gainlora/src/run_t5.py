@@ -18,6 +18,7 @@ Fine-tuning the library models for sequence to sequence.
 """
 # You can also adapt this script on your own sequence to sequence task. Pointers for this are left as comments.
 
+import gc
 import logging
 import os
 import sys
@@ -624,6 +625,9 @@ def main():
                 model.decoder.block[j].layer[1].EncDecAttention.previous_lora_weights_v[i].lora_B.data.copy_(
                     lora_B[f"decoder.block.{j}.layer.1.EncDecAttention.lora_v.lora_B"]
                 )
+            del lora_A, lora_B
+        gc.collect()
+        print("----------Previous LoRA Weights Loaded, temp dicts freed----------")
 
     # Load spectral signatures for SpecRoute
     if training_args.model_name == 'specroute' and model_args.previous_lora_path:
@@ -636,6 +640,8 @@ def main():
                 sig = torch.load(sig_path, map_location=device)
                 spectral_sigs.append(sig)
         model.encoder.spectral_signatures = spectral_sigs
+        del previous_lora_list_sig
+        gc.collect()
         print(f"----------Loaded {len(spectral_sigs)} spectral signatures----------")
 
     for name, param in model.named_parameters():
@@ -917,6 +923,10 @@ def main():
     elif training_args.model_name == 'specroute':
         from cl_trainer_specroute import SpecRoute_Trainer
         from cl_trainer_specroute import DenserEvalCallback as SpecRouteDenserEvalCallback
+        from cl_trainer_specroute import PeriodicGCCallback
+        _specroute_callbacks = [PeriodicGCCallback]
+        if training_args.denser_evaluation:
+            _specroute_callbacks.append(SpecRouteDenserEvalCallback)
         trainer = SpecRoute_Trainer(
             model=model,
             args=training_args,
@@ -927,7 +937,7 @@ def main():
             tokenizer=tokenizer,
             data_collator=data_collator,
             compute_metrics=compute_rouge_metrics,
-            callbacks=[SpecRouteDenserEvalCallback] if training_args.denser_evaluation else None,
+            callbacks=_specroute_callbacks,
             lambda_entropy=model_args.lambda_entropy,
             use_preconditioning=model_args.use_preconditioning,
             precond_eps=model_args.precond_eps,

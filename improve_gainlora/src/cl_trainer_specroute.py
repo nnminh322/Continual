@@ -10,6 +10,7 @@ Key differences from GainLoRA_InfLoRA_Trainer:
 - C4: Preconditioned gradient (AA^T)^{-1/2} + spectral entropy regularization
 """
 
+import gc
 import torch
 import math as _math
 from torch.utils.data import DataLoader
@@ -67,6 +68,18 @@ class DenserEvalCallback(TrainerCallback):
             control.should_log = True
         if args.evaluation_strategy == IntervalStrategy.STEPS and state.global_step in log_eval_steps:
             control.should_evaluate = True
+        return control
+
+
+class PeriodicGCCallback(TrainerCallback):
+    """Periodically call gc.collect() to return freed Python memory to OS."""
+    def on_step_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+        if state.global_step % 100 == 0:
+            gc.collect()
+        return control
+
+    def on_evaluate(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+        gc.collect()
         return control
 
 
@@ -216,7 +229,7 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 print("[GRAD CHECK] WARNING: NO trainable param has non-zero gradient!")
             print("=" * 60)
 
-        return loss
+        return loss.detach()
 
     def load_previous_reg_matrix(self):
         """Load LoRA GPM bases from previous task. No trans_input GPM needed."""
@@ -284,6 +297,12 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 module.lora_q.lora_A.data /= (math.sqrt(3) * module.lora_q.lora_A.data.norm(dim=1, keepdim=True))
                 module.lora_v.lora_A.data /= (math.sqrt(3) * module.lora_v.lora_A.data.norm(dim=1, keepdim=True))
                 i += 1
+
+        # Free GPM bases — no longer needed after projection
+        del self.feature_list, self.feature_mat
+        self.feature_list, self.feature_mat = [], []
+        gc.collect()
+        torch.cuda.empty_cache()
 
         return
 

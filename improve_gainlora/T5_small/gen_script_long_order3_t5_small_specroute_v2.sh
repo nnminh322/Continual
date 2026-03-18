@@ -102,10 +102,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
+   --eval_accumulation_steps 10 \
    $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/1-yelp/checkpoint*
 
+# Free HF datasets cache and OS page cache between tasks
+find /tmp -name "*.arrow" -mmin +5 -delete 2>/dev/null; find ~/.cache/huggingface/datasets -name "cache-*.arrow" -delete 2>/dev/null
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
@@ -158,10 +161,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
+   --eval_accumulation_steps 10 \
    $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/2-amazon/checkpoint*
 
+# Free HF datasets cache and OS page cache between tasks
+find /tmp -name "*.arrow" -mmin +5 -delete 2>/dev/null; find ~/.cache/huggingface/datasets -name "cache-*.arrow" -delete 2>/dev/null
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
@@ -214,10 +220,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
+   --eval_accumulation_steps 10 \
    $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/3-mnli/checkpoint*
 
+# Free HF datasets cache and OS page cache between tasks
+find /tmp -name "*.arrow" -mmin +5 -delete 2>/dev/null; find ~/.cache/huggingface/datasets -name "cache-*.arrow" -delete 2>/dev/null
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
@@ -270,10 +279,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
+   --eval_accumulation_steps 10 \
    $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/4-cb/checkpoint*
 
+# Free HF datasets cache and OS page cache between tasks
+find /tmp -name "*.arrow" -mmin +5 -delete 2>/dev/null; find ~/.cache/huggingface/datasets -name "cache-*.arrow" -delete 2>/dev/null
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
@@ -326,10 +338,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
+   --eval_accumulation_steps 10 \
    $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/5-copa/checkpoint*
 
+# Free HF datasets cache and OS page cache between tasks
+find /tmp -name "*.arrow" -mmin +5 -delete 2>/dev/null; find ~/.cache/huggingface/datasets -name "cache-*.arrow" -delete 2>/dev/null
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
@@ -382,10 +397,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
+   --eval_accumulation_steps 10 \
    $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/6-qqp/checkpoint*
 
+# Free HF datasets cache and OS page cache between tasks
+find /tmp -name "*.arrow" -mmin +5 -delete 2>/dev/null; find ~/.cache/huggingface/datasets -name "cache-*.arrow" -delete 2>/dev/null
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
@@ -438,10 +456,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
+   --eval_accumulation_steps 10 \
    $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/7-rte/checkpoint*
 
+# Free HF datasets cache and OS page cache between tasks
+find /tmp -name "*.arrow" -mmin +5 -delete 2>/dev/null; find ~/.cache/huggingface/datasets -name "cache-*.arrow" -delete 2>/dev/null
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
@@ -494,10 +515,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
+   --eval_accumulation_steps 10 \
    $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/8-imdb/checkpoint*
 
+# Free HF datasets cache and OS page cache between tasks
+find /tmp -name "*.arrow" -mmin +5 -delete 2>/dev/null; find ~/.cache/huggingface/datasets -name "cache-*.arrow" -delete 2>/dev/null
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
@@ -550,10 +574,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
+   --eval_accumulation_steps 10 \
    $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/9-sst2/checkpoint*
 
+# Free HF datasets cache and OS page cache between tasks
+find /tmp -name "*.arrow" -mmin +5 -delete 2>/dev/null; find ~/.cache/huggingface/datasets -name "cache-*.arrow" -delete 2>/dev/null
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
@@ -606,10 +633,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
+   --eval_accumulation_steps 10 \
    $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/10-dbpedia/checkpoint*
 
+# Free HF datasets cache and OS page cache between tasks
+find /tmp -name "*.arrow" -mmin +5 -delete 2>/dev/null; find ~/.cache/huggingface/datasets -name "cache-*.arrow" -delete 2>/dev/null
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
@@ -662,10 +692,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
+   --eval_accumulation_steps 10 \
    $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/11-agnews/checkpoint*
 
+# Free HF datasets cache and OS page cache between tasks
+find /tmp -name "*.arrow" -mmin +5 -delete 2>/dev/null; find ~/.cache/huggingface/datasets -name "cache-*.arrow" -delete 2>/dev/null
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
@@ -718,10 +751,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
+   --eval_accumulation_steps 10 \
    $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/12-yahoo/checkpoint*
 
+# Free HF datasets cache and OS page cache between tasks
+find /tmp -name "*.arrow" -mmin +5 -delete 2>/dev/null; find ~/.cache/huggingface/datasets -name "cache-*.arrow" -delete 2>/dev/null
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
@@ -774,10 +810,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
+   --eval_accumulation_steps 10 \
    $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/13-multirc/checkpoint*
 
+# Free HF datasets cache and OS page cache between tasks
+find /tmp -name "*.arrow" -mmin +5 -delete 2>/dev/null; find ~/.cache/huggingface/datasets -name "cache-*.arrow" -delete 2>/dev/null
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
@@ -830,10 +869,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
+   --eval_accumulation_steps 10 \
    $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/14-boolq/checkpoint*
 
+# Free HF datasets cache and OS page cache between tasks
+find /tmp -name "*.arrow" -mmin +5 -delete 2>/dev/null; find ~/.cache/huggingface/datasets -name "cache-*.arrow" -delete 2>/dev/null
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
@@ -886,8 +928,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
+   --eval_accumulation_steps 10 \
    $FP16_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/15-wic/checkpoint*
 
+# Free HF datasets cache and OS page cache between tasks
+find /tmp -name "*.arrow" -mmin +5 -delete 2>/dev/null; find ~/.cache/huggingface/datasets -name "cache-*.arrow" -delete 2>/dev/null
 sleep 5
