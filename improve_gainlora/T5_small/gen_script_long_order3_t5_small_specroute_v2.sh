@@ -35,17 +35,20 @@ fi
 if [ "$IS_T4" -eq 1 ] && [ "$NUM_GPUS" -ge 2 ]; then
     GPU_MODE="t4_2gpu"
     GPU_IDS="0,1"
-    FP16_FLAG=""
-    echo "[GPU] Strategy: 2x T4 DataParallel + fp32 + gradient_checkpointing"
+    FP16_FLAG="--fp16"
+    GC_FLAG="--gradient_checkpointing True"
+    echo "[GPU] Strategy: 2x T4 DataParallel + fp16 + gradient_checkpointing"
 elif [ "$IS_T4" -eq 1 ]; then
     GPU_MODE="t4_1gpu"
     GPU_IDS="${1:-0}"
-    FP16_FLAG=""
-    echo "[GPU] Strategy: 1x T4 + fp32 + gradient_checkpointing"
+    FP16_FLAG="--fp16"
+    GC_FLAG="--gradient_checkpointing True"
+    echo "[GPU] Strategy: 1x T4 + fp16 + gradient_checkpointing"
 else
     GPU_MODE="a100"
     GPU_IDS="${1:-0}"
     FP16_FLAG=""
+    GC_FLAG=""
     echo "[GPU] Strategy: A100 (single GPU, fp32)"
 fi
 
@@ -54,9 +57,9 @@ echo "============================================================"
 echo ""
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=128
+    BSZ=4; GA=8; EVAL_BSZ=32
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
@@ -102,16 +105,16 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
-   $FP16_FLAG
+   $FP16_FLAG $GC_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/1-yelp/checkpoint*
 
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=128
+    BSZ=4; GA=8; EVAL_BSZ=32
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
@@ -158,16 +161,16 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
-   $FP16_FLAG
+   $FP16_FLAG $GC_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/2-amazon/checkpoint*
 
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=128
+    BSZ=4; GA=8; EVAL_BSZ=32
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
@@ -214,16 +217,16 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
-   $FP16_FLAG
+   $FP16_FLAG $GC_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/3-mnli/checkpoint*
 
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=128
+    BSZ=4; GA=8; EVAL_BSZ=32
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
@@ -270,16 +273,16 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
-   $FP16_FLAG
+   $FP16_FLAG $GC_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/4-cb/checkpoint*
 
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=128
+    BSZ=4; GA=8; EVAL_BSZ=32
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
@@ -326,16 +329,16 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
-   $FP16_FLAG
+   $FP16_FLAG $GC_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/5-copa/checkpoint*
 
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=128
+    BSZ=4; GA=8; EVAL_BSZ=32
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
@@ -382,16 +385,16 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
-   $FP16_FLAG
+   $FP16_FLAG $GC_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/6-qqp/checkpoint*
 
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=128
+    BSZ=4; GA=8; EVAL_BSZ=32
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
@@ -438,16 +441,16 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
-   $FP16_FLAG
+   $FP16_FLAG $GC_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/7-rte/checkpoint*
 
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=128
+    BSZ=4; GA=8; EVAL_BSZ=32
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
@@ -494,16 +497,16 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
-   $FP16_FLAG
+   $FP16_FLAG $GC_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/8-imdb/checkpoint*
 
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=128
+    BSZ=4; GA=8; EVAL_BSZ=32
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
@@ -550,16 +553,16 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
-   $FP16_FLAG
+   $FP16_FLAG $GC_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/9-sst2/checkpoint*
 
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=128
+    BSZ=4; GA=8; EVAL_BSZ=32
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
@@ -606,16 +609,16 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
-   $FP16_FLAG
+   $FP16_FLAG $GC_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/10-dbpedia/checkpoint*
 
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=128
+    BSZ=4; GA=8; EVAL_BSZ=32
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
@@ -662,16 +665,16 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
-   $FP16_FLAG
+   $FP16_FLAG $GC_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/11-agnews/checkpoint*
 
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=128
+    BSZ=4; GA=8; EVAL_BSZ=32
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
@@ -718,16 +721,16 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
-   $FP16_FLAG
+   $FP16_FLAG $GC_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/12-yahoo/checkpoint*
 
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=128
+    BSZ=4; GA=8; EVAL_BSZ=32
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
@@ -774,16 +777,16 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
-   $FP16_FLAG
+   $FP16_FLAG $GC_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/13-multirc/checkpoint*
 
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=128
+    BSZ=4; GA=8; EVAL_BSZ=32
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
@@ -830,16 +833,16 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
-   $FP16_FLAG
+   $FP16_FLAG $GC_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/14-boolq/checkpoint*
 
 sleep 5
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=128
+    BSZ=4; GA=8; EVAL_BSZ=32
 else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
@@ -886,7 +889,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --gen_data_dir CL_Benchmark \
    --threshold 0.980 \
    --transthreshold 0.980 \
-   $FP16_FLAG
+   $FP16_FLAG $GC_FLAG
 
 rm -rf logs_and_outputs/gen_script_long_order3_t5_small_specroute_v2/outputs/15-wic/checkpoint*
 
