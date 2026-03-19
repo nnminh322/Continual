@@ -129,8 +129,8 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
             if not (hasattr(module, 'lora_q') and hasattr(module, 'lora_v')):
                 continue
             for lora in [module.lora_q, module.lora_v]:
-                A = lora.lora_A.data.float()          # [d_in, r]
-                AAt = A.T @ A                          # [r, r]
+                A = lora.lora_A.data.float()          # [r, d_in]
+                AAt = A @ A.T                          # [r, r]
                 AAt.add_(torch.eye(AAt.size(0), device=AAt.device) * self.precond_eps)
                 eigvals, eigvecs = torch.linalg.eigh(AAt)
                 inv_sqrt = eigvecs @ torch.diag(eigvals.clamp(min=1e-12).pow(-0.5)) @ eigvecs.T
@@ -146,13 +146,15 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
             if not (hasattr(module, 'lora_q') and hasattr(module, 'lora_v')):
                 continue
             for lora in [module.lora_q, module.lora_v]:
-                B = lora.lora_B.float()    # [r, d_out]
-                A = lora.lora_A.float()    # [d_in, r]
+                B = lora.lora_B.float()    # [d_out, r]
+                A = lora.lora_A.float()    # [r, d_in]
                 if B.norm() < 1e-8:
                     continue
-                _, R_B = torch.linalg.qr(B.T)      # R_B: [r, r]
-                _, R_A = torch.linalg.qr(A)         # R_A: [r, r]
-                sigma_hat = torch.linalg.svdvals(R_B @ R_A.T)  # [r]
+                _, R_B = torch.linalg.qr(B.T)      # B.T: [r, d_out] -> R_B: [r, d_out]
+                _, R_A = torch.linalg.qr(A)         # A:   [r, d_in]  -> R_A: [r, d_in]
+                if R_B.shape[1] != R_A.shape[1]:
+                    continue  # skip layers where d_out != d_in
+                sigma_hat = torch.linalg.svdvals(R_B @ R_A.T)  # [r, d] @ [d, r] -> [r, r] -> [r]
                 sigma_hat = sigma_hat / (sigma_hat.sum() + 1e-12)
                 ent = -(sigma_hat * torch.log(sigma_hat + 1e-12)).sum()
                 max_ent = _math.log(sigma_hat.size(0))
@@ -173,6 +175,8 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 precond = self._precond_matrices.get(id(lora.lora_B))
                 if precond is not None and lora.lora_B.grad is not None:
                     lora.lora_B.grad.data = lora.lora_B.grad.data @ precond
+                    # Guard against NaN from QR/SVD backward
+                    lora.lora_B.grad.data.nan_to_num_(nan=0.0)
 
     def training_step(self, model, inputs, **kwargs):
         """CE training step + C4 spectral entropy regularization + preconditioning."""
