@@ -268,8 +268,57 @@ $$\beta(n) = \tau \cdot \ln\!\left(\frac{\alpha_{\mathrm{target}} \cdot n}{1 - \
 - Symmetric inference → routing chính xác hơn tại eval → EM>0 cho imdb/sst2/wic
 - Threshold 0.995 → bảo vệ tốt hơn + routing margin lớn hơn (Theorem 1)
 
-### Kết quả
-> *Chưa chạy — cần thực nghiệm*
+### Kết quả (Long Order 3, T5-Small, 10 epochs/task, threshold=0.995, α=0.8)
+
+| # | Task | ROOT EM | V3 EM (Final) | Δ EM | V3 rougeL | ROOT rougeL |
+|---|------|---------|---------------|------|-----------|-------------|
+| 1 | yelp | 56.01 | 35.96 | -20.05 | 62.36 | — |
+| 2 | amazon | 52.05 | 36.63 | -15.42 | 61.98 | — |
+| 3 | mnli | 34.07 | 0.07 | -34.00 | 0.07 | — |
+| 4 | cb | 3.57 | 0.00 | -3.57 | 0.00 | — |
+| 5 | copa | 42.00 | 46.00 | **+4.00** | 46.00 | — |
+| 6 | qqp | 76.96 | 76.96 | **+0.00** | 76.96 | — |
+| 7 | rte | 45.85 | 0.00 | -45.85 | 14.80 | — |
+| 8 | imdb | 89.51 | 0.00 | -89.51 | 0.02 | — |
+| 9 | sst2 | 85.21 | 0.00 | -85.21 | 0.00 | — |
+| 10 | dbpedia | 98.16 | 48.83 | -49.33 | 57.60 | — |
+| 11 | agnews | 88.37 | 53.70 | -34.67 | 59.83 | — |
+| 12 | yahoo | 57.28 | 1.34 | -55.94 | 3.09 | — |
+| 13 | multirc | 50.52 | 53.73 | **+3.21** | 53.73 | — |
+| 14 | boolq | 60.43 | 61.65 | **+1.22** | 61.65 | — |
+| 15 | wic | 55.49 | 0.00 | -55.49 | 0.00 | — |
+| | **AP** | **59.70** | **33.77** | **-25.93** | **41.17** | **61.66** |
+
+> Kết quả chạy trên Kaggle T4, log tại `logs/t5_small_improve/log_script_long_order3_t5_small_specroute_v3`
+
+### Phân tích chi tiết V3
+
+**Cải thiện so với V2** (V2: AP=30.73 → V3: AP=33.77, +3.04 pts):
+- rte: EM=0.36→0 (giảm, routing inference vẫn lỗi)
+- dbpedia: 71.95→48.83 (giảm — regression!), agnews: 68.21→53.70 (regression)
+- copa: 47.00→46.00 (tương đương), multirc: 55.42→53.73 (tương đương)
+- yelp: 35.91→35.96, amazon: 36.58→36.63 (không đổi)
+- Phần cải thiện chủ yếu từ threshold 0.995 bảo vệ null-space tốt hơn
+
+**⚠️ REGRESSION so với V2**: dbpedia và agnews giảm đáng kể → Symmetric SVD inference WORSE hơn A-row inference cho multi-class tasks!
+
+**3 nhóm vấn đề tồn tại**:
+
+| Nhóm | Tasks | Biểu hiện | Root cause |
+|------|-------|-----------|------------|
+| 1. Không học được (training failure) | cb, imdb, sst2, wic, yahoo | train_loss cao (>1.34), eval_em=0 từ đầu | GPM null-space saturation → A_k ⊥ sentiment subspace |
+| 2. Catastrophic forgetting | yelp, amazon, rte | EM peak cao (54%, 48%, 21%), final thấp hơn | Routing accuracy giảm khi có nhiều tasks |
+| 3. Mode collapse | mnli | EM stuck ≈31% (= 1/3 priors) | Model collapse sang "neutral" mode |
+
+**Nguyên nhân gốc — GPM-induced Routing Ambiguity (Định lý)**:
+
+Gọi $A_k \in \mathbb{R}^{r \times d}$ là LoRA-A của task $k$, các hàng được GPM-project orthogonal với $\{A_1, ..., A_{k-1}\}$. Với task $k' > k$ có phân phối input tương tự ($P(h|k') \approx P(h|k)$), spectral score:
+
+$$\text{score}(h; A_{k'}) = \frac{1}{r}\sum_{i=1}^r \frac{(a_i^{(k')} \cdot h)^2}{\|h\|^2} \leq \text{score}(h; A_k)$$
+
+*bất đẳng thức này đúng với mọi $h \sim P(h|k')$* vì $A_{k'}$ bị ép orthogonal với dominant subspace của $k$, mà dominant subspace đó cũng là dominant subspace của $k'$.
+
+**Hệ quả trực tiếp**: imdb inputs → score cao với yelp LoRA hơn imdb LoRA → routed sai.
 
 ---
 
@@ -372,8 +421,107 @@ Two complementary components:
 - Combined: both effects are orthogonal and additive
 - Risk: entropy regularization may hurt tasks that genuinely need low-rank updates (mitigated by warmup + modest λ)
 
+### Bug Fixes (trước khi chạy)
+
+3 bugs được phát hiện và fix trong `cl_trainer_specroute.py`:
+
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | `A.T @ A` → shape (512,512) thay vì (8,8) preconditioner | Sửa thành `A @ A.T` |
+| 2 | Cross-attention layers có d_out≠d_in → `assert` crash | Thay `assert` bằng `continue` |
+| 3 | `nan_to_num_` guard bị xóa → NaN gradients | Khôi phục sau preconditioning |
+
+> Tất cả 3 bugs đều về `precompute_preconditioners()` / `_apply_preconditioning()`. V4 log (`log_script_long_order3_t5_small_specroute_v4`) = **0 bytes** — experiment bị crash trước khi output do bug #1.
+
 ### Kết quả
-*(Chưa chạy — cần chạy trên Long Sequence Order 3)*
+*(Chưa chạy — cần chạy lại sau khi fix bugs)*
+
+---
+
+## Version 5.0 — SpecRoute V5: Prototype Routing (Giải quyết GPM-induced Routing Ambiguity)
+
+### Động lực: Phân tích Điều kiện Trực giao
+
+**Câu hỏi**: Có cần nới lỏng orthogonality constraint (GPM null-space projection) hay không?
+
+**Phân tích:**
+ROOT GainLoRA dùng **cùng** GPM orthogonality trên LoRA-A (InfLoRA) và đạt AP=59.70. Vậy orthogonality không phải là bottleneck — routing mới là vấn đề.
+
+GPM orthogonality phục vụ 2 mục đích:
+1. **Protection**: Đảm bảo $\nabla_{B_k}$ không interferent với $B_j A_j$ cũ → **CẦN THIẾT**
+2. **Routing signal** (trong V1-V3): Spectral fit dùng LoRA subspace → **BỊ HAI** khi tasks cùng domain
+
+> **Kết luận**: Giữ nguyên strict orthogonality cho protection (backbone giống ROOT). Tách biệt routing khỏi LoRA subspace bằng prototype routing.
+
+**Về "suy kiệt không gian"**: Với d=512, r=8, ε=0.995: capacity = d/(r·(1-ε)) = 12,800 tasks. Không gian không suy kiệt về mặt lượng. Vấn đề thực sự: *các hướng quan trọng* (sentiment subspace) bị captured bởi task đầu tiên → tasks sau không thể dùng các hướng đó cho LoRA-A → representation bị hạn chế. Nhưng ROOT cũng bị hạn chế tương tự và vẫn đạt AP=59.70 nhờ routing tốt.
+
+### Lý thuyết: GPM-Routing Paradox
+
+> **GPM-Routing Paradox**: GPM ép $A_k \perp A_{k'}$ cho $k' > k$. Với tasks cùng domain, $A_{k'}$ bị tách khỏi dominant input subspace. Spectral routing đo alignment với LoRA subspace → misroute.
+
+$$P(h|k') \approx P(h|k) \implies \alpha_{k'}(h) \ll \alpha_k(h) \quad \forall h \sim P(h|k')$$
+
+**Giải pháp: Prototype routing trong input embedding space** (decoupled from GPM):
+
+$$w(h) = \text{softmax}\!\left(\frac{[\cos(h, \mu_1), \ldots, \cos(h, \mu_T)]}{\tau}\right)$$
+
+$\mu_k$ = normalized running mean of attention-masked input embeddings during task $k$ training.
+
+**Lý thuyết nền tảng (LDA — Linear Discriminant Analysis)**:
+
+Dưới Gaussian mixture $P(h|k) = \mathcal{N}(\mu_k, \Sigma)$ với shared covariance, nearest centroid classification là Bayes-optimal. Cosine similarity trên normalized centroids tương đương nearest centroid cho unit-norm data.
+
+Prototype routing:
+- **GPM-immune**: μ_k sống trong embedding space, không bị GPM project
+- **Zero-replay**: chỉ cần running mean (d scalars per task)
+- **Drift-free**: frozen embedding table → μ_k stationary (Proposition 1)
+- **Same-domain discriminable**: μ_yelp ≠ μ_imdb vì vocabulary khác (restaurant vs movie)
+
+### Code Changes (ĐÃ IMPLEMENT)
+
+**`t5_specroute.py`:**
+- `T5Stack.__init__()`: thêm `task_prototypes`, `_current_prototype_sum/count`, `_current_task_prototype`
+- `_update_prototype(h_batch)`: accumulate running mean (gọi tự động trong `forward()`)
+- `finalize_prototype()`: normalize prototype sau khi train xong
+- `compute_spectral_routing()`:
+  - Training: A-row fit + adaptive β (KHÔNG ĐỔI)
+  - Inference: prototype cosine similarity (MỚI) khi có đủ prototypes, fallback spectral nếu không
+- `T5Stack.forward()`:
+  - Fix masked mean: `.sum() / mask_count` thay `.mean()` (tránh dilution bởi padding)
+  - Tự động gọi `_update_prototype()` trong mọi training forward pass (kể cả task 1)
+
+**`run_t5.py`:**
+- Load task prototypes cùng lúc spectral signatures
+- Gọi `finalize_prototype()` + save `task_prototype.pt` sau training
+
+**`SPECROUTE_IDEA.md`:**
+- Thêm C2.1 Prototype Routing (inference-time, V5)
+- Cập nhật Code-Idea Alignment table
+
+**`gen_script_long_order3_t5_small_specroute_v5.sh`:**
+- Copy từ V4 (giữ nguyên C4 params: preconditioning + entropy)
+- Prototype routing tự động khi có prototype files — KHÔNG cần flag mới
+
+### So sánh Architecture
+
+| Component | ROOT | V3 (Spectral) | V5 (Prototype) |
+|-----------|------|---------------|----------------|
+| Training routing | Learned MLP | A-row + adaptive β | A-row + adaptive β |
+| Inference routing | Learned MLP | SVD spectral fit | **Prototype cosine** |
+| Routing params | trans_input + prompt_key | None | **μ_k (512 per task)** |
+| GPM on routing | ✓ (trans_input) | ✗ | ✗ |
+| Same-domain | ✓ (learned) | ✗ (paradox) | **✓ (vocabulary diff)** |
+| Protection | GPM LoRA-A | GPM LoRA-A | GPM LoRA-A |
+| Single-task quality | Standard CE | Standard CE | **C4 (precond + entropy)** |
+
+### Kỳ vọng
+- **imdb, sst2, wic**: EM > 0 → prototype discriminates vocabulary distributions
+- **yelp, amazon**: EM regain (giảm forgetting) → đúng routing
+- **mnli**: mode collapse giảm (phụ thuộc prototype quality cho NLI)
+- **AP(EM) target**: > 45 (prototype fixes routing + C4 improves quality)
+
+### Kết quả
+*(Chưa chạy — cần chạy `gen_script_long_order3_t5_small_specroute_v5.sh`)*
 
 ---
 
@@ -388,3 +536,7 @@ Two complementary components:
 | 2026-03-17 | V2.0 | **Results** | AP(EM)=30.73 vs ROOT=59.70. 4 tasks EM=0 (imdb/sst2/wic/cb misrouting), 2 catastrophic forgetting |
 | 2026-03-17 | V3.0 | **Methodology** | Adaptive bias β(n)=τ·ln(α·n/(1-α)), symmetric SVD inference routing, threshold→0.995 |
 | 2026-03-17 | V4.0 | **C4 Implementation** | Preconditioned gradient + spectral entropy regularization for single-task LoRA quality |
+| 2026-03-19 | V3.0 | **Results** | AP(EM)=33.77, AP(rougeL)=41.17. imdb/sst2/wic/cb/rte/mnli vẫn fail — GPM routing ambiguity confirmed |
+| 2026-03-19 | V4.0 | **Bug Fix** | 3 bugs fixed: A@A.T, assert→continue cross-attention, nan_to_num_ guard. Log was 0 bytes (crash) |
+| 2026-03-19 | V5.0 | **Proposal** | Prototype routing — replace spectral SVD fit with cosine distance to task mean embeddings |
+| 2026-03-19 | V5.0 | **Implementation** | Prototype routing (3 bugs fixed: init scope, cosine shape, eval prototype). Spectral entropy QR bug fixed (pre-existing). Separate prototype_temperature=0.01. Diagnostic logging. |

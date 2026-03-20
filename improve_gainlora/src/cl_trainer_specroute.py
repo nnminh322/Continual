@@ -150,11 +150,9 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 A = lora.lora_A.float()    # [r, d_in]
                 if B.norm() < 1e-8:
                     continue
-                _, R_B = torch.linalg.qr(B.T)      # B.T: [r, d_out] -> R_B: [r, d_out]
-                _, R_A = torch.linalg.qr(A)         # A:   [r, d_in]  -> R_A: [r, d_in]
-                if R_B.shape[1] != R_A.shape[1]:
-                    continue  # skip layers where d_out != d_in
-                sigma_hat = torch.linalg.svdvals(R_B @ R_A.T)  # [r, d] @ [d, r] -> [r, r] -> [r]
+                _, R_B = torch.linalg.qr(B)         # B: [d_out, r] -> R_B: [r, r]
+                _, R_A = torch.linalg.qr(A.T)       # A.T: [d_in, r] -> R_A: [r, r]
+                sigma_hat = torch.linalg.svdvals(R_B @ R_A.T)  # [r, r] @ [r, r] -> [r, r] -> [r]
                 sigma_hat = sigma_hat / (sigma_hat.sum() + 1e-12)
                 ent = -(sigma_hat * torch.log(sigma_hat + 1e-12)).sum()
                 max_ent = _math.log(sigma_hat.size(0))

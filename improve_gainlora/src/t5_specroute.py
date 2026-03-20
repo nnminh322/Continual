@@ -178,11 +178,27 @@ class T5Stack(T5PreTrainedModel):
 
         self.prompt_config = prompt_config
 
+        if not self.is_decoder:
+            # Prototype-based inference routing (V5)
+            # Task centroids in input embedding space — immune to GPM constraints.
+            # Must be initialized for ALL tasks (including first/run_single) since
+            # _update_prototype() is called during every training forward pass.
+            self.task_prototypes = []          # List[Tensor(d,)] — normalized μ_k, old tasks
+            self._current_prototype_sum = None  # Running sum for current task (CPU float)
+            self._current_prototype_count = 0
+            self._current_task_prototype = None # Finalized normalized prototype
+
         if not self.is_decoder and not prompt_config["run_single"]:
             # ===== Spectral routing: NO learned parameters for routing =====
             # Spectral signatures loaded from previous tasks' saved weights
             self.spectral_signatures = []  # List[dict] — one dict per old task
             self.routing_temperature = prompt_config.get('attn_temperature', 1.0)
+
+            # Prototype routing temperature (V5): cosine similarities are in a much
+            # narrower range (~0.85-0.95) than spectral fits (~0-0.5). A separate,
+            # lower temperature ensures discriminative softmax for prototype routing.
+            # τ_proto = 0.01 → for gap=0.05, ratio = e^5 ≈ 148 (semi-hard routing).
+            self._prototype_temperature = 0.01
 
             # Adaptive training bias: β = T·ln(α·n_old/(1−α))
             # Ensures current task gets consistent routing weight ~α regardless
@@ -235,6 +251,8 @@ class T5Stack(T5PreTrainedModel):
 
         fits = []
 
+        _use_proto = False
+
         if self.training:
             # === TRAINING MODE: A-row fit + adaptive bias for current task ===
             # A rows give stable non-zero signal even when B=0 (cold-start).
@@ -258,62 +276,100 @@ class T5Stack(T5PreTrainedModel):
                 current_fit = current_fit + beta
             fits.append(current_fit)
         else:
-            # === INFERENCE MODE: SVD-based fit for current task (symmetric) ===
-            # After training, B≠0 so SVD(B@A) gives meaningful signatures.
-            # Using the same σ²-weighted formula as old tasks eliminates the
-            # A-row vs SVD measurement asymmetry.
-            if self._current_task_svd is not None:
-                cur_fits = []
-                for key, sig_data in self._current_task_svd.items():
-                    if not key.startswith('enc.'):
-                        continue
-                    V = sig_data['V'].to(h.device, dtype=h.dtype)
-                    sigma = sig_data['sigma'].to(h.device, dtype=h.dtype)
-                    proj = torch.matmul(h, V.T)
-                    sigma_sq = sigma ** 2
-                    sigma_sq_sum = sigma_sq.sum() + 1e-8
-                    weighted_proj = (proj ** 2 * sigma_sq.unsqueeze(0).unsqueeze(0)).sum(dim=-1)
-                    fit = weighted_proj / (sigma_sq_sum * h_norm_sq)
-                    cur_fits.append(fit)
-                if cur_fits:
-                    current_fit = torch.stack(cur_fits).mean(dim=0)
-                else:
-                    current_fit = torch.zeros(h.shape[0], 1, device=h.device, dtype=h.dtype)
-            else:
-                # Fallback: A-row fit without bias (backward compat)
-                current_fits_layers = []
-                for block in self.block:
-                    attn = block.layer[0].SelfAttention
-                    for lora in [attn.lora_q, attn.lora_v]:
-                        A = lora.lora_A.data.float()
-                        r = lora.r
-                        A_h = A.to(h.device, dtype=h.dtype)
-                        proj = torch.matmul(h, A_h.T)
-                        fit = (proj ** 2).sum(dim=-1) / (r * h_norm_sq)
-                        current_fits_layers.append(fit)
-                current_fit = torch.stack(current_fits_layers).mean(dim=0)
-            fits.append(current_fit)
+            # === INFERENCE MODE ===
+            # Try prototype routing (V5): cosine similarity in embedding space.
+            # Immune to GPM constraints — handles same-domain tasks correctly.
+            _n_expected = 1 + len(self.spectral_signatures)
+            _protos = []
+            if self._current_task_prototype is not None:
+                _protos.append(self._current_task_prototype)
+            elif self._current_prototype_sum is not None and self._current_prototype_count > 0:
+                # During training eval: use running mean as approximate prototype
+                _tmp = self._current_prototype_sum / self._current_prototype_count
+                _protos.append(_tmp / (_tmp.norm() + 1e-8))
+            _protos.extend(self.task_prototypes)
 
-        # 2. Previous tasks fit: use spectral signatures (V, sigma)
+            if len(_protos) == _n_expected:
+                # Prototype routing for ALL tasks
+                _use_proto = True
+                h_flat = h.squeeze(1)  # (B, d_model)
+                h_norm = h_flat.norm(dim=-1, keepdim=True).clamp(min=1e-8)  # (B, 1)
+
+                # One-time diagnostic: pairwise cosine similarity between prototypes
+                if self.is_inference and not getattr(self, '_proto_diag_done', False):
+                    self._proto_diag_done = True
+                    _pstack = torch.stack([p.to(h_flat.device, dtype=h_flat.dtype) for p in _protos])
+                    _pair = torch.matmul(_pstack, _pstack.T)  # already unit-norm → cosine sim
+                    _mask = ~torch.eye(_pair.size(0), dtype=torch.bool, device=_pair.device)
+                    _offdiag = _pair[_mask]
+                    print(f"[SpecRoute] Prototype cosine matrix (n={_pair.size(0)}): "
+                          f"off-diag min={_offdiag.min():.4f}, max={_offdiag.max():.4f}, "
+                          f"mean={_offdiag.mean():.4f}, std={_offdiag.std():.4f}")
+                    if _offdiag.max() > 0.99:
+                        print(f"[SpecRoute] WARNING: some prototypes are near-identical "
+                              f"(max cos={_offdiag.max():.4f}). Consider mean-centering.")
+
+                for proto in _protos:
+                    p = proto.to(h_flat.device, dtype=h_flat.dtype)  # (d,) normalized
+                    cos_sim = torch.matmul(h_flat, p.unsqueeze(-1)) / h_norm  # (B, 1)
+                    fits.append(cos_sim)
+            else:
+                # Fallback: SVD-based spectral routing (V3)
+                if self._current_task_svd is not None:
+                    cur_fits = []
+                    for key, sig_data in self._current_task_svd.items():
+                        if not key.startswith('enc.'):
+                            continue
+                        V = sig_data['V'].to(h.device, dtype=h.dtype)
+                        sigma = sig_data['sigma'].to(h.device, dtype=h.dtype)
+                        proj = torch.matmul(h, V.T)
+                        sigma_sq = sigma ** 2
+                        sigma_sq_sum = sigma_sq.sum() + 1e-8
+                        weighted_proj = (proj ** 2 * sigma_sq.unsqueeze(0).unsqueeze(0)).sum(dim=-1)
+                        fit = weighted_proj / (sigma_sq_sum * h_norm_sq)
+                        cur_fits.append(fit)
+                    if cur_fits:
+                        current_fit = torch.stack(cur_fits).mean(dim=0)
+                    else:
+                        current_fit = torch.zeros(h.shape[0], 1, device=h.device, dtype=h.dtype)
+                else:
+                    current_fits_layers = []
+                    for block in self.block:
+                        attn = block.layer[0].SelfAttention
+                        for lora in [attn.lora_q, attn.lora_v]:
+                            A = lora.lora_A.data.float()
+                            r = lora.r
+                            A_h = A.to(h.device, dtype=h.dtype)
+                            proj = torch.matmul(h, A_h.T)
+                            fit = (proj ** 2).sum(dim=-1) / (r * h_norm_sq)
+                            current_fits_layers.append(fit)
+                    current_fit = torch.stack(current_fits_layers).mean(dim=0)
+                fits.append(current_fit)
+
+        # Early return for prototype routing (uses separate temperature)
+        if _use_proto:
+            fit_scores = torch.cat(fits, dim=1)  # (B, n_tasks)
+            weights = torch.softmax(fit_scores / self._prototype_temperature, dim=1)
+            return weights.unsqueeze(2)  # (B, n_tasks, 1)
+
+        # Old tasks: spectral signatures (training or fallback inference)
         for sig_dict in self.spectral_signatures:
             task_fits = []
             for key, sig_data in sig_dict.items():
                 if not key.startswith('enc.'):
-                    continue  # Only use encoder signatures for routing
-                V = sig_data['V'].to(h.device, dtype=h.dtype)       # (r, d_model)
-                sigma = sig_data['sigma'].to(h.device, dtype=h.dtype)  # (r,)
-
-                proj = torch.matmul(h, V.T)  # (B, 1, r)
+                    continue
+                V = sig_data['V'].to(h.device, dtype=h.dtype)
+                sigma = sig_data['sigma'].to(h.device, dtype=h.dtype)
+                proj = torch.matmul(h, V.T)
                 sigma_sq = sigma ** 2
                 sigma_sq_sum = sigma_sq.sum() + 1e-8
-                weighted_proj = (proj ** 2 * sigma_sq.unsqueeze(0).unsqueeze(0)).sum(dim=-1)  # (B, 1)
+                weighted_proj = (proj ** 2 * sigma_sq.unsqueeze(0).unsqueeze(0)).sum(dim=-1)
                 fit = weighted_proj / (sigma_sq_sum * h_norm_sq)
                 task_fits.append(fit)
-
             if task_fits:
-                task_fit = torch.stack(task_fits).mean(dim=0)  # (B, 1)
+                task_fit = torch.stack(task_fits).mean(dim=0)
             else:
-                task_fit = torch.zeros_like(current_fit)
+                task_fit = torch.zeros(h.shape[0], 1, device=h.device, dtype=h.dtype)
             fits.append(task_fit)
 
         # Stack: (B, n_tasks)
@@ -348,6 +404,33 @@ class T5Stack(T5PreTrainedModel):
                     }
         self._current_task_svd = sigs
         print(f"[SpecRoute] Prepared inference routing: {len(sigs)} encoder SVD signatures for current task")
+
+    def _update_prototype(self, h_batch):
+        """Accumulate running mean for current task prototype.
+        Called during training forward passes.
+        Args:
+            h_batch: (B, d_model) — attention-masked mean of input embeddings
+        """
+        with torch.no_grad():
+            batch_sum = h_batch.detach().float().sum(dim=0).cpu()
+            count = h_batch.size(0)
+            if self._current_prototype_sum is None:
+                self._current_prototype_sum = batch_sum
+                self._current_prototype_count = count
+            else:
+                self._current_prototype_sum = self._current_prototype_sum + batch_sum
+                self._current_prototype_count += count
+
+    def finalize_prototype(self):
+        """Finalize current task prototype from accumulated running mean."""
+        if self._current_prototype_sum is not None and self._current_prototype_count > 0:
+            proto = self._current_prototype_sum / self._current_prototype_count
+            proto = proto / (proto.norm() + 1e-8)
+            self._current_task_prototype = proto
+            print(f"[SpecRoute] Finalized task prototype "
+                  f"({self._current_prototype_count} samples, d={proto.shape[0]})")
+        self._current_prototype_sum = None
+        self._current_prototype_count = 0
 
     def parallelize(self, device_map=None):
         self.device_map = (
@@ -429,12 +512,20 @@ class T5Stack(T5PreTrainedModel):
 
         batch_size, seq_length = input_shape
 
-        # ============ SPECTRAL ROUTING ============
+        # ============ SPECTRAL ROUTING + PROTOTYPE (V5) ============
         self.key_attention_weights = None
+        if not self.is_decoder:
+            # Properly masked mean of input embeddings (V5 fix)
+            _mask_count = attention_mask.sum(dim=1, keepdim=True).clamp(min=1).unsqueeze(-1)  # (B,1,1)
+            avg_inputs_embeds = (attention_mask.unsqueeze(-1) * inputs_embeds).sum(dim=1, keepdim=True) / _mask_count
+
+            # Accumulate prototype during training (all tasks including first)
+            if self.training:
+                self._update_prototype(avg_inputs_embeds.squeeze(1))
+
         if not self.is_decoder and not self.prompt_config["run_single"]:
-            if len(self.spectral_signatures) > 0:
-                # Multi-task: compute spectral routing
-                avg_inputs_embeds = (attention_mask.unsqueeze(-1) * inputs_embeds).mean(dim=1, keepdim=True)
+            if len(self.spectral_signatures) > 0 or len(self.task_prototypes) > 0:
+                # Multi-task: compute routing
                 key_attention_weights = self.compute_spectral_routing(avg_inputs_embeds)
                 # Detach: routing weights are shared across all gradient-checkpointed
                 # blocks via closure. Without detach, the second block's backward
@@ -448,7 +539,7 @@ class T5Stack(T5PreTrainedModel):
                         key_attention_weights.squeeze().mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy()
                     )
             else:
-                # First task: single LoRA, weight = 1
+                # First task or no previous info: single LoRA, weight = 1
                 key_attention_weights = torch.ones(
                     batch_size, 1, 1, device=inputs_embeds.device, dtype=inputs_embeds.dtype
                 )

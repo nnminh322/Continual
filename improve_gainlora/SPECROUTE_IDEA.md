@@ -207,6 +207,47 @@ $$w_t = \frac{e^{f/\tau}}{e^{f/\tau} + n\, e^{g/\tau}} = \alpha_{\mathrm{target}
 
 **Justification of symmetric inference:** During training, the A-row proxy + adaptive bias is necessary because $B_t$ is evolving (cold-start). At inference, $B_t$ is frozen and $\Delta W_t = B_t A_t$ has well-defined SVD. Using the same $\sigma^2$-weighted Rayleigh quotient for all tasks ensures *measurement symmetry* — all affinities live on the same metric space, and the Routing–Protection Duality Theorem (Theorem 1) applies uniformly.
 
+**Limitation of spectral routing — GPM-Routing Paradox (V5 motivation):**
+
+While spectral routing is provably correct under the ideal assumption $h \in \mathrm{span}(V_{t^*})$, in practice many tasks share similar input distributions. For same-domain tasks (e.g., yelp and imdb, both sentiment), GPM forces $\mathcal{S}_{\text{imdb}} \perp \mathcal{S}_{\text{yelp}}$ — but real imdb inputs live predominantly in the sentiment subspace (which yelp already claimed). This creates a paradox:
+
+$$P(h|\text{imdb}) \approx P(h|\text{yelp}) \implies \alpha_{\text{imdb}}(h) \ll \alpha_{\text{yelp}}(h) \quad \forall h \sim P(h|\text{imdb})$$
+
+because $A_{\text{imdb}}$'s rows are orthogonal to the sentiment-dominant directions.
+
+**C2.1 — Prototype Routing (Inference-Time, V5)**
+
+To overcome the GPM-Routing Paradox, we introduce **prototype-based routing** at inference time:
+
+$$w(h) = \mathrm{softmax}\!\left(\frac{[\cos(h, \mu_1), \ldots, \cos(h, \mu_T)]}{\tau}\right)$$
+
+where $\mu_k = \hat{\mu}_k / \|\hat{\mu}_k\|$ is the normalized running mean of input embeddings during task $k$'s training:
+
+$$\hat{\mu}_k = \frac{1}{N_k} \sum_{i=1}^{N_k} \bar{h}_i^{(k)}, \qquad \bar{h}_i = \frac{\sum_{j} m_j \cdot e_j}{\sum_j m_j}$$
+
+where $e_j = \mathrm{Embed}(x_j)$ are frozen token embeddings and $m_j$ are attention mask values.
+
+**Why prototype routing solves the paradox:**
+
+1. **GPM-independence**: Prototypes $\mu_k$ live in the *input embedding space*, which is completely unaffected by GPM projection (GPM only constrains LoRA-A subspaces). The information pathway for routing is decoupled from the pathway for adaptation.
+
+2. **Same-domain discrimination**: While yelp and imdb share *semantic* similarity, their *vocabulary distributions* differ (restaurant vs movie terminology). The frozen embedding means capture these distributional differences: $\mu_{\text{yelp}} \neq \mu_{\text{imdb}}$ even though both are "sentiment" tasks.
+
+3. **Theoretical grounding**: Under Gaussian mixture model $P(h|k) = \mathcal{N}(\mu_k, \Sigma)$ with shared covariance, nearest-centroid classification (equivalent to cosine-based prototype routing for unit-norm centroids) is the Bayes-optimal classifier. This is the classical Linear Discriminant Analysis (LDA) result.
+
+4. **Zero-replay**: Only the running mean $\mu_k$ is stored — $d_{\text{model}}$ scalars per task (e.g., 512 for T5-Small). No old data is retained.
+
+5. **Drift-free**: Prototypes are computed from frozen token embeddings (same embedding table throughout CL). By Proposition 1, the routing signal is stationary.
+
+**Dual-mode routing summary:**
+
+| Phase | Routing mechanism | Temperature | Reason |
+|-------|-------------------|-------------|--------|
+| Training (task $t$) | A-row fit + adaptive $\beta(n)$ | $\tau = 1.0$ | B=0 cold-start; β compensates for softmax dilution |
+| Inference (all tasks) | Prototype cosine similarity | $\tau_{\text{proto}} = 0.01$ | Lower τ needed: cosine ∈ [0.85, 0.95] has narrow dynamic range |
+
+**Temperature justification**: Spectral fits span [0, 0.5] with gaps ~0.3 → $\tau=1.0$ gives exp(0.3)=1.35 discrimination ratio. Cosine similarities span [0.85, 0.95] with gaps ~0.05 → need $\tau_{\text{proto}}=0.01$ for exp(5)≈148 ratio. Separate temperatures isolate the routing mechanism change from score-scale effects.
+
 ### C3 — Capacity-Aware Subspace Allocation
 
 GPM threshold controls the protection–capacity trade-off. From Theorem 1:
@@ -281,6 +322,7 @@ where $H_\ell = -\sum_i \hat{\sigma}_i \log \hat{\sigma}_i$ is the spectral entr
 | Spectral affinity $\alpha_t(h)$ (all tasks at inference) | σ²-weighted Rayleigh quotient | `compute_spectral_routing()` |
 | A-row proxy $\alpha_t^{\mathrm{train}}$ (current, training only) | A-row fit + adaptive bias $\beta(n)$ | `compute_spectral_routing()` |
 | Symmetric inference SVD | `prepare_inference_routing()` → SVD of current $B_t A_t$ | `t5_specroute.py` |
+| Prototype routing (V5) | `_update_prototype()` + `finalize_prototype()` + cosine similarity | `t5_specroute.py` |
 | Routing $w = \mathrm{softmax}(\alpha / \tau)$ | `torch.softmax(fit_scores / temp)` | `compute_spectral_routing()` |
 | Drift-free input $h$ | `inputs_embeds = self.embed_tokens(input_ids)` → mean-pool | `T5Stack.forward()` |
 | GPM + InfLoRA null-space | `get_reg_matrix()` | `cl_trainer_specroute.py` |

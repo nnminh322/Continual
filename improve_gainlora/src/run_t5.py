@@ -634,15 +634,21 @@ def main():
         previous_lora_list_sig = model_args.previous_lora_path.split(',')
         previous_lora_list_sig.reverse()
         spectral_sigs = []
+        task_protos = []
         for path in previous_lora_list_sig:
             sig_path = os.path.join(path, "spectral_signatures.pt")
             if os.path.exists(sig_path):
                 sig = torch.load(sig_path, map_location=device)
                 spectral_sigs.append(sig)
+            proto_path = os.path.join(path, "task_prototype.pt")
+            if os.path.exists(proto_path):
+                task_protos.append(torch.load(proto_path, map_location='cpu'))
         model.encoder.spectral_signatures = spectral_sigs
+        model.encoder.task_prototypes = task_protos
         del previous_lora_list_sig
         gc.collect()
-        print(f"----------Loaded {len(spectral_sigs)} spectral signatures----------")
+        print(f"----------Loaded {len(spectral_sigs)} spectral signatures, "
+              f"{len(task_protos)} task prototypes----------")
 
     for name, param in model.named_parameters():
         if  training_args.model_name in ['gainlora_olora', 'olora']:
@@ -1015,12 +1021,18 @@ def main():
                 if not prompt_config["run_single"]:
                     torch.save(trainer.model.encoder.prompt_key.data, os.path.join(save_path, 'prompts_keys_till_now.pt'))
         else:
-            # SpecRoute: save lora weights and spectral signatures
+            # SpecRoute: save lora weights, spectral signatures, and task prototype
             torch.save(lora_state_dict_A(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_A.pt'))
             torch.save(lora_state_dict_B(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_B.pt'))
             from t5_specroute import compute_spectral_signatures
             signatures = compute_spectral_signatures(trainer.model, config)
             torch.save(signatures, os.path.join(save_path, 'spectral_signatures.pt'))
+            # Finalize and save task prototype (V5)
+            trainer.model.encoder.finalize_prototype()
+            if trainer.model.encoder._current_task_prototype is not None:
+                torch.save(trainer.model.encoder._current_task_prototype,
+                           os.path.join(save_path, 'task_prototype.pt'))
+                print("----------Saved task prototype----------")
             print("----------Saved spectral signatures----------")
         # Only save tokenizer for non-specroute (specroute never reloads it)
         if training_args.model_name != 'specroute':
