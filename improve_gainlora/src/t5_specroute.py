@@ -251,8 +251,6 @@ class T5Stack(T5PreTrainedModel):
 
         fits = []
 
-        _use_proto = False
-
         if self.training:
             # === TRAINING MODE: A-row fit + adaptive bias for current task ===
             # A rows give stable non-zero signal even when B=0 (cold-start).
@@ -276,81 +274,42 @@ class T5Stack(T5PreTrainedModel):
                 current_fit = current_fit + beta
             fits.append(current_fit)
         else:
-            # === INFERENCE MODE ===
-            # Try prototype routing (V5): cosine similarity in embedding space.
-            # Immune to GPM constraints — handles same-domain tasks correctly.
-            _n_expected = 1 + len(self.spectral_signatures)
-            _protos = []
-            if self._current_task_prototype is not None:
-                _protos.append(self._current_task_prototype)
-            elif self._current_prototype_sum is not None and self._current_prototype_count > 0:
-                # During training eval: use running mean as approximate prototype
-                _tmp = self._current_prototype_sum / self._current_prototype_count
-                _protos.append(_tmp / (_tmp.norm() + 1e-8))
-            _protos.extend(self.task_prototypes)
-
-            if len(_protos) == _n_expected:
-                # Prototype routing for ALL tasks
-                _use_proto = True
-                h_flat = h.squeeze(1)  # (B, d_model)
-                h_norm = h_flat.norm(dim=-1, keepdim=True).clamp(min=1e-8)  # (B, 1)
-
-                # One-time diagnostic: pairwise cosine similarity between prototypes
-                if self.is_inference and not getattr(self, '_proto_diag_done', False):
-                    self._proto_diag_done = True
-                    _pstack = torch.stack([p.to(h_flat.device, dtype=h_flat.dtype) for p in _protos])
-                    _pair = torch.matmul(_pstack, _pstack.T)  # already unit-norm → cosine sim
-                    _mask = ~torch.eye(_pair.size(0), dtype=torch.bool, device=_pair.device)
-                    _offdiag = _pair[_mask]
-                    print(f"[SpecRoute] Prototype cosine matrix (n={_pair.size(0)}): "
-                          f"off-diag min={_offdiag.min():.4f}, max={_offdiag.max():.4f}, "
-                          f"mean={_offdiag.mean():.4f}, std={_offdiag.std():.4f}")
-                    if _offdiag.max() > 0.99:
-                        print(f"[SpecRoute] WARNING: some prototypes are near-identical "
-                              f"(max cos={_offdiag.max():.4f}). Consider mean-centering.")
-
-                for proto in _protos:
-                    p = proto.to(h_flat.device, dtype=h_flat.dtype)  # (d,) normalized
-                    cos_sim = torch.matmul(h_flat, p.unsqueeze(-1)) / h_norm  # (B, 1)
-                    fits.append(cos_sim)
-            else:
-                # Fallback: SVD-based spectral routing (V3)
-                if self._current_task_svd is not None:
-                    cur_fits = []
-                    for key, sig_data in self._current_task_svd.items():
-                        if not key.startswith('enc.'):
-                            continue
-                        V = sig_data['V'].to(h.device, dtype=h.dtype)
-                        sigma = sig_data['sigma'].to(h.device, dtype=h.dtype)
-                        proj = torch.matmul(h, V.T)
-                        sigma_sq = sigma ** 2
-                        sigma_sq_sum = sigma_sq.sum() + 1e-8
-                        weighted_proj = (proj ** 2 * sigma_sq.unsqueeze(0).unsqueeze(0)).sum(dim=-1)
-                        fit = weighted_proj / (sigma_sq_sum * h_norm_sq)
-                        cur_fits.append(fit)
-                    if cur_fits:
-                        current_fit = torch.stack(cur_fits).mean(dim=0)
-                    else:
-                        current_fit = torch.zeros(h.shape[0], 1, device=h.device, dtype=h.dtype)
+            # === INFERENCE MODE: SVD-based symmetric spectral routing (V6) ===
+            # Uses σ²-weighted Rayleigh quotient for ALL tasks (including current).
+            # Zero-replay compliant: only uses frozen LoRA weights, no data statistics.
+            # C4 (preconditioning + spectral entropy) improves expert quality →
+            # more discriminative spectral signatures → better routing accuracy.
+            if self._current_task_svd is not None:
+                cur_fits = []
+                for key, sig_data in self._current_task_svd.items():
+                    if not key.startswith('enc.'):
+                        continue
+                    V = sig_data['V'].to(h.device, dtype=h.dtype)
+                    sigma = sig_data['sigma'].to(h.device, dtype=h.dtype)
+                    proj = torch.matmul(h, V.T)
+                    sigma_sq = sigma ** 2
+                    sigma_sq_sum = sigma_sq.sum() + 1e-8
+                    weighted_proj = (proj ** 2 * sigma_sq.unsqueeze(0).unsqueeze(0)).sum(dim=-1)
+                    fit = weighted_proj / (sigma_sq_sum * h_norm_sq)
+                    cur_fits.append(fit)
+                if cur_fits:
+                    current_fit = torch.stack(cur_fits).mean(dim=0)
                 else:
-                    current_fits_layers = []
-                    for block in self.block:
-                        attn = block.layer[0].SelfAttention
-                        for lora in [attn.lora_q, attn.lora_v]:
-                            A = lora.lora_A.data.float()
-                            r = lora.r
-                            A_h = A.to(h.device, dtype=h.dtype)
-                            proj = torch.matmul(h, A_h.T)
-                            fit = (proj ** 2).sum(dim=-1) / (r * h_norm_sq)
-                            current_fits_layers.append(fit)
-                    current_fit = torch.stack(current_fits_layers).mean(dim=0)
-                fits.append(current_fit)
-
-        # Early return for prototype routing (uses separate temperature)
-        if _use_proto:
-            fit_scores = torch.cat(fits, dim=1)  # (B, n_tasks)
-            weights = torch.softmax(fit_scores / self._prototype_temperature, dim=1)
-            return weights.unsqueeze(2)  # (B, n_tasks, 1)
+                    current_fit = torch.zeros(h.shape[0], 1, device=h.device, dtype=h.dtype)
+            else:
+                # Fallback: A-row fit (during training eval before SVD computed)
+                current_fits_layers = []
+                for block in self.block:
+                    attn = block.layer[0].SelfAttention
+                    for lora in [attn.lora_q, attn.lora_v]:
+                        A = lora.lora_A.data.float()
+                        r = lora.r
+                        A_h = A.to(h.device, dtype=h.dtype)
+                        proj = torch.matmul(h, A_h.T)
+                        fit = (proj ** 2).sum(dim=-1) / (r * h_norm_sq)
+                        current_fits_layers.append(fit)
+                current_fit = torch.stack(current_fits_layers).mean(dim=0)
+            fits.append(current_fit)
 
         # Old tasks: spectral signatures (training or fallback inference)
         for sig_dict in self.spectral_signatures:
