@@ -1,2 +1,0 @@
-tôn chỉ làm việc:
-chỉ cải thiện implement tốt hơn, nhưng không sa vào over engineer, nếu các implement không cải thiện hãy xem lại methodology/idea, đây là công việc research, bám sát vào idea 
