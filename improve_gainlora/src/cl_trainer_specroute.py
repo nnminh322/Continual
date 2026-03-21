@@ -89,7 +89,8 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                  eval_dataset=None, tokenizer=None, data_collator=None,
                  compute_metrics=None, callbacks=None,
                  lambda_entropy=0.0, use_preconditioning=False,
-                 precond_eps=1e-6, entropy_warmup_ratio=0.1):
+                 precond_eps=1e-6, entropy_warmup_ratio=0.1,
+                 n_batches_c5=200):
         super().__init__(
             model=model, args=args, train_dataset=train_dataset,
             eval_dataset=eval_dataset, tokenizer=tokenizer,
@@ -99,12 +100,15 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
         self.task_order = task_order
         self.cur_task_id = cur_task_id
         self._grad_check_done = False
-        # C4: Spectrally-Conditioned LoRA Training
-        self.lambda_entropy = lambda_entropy
+        # C4.1: Gradient preconditioning (C4.2 entropy reg removed in V7)
+        self.lambda_entropy = 0.0  # disabled in V7 — conflicts with C5 philosophy
         self.use_preconditioning = use_preconditioning
         self.precond_eps = precond_eps
         self.entropy_warmup_ratio = entropy_warmup_ratio
         self._precond_matrices = {}
+        # C5: Data-Informed Subspace Initialization
+        self.n_batches_c5 = n_batches_c5
+        self._task_covariance = []  # list of {chunk_index: cov_tensor} per layer
 
     def _save(self, output_dir=None, state_dict=None):
         # T5 shared embeddings are incompatible with safetensors; force pytorch format
@@ -177,19 +181,13 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                     lora.lora_B.grad.data.nan_to_num_(nan=0.0)
 
     def training_step(self, model, inputs, **kwargs):
-        """CE training step + C4 spectral entropy regularization + preconditioning."""
+        """CE training step + C4.1 gradient preconditioning.
+        C4.2 spectral entropy regularization removed in V7 (conflicts with C5)."""
         model.train()
         inputs = self._prepare_inputs(inputs)
 
         with self.compute_loss_context_manager():
             loss = self.compute_loss(model, inputs)
-
-        # C4: Spectral entropy regularization (after warmup)
-        if self.lambda_entropy > 0:
-            warmup_steps = int(self.entropy_warmup_ratio * self.state.max_steps)
-            if self.state.global_step >= warmup_steps:
-                ent_loss = self._compute_spectral_entropy_loss()
-                loss = loss + self.lambda_entropy * ent_loss
 
         if self.args.n_gpu > 1:
             loss = loss.mean()
@@ -232,6 +230,56 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
             print("=" * 60)
 
         return loss.detach()
+
+    # ================================================================
+    # C5: Data-Informed Subspace Initialization
+    # ================================================================
+
+    def pre_task_data_collection(self):
+        """C5: Collect activation covariance for the current task.
+        Must be called BEFORE get_reg_matrix().
+        Stores per-layer, per-chunk covariance matrices in self._task_covariance.
+        These are used in get_reg_matrix() to initialize A_t optimally.
+        """
+        # Reset module covariance accumulators and enable collection
+        for module in self.model.modules():
+            if hasattr(module, 'get_feature'):
+                module.get_feature = True
+                module.stage = 0
+                for index in range(module.index):
+                    module.matrix[index] = torch.zeros(
+                        module.step, module.step, device='cuda'
+                    )
+                    module.n_matrix[index] = 0
+
+        print(f'[C5] Collecting activation covariance ({self.n_batches_c5} batches)...')
+        train_dataloader = self.get_train_dataloader()
+        if isinstance(train_dataloader, DataLoader) and isinstance(
+            train_dataloader.sampler, DistributedSampler
+        ):
+            train_dataloader.sampler.set_epoch(42)
+
+        with torch.no_grad():
+            for step, inputs in enumerate(train_dataloader):
+                if step >= self.n_batches_c5:
+                    break
+                inputs = self._prepare_inputs(inputs)
+                # Drop labels — we only want activations, not loss
+                inputs.pop('labels', None)
+                self.model(**inputs)
+
+        # Harvest and store covariance
+        self._task_covariance = []
+        for module in self.model.modules():
+            if hasattr(module, 'get_feature'):
+                cov = {}
+                for index in range(module.index):
+                    cov[index] = module.matrix[index].detach().float().cuda()
+                self._task_covariance.append(cov)
+                module.get_feature = False
+                module.stage = 0
+
+        print(f'[C5] Covariance collected for {len(self._task_covariance)} layers.')
 
     def load_previous_reg_matrix(self):
         """Load LoRA GPM bases from previous task. No trans_input GPM needed."""
@@ -280,7 +328,31 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                     ).to("cuda:0")
                 self.feature_mat.append(feature_mat)
 
-                # Project lora_A into null-space (InfLoRA constraint)
+                # C5: Data-Informed Subspace Initialization
+                # Replace random A_t with optimal subspace from Constrained PCA.
+                # Eigenvectors of Q@C_t@Q are in null(P_old) by construction,
+                # so the InfLoRA projection below becomes a numerical near-no-op.
+                if self._task_covariance and i < len(self._task_covariance):
+                    r = module.lora_q.lora_A.data.shape[0]  # LoRA rank
+                    for index in self.feature_list[i].keys():
+                        C_t   = self._task_covariance[i][index]       # [step, step]
+                        P_old = feature_mat[index]                     # [step, step]
+                        Q     = torch.eye(module.step, device=P_old.device) - P_old
+                        C_tilde = Q @ C_t.to(P_old.device) @ Q
+                        # Enforce symmetry for numerical stability
+                        C_tilde = (C_tilde + C_tilde.T) * 0.5
+                        # eigh returns ascending eigenvalues; take last r (largest)
+                        eigvals, eigvecs = torch.linalg.eigh(C_tilde.float())
+                        top_eigvecs = eigvecs[:, -r:].flip(dims=[1])  # [step, r]
+                        A_init = top_eigvecs.T  # [r, step]
+                        dtype  = module.lora_q.lora_A.data.dtype
+                        sl     = slice(index * module.step, (index + 1) * module.step)
+                        module.lora_q.lora_A.data[:, sl].copy_(A_init.to(dtype))
+                        module.lora_v.lora_A.data[:, sl].copy_(A_init.to(dtype))
+                    print(f'[C5] Layer {i+1}: A_t initialized via Constrained PCA.')
+
+                # InfLoRA null-space projection (near no-op after C5, still applied
+                # for numerical correctness and to enforce InfLoRA invariant exactly)
                 for index in self.feature_list[i].keys():
                     module.lora_q.lora_A.data[:, index*module.step:(index+1)*module.step].copy_(
                         module.lora_q.lora_A.data[:, index*module.step:(index+1)*module.step]

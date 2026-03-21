@@ -188,7 +188,11 @@ class ModelArguments:
     )
     entropy_warmup_ratio: Optional[float] = field(
         default=0.1,
-        metadata={"help": "Fraction of training steps before enabling entropy loss (C4)."},
+        metadata={"help": "Fraction of training steps before enabling entropy loss (C4, disabled in V7)."},
+    )
+    n_batches_c5: Optional[int] = field(
+        default=200,
+        metadata={"help": "Number of training batches for C5 activation covariance collection."},
     )
 
     run_single: bool = field(
@@ -948,8 +952,10 @@ def main():
             use_preconditioning=model_args.use_preconditioning,
             precond_eps=model_args.precond_eps,
             entropy_warmup_ratio=model_args.entropy_warmup_ratio,
+            n_batches_c5=model_args.n_batches_c5,
         )
         if training_args.do_train:
+            trainer.pre_task_data_collection()
             trainer.get_reg_matrix()
             trainer.precompute_preconditioners()
     else:
