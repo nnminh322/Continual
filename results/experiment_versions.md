@@ -182,6 +182,100 @@ CB là task 4 (sớm trong sequence), chỉ có **250 samples** → 8 steps/epoc
 
 ---
 
+## V6 — SVD Routing + C4 (No Prototypes) — branch `new`
+
+**Script**: V6 on branch `new`
+**Logs**: `/logs/t5_small_improve/improve-gainloraim-v6.log` (interrupted at boolq epoch 4, 13/15 tasks complete)
+**Method**: SVD spectral routing (symmetric) + C4 (preconditioning + entropy). Prototype routing REMOVED (violates zero-replay).
+
+### Motivation
+V5 prototype routing (AP=59.55) violates zero-replay: mean embeddings = data statistics. V6 tests if C4 alone makes SVD routing viable. Hypothesis: C4 improves expert quality → richer σ spectrum → spectral routing discriminative.
+
+### Hyperparameters (same as V5 except no prototypes)
+- lambda_entropy = 0.01, use_preconditioning = True
+- threshold = 0.995, target_routing_alpha = 0.8
+- lora_r = 8, lr = 3e-4, epochs = 10
+
+### Kết quả V6 (predict scores after task 13 — multirc, last complete checkpoint)
+
+| Task | ROOT EM | V5 EM | V6 EM | V6 rougeL | V6 Δ vs ROOT |
+|------|--------:|------:|------:|----------:|-----------:|
+| yelp | 56.01 | 54.64 | 36.01 | 62.40 | -19.99 |
+| amazon | 52.05 | 48.01 | 36.66 | 62.00 | -15.39 |
+| mnli | 34.07 | 33.92 | 0.42 | 0.43 | -33.65 |
+| cb | 3.57 | 0.00 | 0.00 | 0.00 | -3.57 |
+| copa | 42.00 | 44.00 | 45.00 | 45.00 | +3.00 |
+| qqp | 76.96 | 77.83 | 76.83 | 76.83 | -0.13 |
+| rte | 45.85 | 48.01 | 0.00 | 36.10 | -45.85 |
+| imdb | 89.51 | 88.61 | 0.00 | 0.02 | -89.51 |
+| sst2 | 85.21 | 81.19 | 0.00 | 0.00 | -85.21 |
+| dbpedia | 98.16 | 97.67 | 52.04 | 61.34 | -46.12 |
+| agnews | 88.37 | 89.74 | 54.00 | 60.02 | -34.37 |
+| yahoo | 57.28 | 49.66 | 1.47 | 3.37 | -55.81 |
+| multirc | 50.52 | 60.44 | 53.59 | 53.59 | +3.07 |
+| **AP (13 tasks)** | **~59.70** | **~59.55** | **~27.4** | **~35.5** | **-32.3** |
+
+### Single-Task Training Eval Scores (during training, before predict)
+
+| Task | train_loss | eval_EM | eval_loss | Notes |
+|------|--------:|------:|------:|------|
+| 1-yelp | 0.5883 | 55.32 | 0.42 | OK |
+| 2-amazon | 0.6224 | 49.49 | 0.46 | OK |
+| 3-mnli | 0.7274 | 31.14 | 0.77 | Moderate |
+| 4-cb | 4.5235 | 0.00 | 3.64 | ❌ Never learns (tiny data) |
+| 5-copa | 0.4187 | 51.00 | 0.36 | OK |
+| 6-qqp | 0.2910 | 76.93 | 0.25 | Good |
+| 7-rte | 0.8549 | 28.88 | 0.72 | Poor (ROOT=47.29) |
+| 8-imdb | 1.5361 | 0.00 | 6.37 | ❌ **NULL-SPACE COLLAPSE** |
+| 9-sst2 | 2.4394 | 0.00 | 8.39 | ❌ **NULL-SPACE COLLAPSE** |
+| 10-dbpedia | 0.2346 | 56.21 | 1.34 | OK but < ROOT (98.16) |
+| 11-agnews | 0.3922 | 54.66 | 1.68 | OK but < ROOT (88.37) |
+| 12-yahoo | 1.2078 | 1.50 | 4.66 | ❌ Near-zero |
+| 13-multirc | 0.3065 | 53.59 | 0.63 | OK |
+
+### GPM Null-Space Exhaustion (Layer 7 / Layer 1)
+
+| After Task | L7 Dims/512 | L1 Dims/512 | Null-Space L7 | ESA Threshold |
+|-----------|----:|----:|----:|---:|
+| 1-yelp | 8 | 10 | 504 | 0.995 |
+| 2-amazon | 36 | 33 | 476 | 0.9953 |
+| 3-mnli | 69 | 57 | 443 | 0.9957 |
+| 4-cb | 89 | 66 | 423 | 0.996 |
+| 5-copa | 121 | 96 | 391 | 0.9964 |
+| 6-qqp | 142 | 104 | 370 | 0.9967 |
+| 7-rte | 147 | 104 | 365 | 0.9971 |
+| 8-imdb | 161 | 110 | 351 | 0.9975 |
+| 9-sst2 | 171 | 113 | 341 | 0.9978 |
+| 10-dbpedia | 212 | 145 | 300 | 0.9982 |
+| 11-agnews | 247 | 173 | 265 | 0.9985 |
+| 12-yahoo | 248 | 173 | 264 | 0.9989 |
+| 13-multirc | 344 | 286 | 168 | 0.999 |
+
+### Root Cause Analysis — TWO Problems
+
+**Problem 1: Single-Task Never-Learning (IMDB/SST2/Yahoo)**
+- IMDB (task 8): eval_loss starts at 7.35, drops to only 6.37 over 10 epochs. EM=0.0 throughout ALL epochs.
+- SST2 (task 9): Even worse — eval_loss=8.39, EM=0.0.
+- **Cause**: GPM null-space collapse. By task 8, Layer 7 has 161/512 dims consumed. The remaining null-space directions are NOT aligned with IMDB's task-relevant features. LoRA-B literally cannot learn within the constrained space.
+- C4 preconditioner operates WITHIN the null-space — if the null-space itself lacks task-relevant directions, preconditioning cannot help.
+
+**Problem 2: Routing Degradation (yelp, amazon, dbpedia, agnews)**
+- yelp: single-task eval=55.32, predict after 13 tasks=36.01 (-19.31)
+- dbpedia: single-task eval=56.21, predict=52.04 (-4.17)
+- These are NOT parameter forgetting (LoRA params frozen). This is SVD ROUTING FAILURE — later tasks' signatures cause misrouting.
+
+### discuss_AI.txt Key Insights (external review)
+1. CB failure = task-intrinsic (tiny data, ROOT also near-fail at 8.93%)
+2. IMDB/SST2/RTE = GPM-depth failure (null-space collapse after 7+ tasks)
+3. C4 cannot fix null-space collapse — works within same constrained space
+4. Suggestion: GPM threshold tuning — relax constraint for later tasks
+5. **Error in discuss**: claimed "ROOT không có GPM constraint tích luỹ này" — ROOT DOES use InfLoRA GPM. Difference is ROOT's learned MLP routing operates in SEPARATE parameter space from LoRA subspaces.
+
+### Kết luận V6
+**C4 hypothesis FAILED.** AP ≈ 27.4, below even pessimistic prediction of 30-35. SVD routing + C4 is insufficient. The problem is STRUCTURAL: GPM null-space projection destroys task-relevant directions for later tasks, and no amount of training optimization within the null-space can recover this information. V6 confirms that under zero-replay, spectral routing alone cannot match ROOT's learned routing.
+
+---
+
 ## Changelog
 
 | Date | Version | AP(EM) unwt | AP(rougeL) unwt | Key Change |
@@ -190,3 +284,4 @@ CB là task 4 (sớm trong sequence), chỉ có **250 samples** → 8 steps/epoc
 | - | V2 | ~30.73 | - | Spectral routing (SVD) |
 | - | V3 | ~27.66 | - | Adaptive bias + symmetric (WRONG script) |
 | - | V5 | **59.55** | **62.19** | Prototype routing + entropy + preconditioning |
+| - | V6 | ~27.4 | ~35.5 | SVD + C4 only (no prototypes) — **FAILED** |

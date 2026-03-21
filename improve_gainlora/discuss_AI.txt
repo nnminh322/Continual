@@ -1,0 +1,65 @@
+
+Diagnosing Single-Task Score=0 in V6 vs ROOT
+Root causes found: (1) V6 IMDB training loads previous LoRA from 7 earlier tasks — GPM projection leaves tiny null-space → IMDB lora_B cannot learn (eval_loss=6.56). (2) ROOT IMDB has no such constraint → trains normally (89.72%). CB is universally bad (ROOT 8.93%, V6 0%) — short sequence NLI with tiny dataset (56 samples, 80 steps) is a task-intrinsic difficulty. V6 versus ROOT difference is GPM-depth dependent, not routing quality.
+
+Progress Updates
+1
+Reading ROOT logs, settings files, and source code to compare single-task training between V6 and ROOT
+
+2
+Reading ROOT gainlora logs and V6 CB/IMDB training logs to find single-task score=0 cause
+
+3
+Reading ROOT all_results.json for CB, IMDB, RTE, SST2 to compare single-task training scores
+
+4
+Comparing ROOT vs V6 training configuration for CB and IMDB tasks
+
+5
+Comparing V6 vs ROOT training configs for IMDB/RTE/SST2, then synthesizing root cause analysis
+
+6
+Reading ROOT script config and LoRA init to find structural differences with V6
+
+7
+Investigating why V6 IMDB eval_loss=6.56 vs ROOT IMDB=89.72%, reading specroute forward pass training logic
+
+8
+Investigating IMDB eval_loss=6.56 root cause: multi-LoRA routing behavior during IMDB (task 8) single training
+
+9
+Finding the exact IMDB training config in V6 script and number of batches loaded
+
+10
+Synthesizing analysis findings for user response
+
+Cảm ơn bạn đã chỉ ra — lập luận của tôi về CB xác thực là sai. Đây là phân tích đúng và đầy đủ sau khi trace data:
+
+Hai nhóm vấn đề riêng biệt
+Nhóm 1 — Task-intrinsic failure (CB): Cả ROOT lẫn V6 đều bị
+ROOT	V6
+CB exact_match	8.93%	0.0%
+CB train_loss	3.57	3.64
+CB num steps	80	80
+CB là tập data cực nhỏ (56 samples, 80 steps tổng) với task NLI 3 nhãn khó. ROOT cũng fail (8.93% ≈ random). V6 fail thêm do GPM projection với 3 tasks trước đó làm không gian nhỏ hơn nhưng nguyên nhân chính không phải GPM — mà là dataset quá nhỏ không đủ gradient để học. CB thất bại trong cả ROOT và V6 → đây là vấn đề của benchmark setup, không phải method.
+
+Nhóm 2 — GPM-depth failure (IMDB, SST2, RTE): V6 tệ nghiêm trọng, ROOT không gặp
+ROOT	V6
+IMDB exact_match (single-task eval)	89.72%	0.0%
+IMDB eval_loss	normal	6.56 (mất hàm số!)
+SST2 exact_match	85.89%	0.0%
+RTE exact_match	47.29%	28.88%
+Nguyên nhân xác định: Khi training IMDB (task 8), V6 load previous LoRA weights của 7 tasks trước (yelp→rte). GPM projection lần thứ 7 bị tích lũy — null-space của lora_A còn lại rất nhỏ. lora_B được train trong null-space bị constraint nặng → gradient không đủ để học task IMDB → eval_loss=6.56 (không học được gì). ROOT không có GPM constraint tích luỹ này.
+
+Bình luận về method/idea
+Đây là lỗi kỹ thuật/engineering, không phải idea xấu.
+
+SpecRoute idea về spectral routing về lý thuyết vẫn hợp lý. Vấn đề là:
+
+GPM constraint tích luỹ quá mạnh sau nhiều tasks → null-space collapse → LoRA không học được
+Đây là vấn đề đã biết trong GainLoRA root method, nhưng ROOT xử lý bằng cách có prompt key/inflora thay vì constraint chặt như GPM
+C4 (V6) không thể giải quyết null-space collapse vì preconditioner vẫn hoạt động trong cùng null-space đó
+Hướng diagnose tiếp theo (không phải implement, chỉ discuss): Câu hỏi thực sự là: GPM constraint với SpecRoute có nên nhẹ hơn (higher threshold) hay không? Nếu GPM threshold được relaxed sau task 5-6, null-space rộng hơn, IMDB/SST2 có thể học được → trade-off giữa anti-forgetting (GPM chặt) vs learning capacity (GPM loose).
+
+Bạn có muốn thảo luận thêm về GPM threshold tuning, hay có hướng khác muốn explore?
+

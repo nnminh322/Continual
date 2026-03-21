@@ -215,38 +215,28 @@ $$P(h|\text{imdb}) \approx P(h|\text{yelp}) \implies \alpha_{\text{imdb}}(h) \ll
 
 because $A_{\text{imdb}}$'s rows are orthogonal to the sentiment-dominant directions.
 
-**C2.1 — Prototype Routing (Inference-Time, V5)**
+**C2.1 — Prototype Routing (Inference-Time, V5)** ⚠️ **INVALID — Violates Zero-Replay**
 
-To overcome the GPM-Routing Paradox, we introduce **prototype-based routing** at inference time:
+> **Status**: INVALIDATED. Mean embeddings $\mu_k = \frac{1}{N_k}\sum h_i$ are first-moment data statistics. Storing them violates the zero-replay constraint ("lưu bất kỳ thứ gì của dữ liệu đều vi phạm"). V5 achieved AP(EM)=59.55 but this result is inadmissible.
 
-$$w(h) = \mathrm{softmax}\!\left(\frac{[\cos(h, \mu_1), \ldots, \cos(h, \mu_T)]}{\tau}\right)$$
+Prototype routing used cosine similarity to task mean embeddings at inference. While it solved the GPM-Routing Paradox (5/6 failing tasks fixed), the approach stores data statistics and is therefore excluded from the valid solution space.
 
-where $\mu_k = \hat{\mu}_k / \|\hat{\mu}_k\|$ is the normalized running mean of input embeddings during task $k$'s training:
+**Implication**: Under strict zero-replay, SVD spectral routing (C2) is the ONLY parameter-free routing mechanism available. Any V7+ solution must work within this constraint.
 
-$$\hat{\mu}_k = \frac{1}{N_k} \sum_{i=1}^{N_k} \bar{h}_i^{(k)}, \qquad \bar{h}_i = \frac{\sum_{j} m_j \cdot e_j}{\sum_j m_j}$$
+**V6 Empirical Evidence — C4 Alone Is Insufficient for SVD Routing:**
 
-where $e_j = \mathrm{Embed}(x_j)$ are frozen token embeddings and $m_j$ are attention mask values.
+V6 tested the hypothesis that C4 (preconditioning + entropy) would improve expert quality sufficiently for SVD routing to discriminate tasks. Results on 13/15 tasks:
 
-**Why prototype routing solves the paradox:**
+- **AP(EM) ≈ 27.4** — below even pessimistic prediction of 30-35, comparable to V2/V3
+- **3 tasks completely fail to learn**: IMDB (EM=0, eval_loss=6.37), SST2 (EM=0, eval_loss=8.39), Yahoo (EM≈1.5)
+- **Severe routing degradation**: yelp 55→36, dbpedia 56→52 (NOT forgetting — LoRA frozen, this is misrouting)
 
-1. **GPM-independence**: Prototypes $\mu_k$ live in the *input embedding space*, which is completely unaffected by GPM projection (GPM only constrains LoRA-A subspaces). The information pathway for routing is decoupled from the pathway for adaptation.
-
-2. **Same-domain discrimination**: While yelp and imdb share *semantic* similarity, their *vocabulary distributions* differ (restaurant vs movie terminology). The frozen embedding means capture these distributional differences: $\mu_{\text{yelp}} \neq \mu_{\text{imdb}}$ even though both are "sentiment" tasks.
-
-3. **Theoretical grounding**: Under Gaussian mixture model $P(h|k) = \mathcal{N}(\mu_k, \Sigma)$ with shared covariance, nearest-centroid classification (equivalent to cosine-based prototype routing for unit-norm centroids) is the Bayes-optimal classifier. This is the classical Linear Discriminant Analysis (LDA) result.
-
-4. **Zero-replay**: Only the running mean $\mu_k$ is stored — $d_{\text{model}}$ scalars per task (e.g., 512 for T5-Small). No old data is retained.
-
-5. **Drift-free**: Prototypes are computed from frozen token embeddings (same embedding table throughout CL). By Proposition 1, the routing signal is stationary.
-
-**Dual-mode routing summary:**
+Root cause: **Null-space collapse**. By task 8 (IMDB), Layer 7 has 161/512 GPM dims consumed. The remaining null-space lacks directions aligned with IMDB's task-relevant features. C4 preconditioner $(AA^T+\epsilon I)^{-1/2}$ operates WITHIN the constrained null-space — if the null-space itself is task-irrelevant, no amount of gradient equalization helps.
 
 | Phase | Routing mechanism | Temperature | Reason |
 |-------|-------------------|-------------|--------|
 | Training (task $t$) | A-row fit + adaptive $\beta(n)$ | $\tau = 1.0$ | B=0 cold-start; β compensates for softmax dilution |
-| Inference (all tasks) | Prototype cosine similarity | $\tau_{\text{proto}} = 0.01$ | Lower τ needed: cosine ∈ [0.85, 0.95] has narrow dynamic range |
-
-**Temperature justification**: Spectral fits span [0, 0.5] with gaps ~0.3 → $\tau=1.0$ gives exp(0.3)=1.35 discrimination ratio. Cosine similarities span [0.85, 0.95] with gaps ~0.05 → need $\tau_{\text{proto}}=0.01$ for exp(5)≈148 ratio. Separate temperatures isolate the routing mechanism change from score-scale effects.
+| Inference (all tasks) | SVD spectral affinity (symmetric) | $\tau = 1.0$ | All tasks use σ²-weighted Rayleigh quotient |
 
 ### C3 — Capacity-Aware Subspace Allocation
 
@@ -286,6 +276,10 @@ where $H_\ell = -\sum_i \hat{\sigma}_i \log \hat{\sigma}_i$ is the spectral entr
 
 **Warmup**: Entropy loss is enabled only after a warmup fraction of training steps, preventing it from dominating early CE optimization.
 
+#### C4 Empirical Status (V6)
+
+> **V6 tested C4 in isolation** (SVD routing + C4, no prototypes). Result: AP(EM) ≈ 27.4 — C4 **does NOT solve the routing problem**. C4 improves training quality for early tasks (yelp, amazon, qqp learn well), but cannot compensate for null-space collapse affecting later tasks (IMDB/SST2/Yahoo). The preconditioner and entropy regularization operate WITHIN the GPM-projected null-space; when that null-space itself lacks task-relevant directions, C4 is ineffective. C4 remains valuable for single-task quality but is NOT sufficient as a standalone fix for spectral routing.
+
 ---
 
 ## 5. What's Removed from GainLoRA
@@ -322,7 +316,7 @@ where $H_\ell = -\sum_i \hat{\sigma}_i \log \hat{\sigma}_i$ is the spectral entr
 | Spectral affinity $\alpha_t(h)$ (all tasks at inference) | σ²-weighted Rayleigh quotient | `compute_spectral_routing()` |
 | A-row proxy $\alpha_t^{\mathrm{train}}$ (current, training only) | A-row fit + adaptive bias $\beta(n)$ | `compute_spectral_routing()` |
 | Symmetric inference SVD | `prepare_inference_routing()` → SVD of current $B_t A_t$ | `t5_specroute.py` |
-| Prototype routing (V5) | `_update_prototype()` + `finalize_prototype()` + cosine similarity | `t5_specroute.py` |
+| Prototype routing (V5) | ~~`_update_prototype()` + `finalize_prototype()`~~ | `t5_specroute.py` ⚠️ **INVALID** |
 | Routing $w = \mathrm{softmax}(\alpha / \tau)$ | `torch.softmax(fit_scores / temp)` | `compute_spectral_routing()` |
 | Drift-free input $h$ | `inputs_embeds = self.embed_tokens(input_ids)` → mean-pool | `T5Stack.forward()` |
 | GPM + InfLoRA null-space | `get_reg_matrix()` | `cl_trainer_specroute.py` |
@@ -376,3 +370,57 @@ where $H_\ell = -\sum_i \hat{\sigma}_i \log \hat{\sigma}_i$ is the spectral entr
 | `src/cl_trainer_specroute.py` | Trainer: GPM, InfLoRA, ESA, training_step |
 | `src/run_t5.py` | Entry: model loading, parameter freezing |
 | `gen_script_*_specroute*.sh` | Experiment scripts |
+
+---
+
+## 11. Empirical Status & Open Problems (Post-V6)
+
+### 11.1 Summary of All Versions
+
+| Version | AP(EM) | Routing | Key Insight |
+|---------|-------:|---------|-------------|
+| ROOT | 59.70 | Learned MLP | Baseline |
+| V2 | 30.73 | SVD spectral | 4 tasks EM=0 (misrouting) |
+| V3 | 27.66 | SVD + adaptive bias | Wrong script + train-inference mismatch |
+| V5 | 59.55 | **Prototype** (⚠️ invalid) | Matches ROOT but violates zero-replay |
+| V6 | ~27.4 | SVD + C4 | C4 hypothesis FAILED |
+
+### 11.2 The Null-Space Collapse Problem
+
+V6 reveals a **structural limitation** of GPM-based orthogonal protection for SpecRoute:
+
+**Mechanism**: In InfLoRA, each task $t$ gets $A_t$ projected into the null-space of all previous tasks' GPM bases. As tasks accumulate, the remaining null-space shrinks (Layer 7: 504 → 351 → 168 dims free after tasks 1 → 8 → 13). Critically, the remaining directions are NOT guaranteed to be aligned with task-relevant features.
+
+**Consequence**: For late tasks (≥task 8 in 15-task sequence), LoRA-B literally cannot learn — eval_loss stays at 6-8 throughout training, EM=0. This is NOT a routing problem; it's a **learning capacity** problem.
+
+**Why ROOT survives**: ROOT also uses InfLoRA GPM on LoRA parameters, but its **learned MLP routing** (`trans_input` + `prompt_key`) operates in a SEPARATE parameter space. ROOT's routing mechanism is decoupled from LoRA null-space constraints. ROOT can still route correctly to experts that learned within their null-space because routing doesn't depend on the quality of SVD signatures from constrained subspaces.
+
+**Why C4 cannot help**: The preconditioner $(AA^T+\epsilon I)^{-1/2}$ equalizes gradients WITHIN the null-space. Entropy regularization maximizes rank WITHIN the null-space. But if the null-space itself is missing task-relevant directions, these optimizations operate on an uninformative subspace.
+
+### 11.3 The Dual Failure of SVD Routing
+
+V6 demonstrates TWO distinct failure modes:
+
+1. **Never-learning** (IMDB/SST2/Yahoo): LoRA-B cannot learn within constrained null-space → expert has no useful singular values → spectral signature is noise → routing to this expert is random.
+
+2. **Routing degradation** (yelp/dbpedia/agnews): Even well-trained experts see their predict scores drop (yelp: 55→36) not from parameter forgetting (params frozen) but from SVD routing distributing weight to wrong experts as more tasks accumulate.
+
+### 11.4 Fundamental Question
+
+> Under strict zero-replay, is parameter-free spectral routing viable for ≥15-task sequences?
+
+The Routing–Protection Duality Theorem (Theorem 1) assumes $h \in \mathrm{span}(V_{t^*})$. V6 shows this assumption fails in practice: real inputs live in a shared input distribution, and GPM forces later experts into null-space directions that are poorly aligned with actual inputs.
+
+### 11.5 V7 Directions (To Be Explored)
+
+Possible approaches, ranked by compatibility with zero-replay:
+
+| Direction | Description | Zero-Replay? | Risk |
+|-----------|-------------|:---:|------|
+| **Relaxed orthogonality** | $A_t \leftarrow A_t - (1-\eta)A_t P_{\text{old}}$, allow partial overlap | ✅ | May increase forgetting |
+| **Adaptive GPM threshold** | Higher base $\varepsilon_0$ or task-adaptive relaxation for later tasks | ✅ | Trade-off: learning capacity vs protection |
+| **Rank expansion** | Increase $r$ for later tasks (more dims to compensate null-space loss) | ✅ | Compute/memory cost |
+| **Learned lightweight routing** | Small trainable routing head (like ROOT but minimal) | ⚠️ Need GPM | Adds parameters, routing drift |
+| **Hybrid: spectral + fallback** | SVD routing for early tasks, heuristic for late tasks | ✅ | Complexity, how to detect boundary |
+
+**Key constraint**: Any V7 must keep zero-replay AND ideally maintain the Routing–Protection Duality narrative (SpecRoute's core theoretical contribution). If the solution requires learned routing, the theoretical novelty claim weakens significantly.
