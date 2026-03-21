@@ -23,7 +23,7 @@ if [ -z "$GPU_MEM" ]; then
 fi
 
 # Determine GPU type
-if [ "$GPU_MEM" -lt 20000 ]; then
+if [ "$GPU_MEM" -lt 15500 ]; then
     IS_T4=1
     echo "[GPU] Detected T4 GPUs (${GPU_MEM}MB VRAM each)"
 else
@@ -44,6 +44,11 @@ elif [ "$IS_T4" -eq 1 ]; then
     GPU_IDS="${1:-0}"
     FP16_FLAG="--gradient_checkpointing"
     echo "[GPU] Strategy: 1x T4 + fp32 + gradient_checkpointing"
+elif [ "$GPU_MEM" -gt 16000 ]; then
+    GPU_MODE="p100"
+    GPU_IDS="${1:-0}"
+    FP16_FLAG="--gradient_checkpointing"
+    echo "[GPU] Strategy: P100 16GB (fp32 + gradient_checkpointing)"
 else
     GPU_MODE="a100"
     GPU_IDS="${1:-0}"
@@ -59,6 +64,8 @@ if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=2; GA=16; EVAL_BSZ=2
+elif [ "$GPU_MODE" = "p100" ]; then
+    BSZ=8; GA=4; EVAL_BSZ=4
 else
     BSZ=16; GA=2; EVAL_BSZ=4
 fi
@@ -110,6 +117,8 @@ if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=2
+elif [ "$GPU_MODE" = "p100" ]; then
+    BSZ=8; GA=4; EVAL_BSZ=4
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -161,6 +170,8 @@ if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=2
+elif [ "$GPU_MODE" = "p100" ]; then
+    BSZ=8; GA=4; EVAL_BSZ=4
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -212,6 +223,8 @@ if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=2
+elif [ "$GPU_MODE" = "p100" ]; then
+    BSZ=8; GA=4; EVAL_BSZ=4
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -263,6 +276,8 @@ if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=2
+elif [ "$GPU_MODE" = "p100" ]; then
+    BSZ=8; GA=4; EVAL_BSZ=4
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -314,6 +329,8 @@ if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=2
+elif [ "$GPU_MODE" = "p100" ]; then
+    BSZ=8; GA=4; EVAL_BSZ=4
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -365,6 +382,8 @@ if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=2
+elif [ "$GPU_MODE" = "p100" ]; then
+    BSZ=8; GA=4; EVAL_BSZ=4
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -416,6 +435,8 @@ if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=2
+elif [ "$GPU_MODE" = "p100" ]; then
+    BSZ=8; GA=4; EVAL_BSZ=4
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -467,6 +488,8 @@ if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=2
+elif [ "$GPU_MODE" = "p100" ]; then
+    BSZ=8; GA=4; EVAL_BSZ=4
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -518,6 +541,8 @@ if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=2
+elif [ "$GPU_MODE" = "p100" ]; then
+    BSZ=8; GA=4; EVAL_BSZ=4
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -569,6 +594,8 @@ if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=2
+elif [ "$GPU_MODE" = "p100" ]; then
+    BSZ=8; GA=4; EVAL_BSZ=4
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -620,6 +647,8 @@ if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=2
+elif [ "$GPU_MODE" = "p100" ]; then
+    BSZ=8; GA=4; EVAL_BSZ=4
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -671,6 +700,8 @@ if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=2
+elif [ "$GPU_MODE" = "p100" ]; then
+    BSZ=8; GA=4; EVAL_BSZ=4
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -722,6 +753,8 @@ if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=2
+elif [ "$GPU_MODE" = "p100" ]; then
+    BSZ=8; GA=4; EVAL_BSZ=4
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi
@@ -773,6 +806,8 @@ if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=4; GA=8; EVAL_BSZ=2
+elif [ "$GPU_MODE" = "p100" ]; then
+    BSZ=8; GA=4; EVAL_BSZ=4
 else
     BSZ=32; GA=1; EVAL_BSZ=4
 fi

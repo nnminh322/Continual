@@ -179,7 +179,7 @@ class ModelArguments:
         metadata={"help": "Weight for spectral entropy regularization (C4). 0 = disabled."},
     )
     use_preconditioning: Optional[bool] = field(
-        default=False,
+        default=True,
         metadata={"help": "Enable (AA^T+eps*I)^{-1/2} gradient preconditioning on lora_B (C4)."},
     )
     precond_eps: Optional[float] = field(
@@ -955,7 +955,8 @@ def main():
             n_batches_c5=model_args.n_batches_c5,
         )
         if training_args.do_train:
-            trainer.pre_task_data_collection()
+            if not model_args.run_single:  # C5 is only useful for tasks t>=2
+                trainer.pre_task_data_collection()
             trainer.get_reg_matrix()
             trainer.precompute_preconditioners()
     else:

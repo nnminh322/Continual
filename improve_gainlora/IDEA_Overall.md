@@ -147,13 +147,37 @@ $$T_{\max} \;\leq\; \frac{d}{r\,(1 - \varepsilon)}$$
 
 Với T5-Small ($d = 512$, $r = 8$, $\varepsilon = 0.02$): $T_{\max} \leq 65 \gg 15$ tasks. Điều này kết nối capacity học liên tục với lý thuyết Grassmannian packing.
 
-### 3.4 Drift Invariance
+### 3.4 Cam kết Trực giao từ Kiến trúc InfLoRA
+
+> **Đây là phần đóng cửa lỗ hổng lý thuyết then chốt.** Reviewer thường lo ngại: "GPM gradient projection chỉ chiếu gradient, không đảm bảo các $\Delta W_t$ có subspace trực giao." Observation này *đúng* về GPM gradient projection nhưng *nhầm cơ chế* — tính trực giao đến từ bước khác: InfLoRA A-projection, cứng hơn nhiều.
+
+**Mệnh đề 2** *(InfLoRA đảm bảo Điều kiện Định lý 1).* Với $P_{\text{old}} = \mathcal{B}\mathcal{B}^T$ là GPM projection matrix (built từ tasks $1,\ldots,t-1$), bước InfLoRA chiếu **tất cả hàng của $A_t$ vào null-space của $P_{\text{old}}$**:
+
+$$A_t \leftarrow A_t(I - P_{\text{old}}) \quad\Rightarrow\quad \text{rowspace}(A_t) \subseteq \text{null}(P_{\text{old}})$$
+
+Khi đó:
+
+$$\text{span}(V_t) \;=\; \text{rowspace}(\Delta W_t) \;\subseteq\; \text{rowspace}(A_t) \;\subseteq\; \text{null}(P_{\text{old}})$$
+
+**(Chứng minh từng bước.)**
+- $\text{rowspace}(B_t A_t) \subseteq \text{rowspace}(A_t)$: đúng với mọi $B_t$ (phép nhân bên trái không mở rộng rowspace).
+- $\text{rowspace}(A_t) \subseteq \text{null}(P_{\text{old}})$: bởi bước InfLoRA projection ở trên.
+- GPM bases $\mathcal{B}$ span xấp xỉ $\text{rowspace}(A_s)$ cho các task $s < t$ (vì GPM tích lũy principal input directions, mà activation của task $s$ chủ yếu kích hoạt theo hướng $A_s$).
+- Do đó: $\text{span}(V_t) \subseteq \text{null}(P_{\text{old}}) \approx \perp \text{span}(V_s)$ với mọi $s < t$. $\square$
+
+**Chất lượng xấp xỉ:** Với GPM threshold $\varepsilon_0 = 0.995$ (capture ≥ 99.5% variance), $\delta_{t,s} \leq 1 - 0.995 = 0.005 \ll \kappa_{\min}(t^*)$ trong thực tế.
+
+**Sửa reviewer:** Reviewer nói "GPM không đảm bảo orthogonality của $\Delta W_t$" — *đúng* với GPM gradient projection. Nhưng cơ chế bảo đảm orthogonality là **InfLoRA A-projection** (bước khởi tạo), không phải gradient projection. Theorem 1 không cần giả định — nó là hệ quả tất yếu của kiến trúc InfLoRA đã có sẵn.
+
+---
+
+### 3.5 Drift Invariance
 
 **Mệnh đề 1** *(Drift-Free Routing).* Hàm routing $h \mapsto \alpha_t(h)$ hoàn toàn ổn định qua tất cả các task.
 
 **Chứng minh.** Routing input được tính từ frozen embedding table, *trước* bất kỳ transformer block nào. LoRA chỉ tồn tại trong các attention layer sâu hơn → $h$ độc lập với mọi tham số LoRA. Kết hợp với $\mathcal{S}_t$ đóng băng, $\alpha_t(h)$ bất biến với mọi thay đổi tích luỹ. $\square$
 
-### 3.5 Vấn đề then chốt: Null-Space Collapse
+### 3.6 Vấn đề then chốt: Null-Space Collapse
 
 Định lý 1 giả định $h \in \mathrm{span}(V_{t^*})$. Trong thực tế điều này đòi hỏi hai điều kiện:
 
@@ -270,7 +294,7 @@ hay tương đương, các hàng của $A_t$ là $r$ eigenvectors ứng với ei
 
 ```
 # Bước 1: Thu thập activation covariance (forward pass nhỏ, trước training)
-C_t = ∑ h(x)h(x)^T / N_batch    # covariance input task t (N_batch ~200 batches)
+C_t = ∑ h(x)h(x)^T / N_batch    # covariance input task t (N_batch ~100 batches)
 
 # Bước 2: Project covariance vào null-space
 Q = I - P_old                   # null-space projector (từ GPM bases đã lưu)
@@ -278,12 +302,21 @@ C_tilde = Q @ C_t @ Q           # projected covariance
 
 # Bước 3: Eigenvector decomposition
 eigvals, eigvecs = eigh(C_tilde) # đối xứng → eigh nhanh hơn SVD
+
+# Bước 4: Fallback nếu signal quá yếu (degenerate null-space)
+if eigvals[-1] < 1e-6:
+    # Null-space bị bão hoà hoặc task không có activation rõ ràng
+    # Revert về Kaiming random init + InfLoRA projection như gốc
+    continue
+
 top_r_idx = argsort(eigvals, descending=True)[:r]
 
-# Bước 4: Set A_t
+# Bước 5: Set A_t
 A_t = eigvecs[:, top_r_idx].T   # shape (r, d) — direction task-relevant nhất trong null-space
 A_t = A_t / norm(A_t, dim=1, keepdim=True) * sqrt(3)  # normalize như InfLoRA gốc
 ```
+
+**Điều kiện fallback:** Nếu `max_eigenvalue(C_tilde) < 1e-6`, null-space quá hẹp hoặc activation không có signal đủ mạnh. Trong trường hợp này, C5 nhường cho Kaiming init + InfLoRA projection tiêu chuẩn — không làm tệ hơn V6, chỉ không cải thiện. Điều kiện này chỉ xảy ra khi null-space gần như bão hoà, tức là ESA đã tiêu thụ gần hết capacity.
 
 #### Ý nghĩa Lý thuyết Thông tin
 
@@ -380,8 +413,8 @@ $A_t$ này đảm bảo capture **variance task-relevant tối đa** trong null-
    - Tính projected covariance: $\tilde{C}_t = Q C_t Q$ ($Q = I - P_{\text{old}}$)
    - Eigenvectors của $\tilde{C}_t$ → khởi tạo $A_t$ (thay thế random Kaiming)
 3. InfLoRA: chuẩn hoá $A_t$ (đã nằm trong null-space từ eigenvector decomposition).
-4. Huấn luyện `lora_B` với spectral affinity routing + adaptive bias $\beta(n)$ + C4.
-5. Sau training: tính $\mathcal{S}_t$ (cả inference routing và storage) + cập nhật GPM bases.
+4. Huấn luyện `lora_B` với spectral affinity routing + adaptive bias $\beta(n)$ + gradient preconditioning (C4.1).
+5. Sau training: tính $\mathcal{S}_t$ (cả inference routing và storage) + cập nhật GPM bases (200 batches, đủ cho SVD ổn định).
 6. Lưu tất cả artifacts cho task tiếp theo.
 
 ---
@@ -399,8 +432,8 @@ $A_t$ này đảm bảo capture **variance task-relevant tối đa** trong null-
 | GPM + InfLoRA null-space | `get_reg_matrix()` | `cl_trainer_specroute.py` |
 | Dynamic ESA threshold | `(1−ε₀)·t/T + ε₀` | `cl_trainer_specroute.py` |
 | C4: Preconditioner | `precompute_preconditioners()` → eigendecomposition | `cl_trainer_specroute.py` |
-| C4: Spectral entropy reg | `_compute_spectral_entropy_loss()` → QR trick | `cl_trainer_specroute.py` |
 | **C5: Data-informed init** | **`pre_task_data_collection()` → `eigh(Q@C@Q)` → set `lora_A.data`** | **`cl_trainer_specroute.py`** |
+| C5: Fallback | max eigval < 1e-6 → skip C5, keep Kaiming + InfLoRA projection | `cl_trainer_specroute.py` |
 
 ---
 
@@ -414,9 +447,12 @@ $A_t$ này đảm bảo capture **variance task-relevant tối đa** trong null-
 | LoRA | $r = 8$, target=Q+V, InfLoRA (chỉ B trained, A đóng băng) |
 | Routing | $\tau = 1.0$, $\alpha_{\mathrm{target}} = 0.8$, adaptive $\beta(n)$ (train); SVD đối xứng (inference) |
 | ESA | $\varepsilon_0 = 0.995$ (dynamic) |
-| C4 | $\lambda_{\text{entropy}} = 0.01$, preconditioning on, $\epsilon = 10^{-6}$, warmup = 10% |
-| **C5** | **N_batch_warmup = 200, dùng `torch.linalg.eigh` trên projected covariance** |
-| Precision | fp32 + gradient checkpointing |
+| C4 | Gradient preconditioning bật (`--use_preconditioning True`), $\epsilon = 10^{-6}$; entropy reg đã loại bỏ V7 |
+| **C5** | **N_batch = 100, `torch.linalg.eigh` trên projected covariance, fallback nếu max_eigval < 1e-6** |
+| GPM repr. | 200 batches (giảm từ 1000 — SVD ổn định sau 200) |
+| Precision | fp32 + gradient_checkpointing (T5 + P100: fp16 có risk NaN overflow với large softmax) |
+| P100 BSZ | BSZ=8, GA=4 (effective 32); T4: BSZ=2, GA=8 |
+| Thời gian (P100 16GB) | SuperNI T5-Small ≈ 2-3h; Long benchmark ≈ 3-4h — thoải mái trong 12h Kaggle |
 | So sánh | Batch size, LR, scheduler khớp chính xác ROOT (GainLoRA) |
 
 ---

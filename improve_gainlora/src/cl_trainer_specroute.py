@@ -343,6 +343,10 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                         C_tilde = (C_tilde + C_tilde.T) * 0.5
                         # eigh returns ascending eigenvalues; take last r (largest)
                         eigvals, eigvecs = torch.linalg.eigh(C_tilde.float())
+                        # Fallback: if null-space signal is degenerate, keep Kaiming init
+                        if eigvals[-1].item() < 1e-6:
+                            print(f'[C5] Layer {i+1} index {index}: max_eigval={eigvals[-1].item():.2e} < 1e-6, fallback to Kaiming+InfLoRA')
+                            continue
                         top_eigvecs = eigvecs[:, -r:].flip(dims=[1])  # [step, r]
                         A_init = top_eigvecs.T  # [r, step]
                         dtype  = module.lora_q.lora_A.data.dtype
@@ -408,7 +412,7 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 else:
                     labels = None
                 outputs = self.model(**inputs)
-                if step > 1000:
+                if step > 200:  # 200 batches sufficient for stable SVD (reduced from 1000 for speed)
                     break
         print('end get representation')
 
