@@ -157,6 +157,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
+   --run_single False \
+   --n_batches_c5 100 \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
@@ -212,6 +214,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
+   --run_single False \
+   --n_batches_c5 100 \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
@@ -267,6 +271,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
+   --run_single False \
+   --n_batches_c5 100 \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
@@ -322,6 +328,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
+   --run_single False \
+   --n_batches_c5 100 \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
@@ -377,6 +385,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
+   --run_single False \
+   --n_batches_c5 100 \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
@@ -432,6 +442,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
+   --run_single False \
+   --n_batches_c5 100 \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
@@ -487,6 +499,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
+   --run_single False \
+   --n_batches_c5 100 \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
@@ -542,6 +556,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
+   --run_single False \
+   --n_batches_c5 100 \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
@@ -597,6 +613,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
+   --run_single False \
+   --n_batches_c5 100 \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
@@ -652,6 +670,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
+   --run_single False \
+   --n_batches_c5 100 \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
@@ -707,6 +727,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
+   --run_single False \
+   --n_batches_c5 100 \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
@@ -762,6 +784,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
+   --run_single False \
+   --n_batches_c5 100 \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
@@ -817,6 +841,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
+   --run_single False \
+   --n_batches_c5 100 \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
@@ -872,6 +898,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
+   --run_single False \
+   --n_batches_c5 100 \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
