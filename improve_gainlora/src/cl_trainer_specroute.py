@@ -12,7 +12,6 @@ Key differences from GainLoRA_InfLoRA_Trainer:
 
 import gc
 import torch
-import math as _math
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from transformers import GenerationConfig
@@ -141,30 +140,9 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 self._precond_matrices[id(lora.lora_B)] = inv_sqrt.to(lora.lora_B.data.device)
         print(f"[C4] Precomputed {len(self._precond_matrices)} preconditioner matrices")
 
-    def _compute_spectral_entropy_loss(self):
-        """Compute spectral entropy regularization via efficient QR trick.
-        For each LoRA layer: QR(B) and QR(A^T) -> SVD of r×r matrix -> entropy."""
-        ent_loss = torch.tensor(0.0, device=self.args.device)
-        count = 0
-        for module in self.model.modules():
-            if not (hasattr(module, 'lora_q') and hasattr(module, 'lora_v')):
-                continue
-            for lora in [module.lora_q, module.lora_v]:
-                B = lora.lora_B.float()    # [d_out, r]
-                A = lora.lora_A.float()    # [r, d_in]
-                if B.norm() < 1e-8:
-                    continue
-                _, R_B = torch.linalg.qr(B)         # B: [d_out, r] -> R_B: [r, r]
-                _, R_A = torch.linalg.qr(A.T)       # A.T: [d_in, r] -> R_A: [r, r]
-                sigma_hat = torch.linalg.svdvals(R_B @ R_A.T)  # [r, r] @ [r, r] -> [r, r] -> [r]
-                sigma_hat = sigma_hat / (sigma_hat.sum() + 1e-12)
-                ent = -(sigma_hat * torch.log(sigma_hat + 1e-12)).sum()
-                max_ent = _math.log(sigma_hat.size(0))
-                ent_loss = ent_loss + (max_ent - ent)
-                count += 1
-        if count > 0:
-            ent_loss = ent_loss / count
-        return ent_loss
+    # NOTE: _compute_spectral_entropy_loss() removed in V7.
+    # Entropy regularization conflicts with C5 data-informed init philosophy.
+    # lambda_entropy is hardcoded to 0.0 and this method was dead code.
 
     def _apply_preconditioning(self):
         """Apply (AA^T + eps*I)^{-1/2} preconditioner to lora_B gradients after backward."""
@@ -412,7 +390,7 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 else:
                     labels = None
                 outputs = self.model(**inputs)
-                if step > 200:  # 200 batches sufficient for stable SVD (reduced from 1000 for speed)
+                if step > 100:  # 100 batches sufficient for stable SVD
                     break
         print('end get representation')
 
