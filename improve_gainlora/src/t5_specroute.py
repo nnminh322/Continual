@@ -1,14 +1,17 @@
 # coding=utf-8
 """
-SpecRoute: T5 model with Spectral-Geometric Routing for Continual LoRA Learning.
+SpecRoute V8: T5 model with Spectral-Geometric Routing for Continual LoRA Learning.
 
-Replaces GainLoRA's learned gating (Trans_input + prompt_key) with spectral
-projection-based routing using SVD signatures from frozen LoRA weights.
+Core insight (Routing-Protection Duality): orthogonal subspace protection (GPM)
+and task-discriminative routing are dual manifestations of the same spectral structure.
+Solving one automatically solves the other.
 
-Key changes from t5_gainlora_inflora.py:
-- Removed: Trans_input, prompt_key, previous_trans_input, previous_prompts_keys
-- Added: Spectral signatures + projection-based routing (softmax over weighted projection fits)
-- Removed: memory_replay (no KL loss on gating since routing is parameter-based)
+V8 key design choices (from IDEA_Overall.md):
+- C1: A_t rows ARE the spectral signatures — no SVD of B_t A_t needed
+- C2: A-row affinity for BOTH training and inference (symmetric metric space)
+- C5: Data-informed init via Constrained PCA in null-space (Q C_t Q eigenvectors)
+- Removed: Trans_input, prompt_key, memory_replay, prepare_inference_routing()
+- Removed: SVD sigma^2-weighted inference (train-inference mismatch source)
 """
 
 import copy
@@ -61,56 +64,22 @@ logger = logging.get_logger(__name__)
 
 # ===================== Spectral Routing Functions =====================
 
-def _thin_svd_low_rank(B, A, device=None):
-    """
-    Compute SVD of delta_W = B @ A efficiently using QR decomposition.
-
-    Since delta_W = B(m×r) @ A(r×n) has rank ≤ r (typically 8), full SVD
-    of the m×n matrix is wasteful. Instead, we decompose via two small QR
-    factorizations and one tiny r×r SVD:
-      1. QR(B) → Q_B(m×r), R_B(r×r)
-      2. QR(A^T) → Q_A(n×r), R_A(r×r)
-      3. delta_W = Q_B @ (R_B @ R_A^T) @ Q_A^T
-      4. SVD(R_B @ R_A^T) → U_s, S, Vh_s   (all r×r)
-      5. Vt = Vh_s @ Q_A^T   (r×n)
-
-    Mathematically identical to full SVD, ~2000× faster for r=8, m=n=512.
-
-    Args:
-        B: (m, r) float tensor — lora_B weights
-        A: (r, n) float tensor — lora_A weights
-        device: target device for output (None = same as input)
-
-    Returns:
-        S:  (r,)    singular values (descending)
-        Vt: (r, n)  right singular vectors transposed
-    """
-    try:
-        Q_B, R_B = torch.linalg.qr(B)       # Q_B: (m, r), R_B: (r, r)
-        Q_A, R_A = torch.linalg.qr(A.T)     # Q_A: (n, r), R_A: (r, r)
-        small = R_B @ R_A.T                  # (r, r) — tiny matrix
-        _, S, Vh_s = torch.linalg.svd(small, full_matrices=False)
-        Vt = Vh_s @ Q_A.T                   # (r, n)
-    except RuntimeError:
-        # GPU linalg failure → CPU fallback
-        B_cpu, A_cpu = B.cpu(), A.cpu()
-        Q_B, R_B = torch.linalg.qr(B_cpu)
-        Q_A, R_A = torch.linalg.qr(A_cpu.T)
-        small = R_B @ R_A.T
-        _, S, Vh_s = torch.linalg.svd(small, full_matrices=False)
-        Vt = Vh_s @ Q_A.T
-        target = device if device is not None else B.device
-        S, Vt = S.to(target), Vt.to(target)
-    return S, Vt
+# NOTE: _thin_svd_low_rank() was REMOVED in V8.
+# Theorem 2 (C5 Routing Optimality) proves A_t rows with C5 init are already
+# the optimal routing directions. SVD of B_t A_t only adds sigma^2-weighting
+# from B optimization artifacts with no theoretical guarantee. See IDEA §3.6.
 
 
 def compute_spectral_signatures(model, config):
     """
-    Compute spectral signatures from all LoRA branches after training.
-    For each LoRA layer, computes exact SVD of B@A and stores top-r right
-    singular vectors (input directions) and singular values (importance).
+    V8: Store frozen A-row matrices as routing signatures (no SVD needed).
 
-    Returns dict mapping layer keys to {'V': tensor, 'sigma': tensor}.
+    Theorem 2 (C5 Routing Optimality) proves that A_t rows with C5 init are
+    already the optimal routing directions in the null-space. SVD of B_t A_t
+    only adds sigma^2-weighting from B optimization artifacts (no theoretical
+    guarantee). A-row routing is exact, symmetric, and eliminates prepare_inference_routing().
+
+    Returns dict mapping layer keys to {'A': tensor (r, d_model)}.
     """
     signatures = {}
     with torch.no_grad():
@@ -119,36 +88,20 @@ def compute_spectral_signatures(model, config):
             attn = model.encoder.block[j].layer[0].SelfAttention
             for name, lora in [('q', attn.lora_q), ('v', attn.lora_v)]:
                 A = lora.lora_A.data.float()
-                B = lora.lora_B.data.float()
-                r = lora.r
-                S, Vt = _thin_svd_low_rank(B, A)
                 signatures[f'enc.{j}.{name}'] = {
-                    'V': Vt[:r].cpu(),    # (r, d_model)
-                    'sigma': S[:r].cpu()  # (r,)
+                    'A': A.cpu(),  # (r, d_model) — frozen routing directions
                 }
         # Decoder self-attention layers
         for j in range(config.num_decoder_layers):
             attn = model.decoder.block[j].layer[0].SelfAttention
             for name, lora in [('q', attn.lora_q), ('v', attn.lora_v)]:
                 A = lora.lora_A.data.float()
-                B = lora.lora_B.data.float()
-                r = lora.r
-                S, Vt = _thin_svd_low_rank(B, A)
-                signatures[f'dec.{j}.self.{name}'] = {
-                    'V': Vt[:r].cpu(),
-                    'sigma': S[:r].cpu()
-                }
+                signatures[f'dec.{j}.self.{name}'] = {'A': A.cpu()}
             # Decoder cross-attention layers
             attn_cross = model.decoder.block[j].layer[1].EncDecAttention
             for name, lora in [('q', attn_cross.lora_q), ('v', attn_cross.lora_v)]:
                 A = lora.lora_A.data.float()
-                B = lora.lora_B.data.float()
-                r = lora.r
-                S, Vt = _thin_svd_low_rank(B, A)
-                signatures[f'dec.{j}.cross.{name}'] = {
-                    'V': Vt[:r].cpu(),
-                    'sigma': S[:r].cpu()
-                }
+                signatures[f'dec.{j}.cross.{name}'] = {'A': A.cpu()}
     return signatures
 
 
@@ -159,8 +112,8 @@ class T5Stack(T5PreTrainedModel):
     T5Stack with spectral routing instead of learned gating.
 
     Instead of Trans_input + prompt_key (GainLoRA), routing weights are computed
-    from projection fits between input embeddings and spectral signatures
-    (SVD of frozen LoRA weights from previous tasks).
+    from A-row affinity between input embeddings and spectral signatures
+    (A-row matrices of frozen LoRA A from previous tasks — V8, no SVD needed).
     """
 
     def __init__(self, config, embed_tokens=None, prompt_config=None):
@@ -184,15 +137,11 @@ class T5Stack(T5PreTrainedModel):
             self.spectral_signatures = []  # List[dict] — one dict per old task
             self.routing_temperature = prompt_config.get('attn_temperature', 1.0)
 
-            # Adaptive training bias: β = T·ln(α·n_old/(1−α))
-            # Ensures current task gets consistent routing weight ~α regardless
+            # Adaptive training bias: beta = T * ln(alpha * n_old / (1 - alpha))
+            # Ensures current task gets consistent routing weight ~alpha regardless
             # of total number of tasks (fixes softmax dilution with constant bias).
-            # At inference, uses symmetric SVD-based routing instead (no bias needed).
+            # At inference, same A-row formula without bias (V8 symmetric routing).
             self._target_routing_alpha = prompt_config.get('target_routing_alpha', 0.8)
-
-            # Precomputed SVD of current task's LoRA for symmetric inference routing.
-            # Populated by prepare_inference_routing() before prediction.
-            self._current_task_svd = None
 
             # For inference logging
             self.all_attn_weights = []
@@ -214,15 +163,22 @@ class T5Stack(T5PreTrainedModel):
 
     def compute_spectral_routing(self, avg_inputs_embeds):
         """
-        Compute routing weights using spectral projection fits.
+        V8: A-row routing for ALL tasks (training and inference).
 
-        Training mode: A-row fit + adaptive bias for current task (cold-start safe).
-        Inference mode: SVD-based fit for ALL tasks (symmetric, no bias needed).
+        Theory (IDEA_Overall.md §3):
+        - Lemma 1 (Differential Projection): ||A_t h||^2 = ||A_t Q_{t-1} h||^2
+          → routing only sees null-space component, cross-task leakage <= 0.005*tr(C_s)/r
+        - Corollary B (Reverse direction): alpha_s(h_t) = ||A_s P_{t-1} h_t||^2/(r||h_t||^2)
+          → small when task t has most variance in null-space (different domain)
+          → same-domain difficulty is a fundamental limit of ALL task-free CL methods
+        - Theorem 2 (C5 Routing Optimality): C5 init maximizes E[alpha_t(h)]
+          over all A_t in the restricted Stiefel manifold
+        - C5 advantage over random: d'/r * PEV_r(C_tilde) ≈ 44x at task 8 (T5-small)
 
-        The adaptive bias β = T·ln(α·n_old/(1−α)) ensures the current task gets
-        routing weight ≈ α regardless of the number of previous tasks, compensating
-        for softmax dilution. At inference, all tasks use the same σ²-weighted
-        Rayleigh quotient (SVD fit), eliminating the train-test asymmetry.
+        Training: A-row fit + adaptive bias β(n) for current task.
+          β(n) is a cold-start mechanism (B_t=0 initially, gradient needs routing).
+          NOT a routing quality booster. Symmetry = same metric formula, not same distribution.
+        Inference: A-row fit for ALL tasks. No prepare_inference_routing().
 
         Args:
             avg_inputs_embeds: (B, 1, d_model) — averaged input token embeddings
@@ -235,75 +191,41 @@ class T5Stack(T5PreTrainedModel):
 
         fits = []
 
-        if self.training:
-            # === TRAINING MODE: A-row fit + adaptive bias for current task ===
-            # A rows give stable non-zero signal even when B=0 (cold-start).
-            current_fits_layers = []
-            for block in self.block:
-                attn = block.layer[0].SelfAttention
-                for lora in [attn.lora_q, attn.lora_v]:
-                    A = lora.lora_A.data.float()  # (r, d_model) — frozen
-                    r = lora.r
-                    A_h = A.to(h.device, dtype=h.dtype)
-                    proj = torch.matmul(h, A_h.T)  # (B, 1, r)
-                    fit = (proj ** 2).sum(dim=-1) / (r * h_norm_sq)  # (B, 1)
-                    current_fits_layers.append(fit)
-            current_fit = torch.stack(current_fits_layers).mean(dim=0)  # (B, 1)
+        # === CURRENT TASK: A-row fit (+ adaptive bias during training) ===
+        current_fits_layers = []
+        for block in self.block:
+            attn = block.layer[0].SelfAttention
+            for lora in [attn.lora_q, attn.lora_v]:
+                A = lora.lora_A.data.float()  # (r, d_model) — frozen after C5 init
+                r = lora.r
+                A_h = A.to(h.device, dtype=h.dtype)
+                proj = torch.matmul(h, A_h.T)  # (B, 1, r)
+                fit = (proj ** 2).sum(dim=-1) / (r * h_norm_sq)  # (B, 1)
+                current_fits_layers.append(fit)
+        current_fit = torch.stack(current_fits_layers).mean(dim=0)  # (B, 1)
 
-            # Adaptive training bias: β = T·ln(α·n_old/(1−α))
+        if self.training:
+            # Adaptive training bias: beta = T * ln(alpha * n_old / (1 - alpha))
+            # Compensates for softmax dilution as task count grows.
             n_old = len(self.spectral_signatures)
             if n_old > 0:
                 alpha = self._target_routing_alpha
                 beta = self.routing_temperature * math.log(alpha * n_old / (1.0 - alpha))
                 current_fit = current_fit + beta
-            fits.append(current_fit)
-        else:
-            # === INFERENCE MODE: SVD-based spectral routing (symmetric) ===
-            if self._current_task_svd is not None:
-                cur_fits = []
-                for key, sig_data in self._current_task_svd.items():
-                    if not key.startswith('enc.'):
-                        continue
-                    V = sig_data['V'].to(h.device, dtype=h.dtype)
-                    sigma = sig_data['sigma'].to(h.device, dtype=h.dtype)
-                    proj = torch.matmul(h, V.T)
-                    sigma_sq = sigma ** 2
-                    sigma_sq_sum = sigma_sq.sum() + 1e-8
-                    weighted_proj = (proj ** 2 * sigma_sq.unsqueeze(0).unsqueeze(0)).sum(dim=-1)
-                    fit = weighted_proj / (sigma_sq_sum * h_norm_sq)
-                    cur_fits.append(fit)
-                if cur_fits:
-                    current_fit = torch.stack(cur_fits).mean(dim=0)
-                else:
-                    current_fit = torch.zeros(h.shape[0], 1, device=h.device, dtype=h.dtype)
-            else:
-                # Fallback: A-row fit (before prepare_inference_routing() is called)
-                current_fits_layers = []
-                for block in self.block:
-                    attn = block.layer[0].SelfAttention
-                    for lora in [attn.lora_q, attn.lora_v]:
-                        A = lora.lora_A.data.float()
-                        r = lora.r
-                        A_h = A.to(h.device, dtype=h.dtype)
-                        proj = torch.matmul(h, A_h.T)
-                        fit = (proj ** 2).sum(dim=-1) / (r * h_norm_sq)
-                        current_fits_layers.append(fit)
-                current_fit = torch.stack(current_fits_layers).mean(dim=0)
-            fits.append(current_fit)
+        fits.append(current_fit)
 
-        # Old tasks: σ²-weighted spectral affinity (Rayleigh quotient)
+        # === OLD TASKS: A-row fit using saved A matrices ===
+        # Lemma 1 (Differential Projection): ||A_t h||^2 = ||A_t Q_{t-1} h||^2
+        # Cross-task leakage <= 0.005 * tr(C_s)/r with tau_GPM = 0.995
         for sig_dict in self.spectral_signatures:
             task_fits = []
             for key, sig_data in sig_dict.items():
                 if not key.startswith('enc.'):
                     continue
-                V = sig_data['V'].to(h.device, dtype=h.dtype)
-                sigma = sig_data['sigma'].to(h.device, dtype=h.dtype)
-                proj = torch.matmul(h, V.T)
-                sigma_sq = sigma ** 2
-                sigma_sq_sum = sigma_sq.sum() + 1e-8
-                weighted_proj = (proj ** 2 * sigma_sq.unsqueeze(0).unsqueeze(0)).sum(dim=-1)
-                fit = weighted_proj / (sigma_sq_sum * h_norm_sq)
+                A = sig_data['A'].to(h.device, dtype=h.dtype)  # (r, d_model)
+                r = A.shape[0]
+                proj = torch.matmul(h, A.T)  # (B, 1, r)
+                fit = (proj ** 2).sum(dim=-1) / (r * h_norm_sq)
                 task_fits.append(fit)
             if task_fits:
                 task_fit = torch.stack(task_fits).mean(dim=0)
@@ -311,38 +233,17 @@ class T5Stack(T5PreTrainedModel):
                 task_fit = torch.zeros(h.shape[0], 1, device=h.device, dtype=h.dtype)
             fits.append(task_fit)
 
-        # Stack: (B, n_tasks)
+        # Stack: (B, n_tasks) — all tasks use same A-row metric space
         fit_scores = torch.cat(fits, dim=1)  # (B, n_tasks)
-
-        # Softmax routing with temperature
         weights = torch.softmax(fit_scores / self.routing_temperature, dim=1)  # (B, n_tasks)
 
         return weights.unsqueeze(2)  # (B, n_tasks, 1)
 
-    def prepare_inference_routing(self):
-        """
-        Precompute SVD of current task's LoRA for symmetric inference routing.
-
-        Must be called after training (B≠0) and before prediction. Computes
-        spectral signatures from the current (most recently trained) task's
-        LoRA weights, enabling the same σ²-weighted Rayleigh quotient formula
-        for all tasks during inference.
-        """
-        sigs = {}
-        with torch.no_grad():
-            for j, block in enumerate(self.block):
-                attn = block.layer[0].SelfAttention
-                for name, lora in [('q', attn.lora_q), ('v', attn.lora_v)]:
-                    A = lora.lora_A.data.float()
-                    B = lora.lora_B.data.float()
-                    r = lora.r
-                    S, Vt = _thin_svd_low_rank(B, A)
-                    sigs[f'enc.{j}.{name}'] = {
-                        'V': Vt[:r].cpu(),
-                        'sigma': S[:r].cpu()
-                    }
-        self._current_task_svd = sigs
-        print(f"[SpecRoute] Prepared inference routing: {len(sigs)} encoder SVD signatures for current task")
+    # prepare_inference_routing() REMOVED in V8.
+    # Reasoning: Lemma 1 + Theorem 2 prove A_t rows (with C5 init) are already the
+    # optimal routing directions. SVD of B_t A_t only adds sigma^2-weighting from
+    # B optimization artifacts, causing train-inference mismatch. A_t is the signature.
+    # Eliminates O(d*r^2) SVD overhead per task per layer after training.
 
     def parallelize(self, device_map=None):
         self.device_map = (

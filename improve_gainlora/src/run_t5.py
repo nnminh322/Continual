@@ -191,7 +191,7 @@ class ModelArguments:
         metadata={"help": "Fraction of training steps before enabling entropy loss (C4, disabled in V7)."},
     )
     n_batches_c5: Optional[int] = field(
-        default=200,
+        default=100,
         metadata={"help": "Number of training batches for C5 activation covariance collection."},
     )
 
@@ -1070,9 +1070,8 @@ def main():
 
         trainer.model.encoder.is_inference = True
 
-        # SpecRoute V3: precompute SVD of current task's LoRA for symmetric inference routing
-        if training_args.model_name == 'specroute' and hasattr(trainer.model.encoder, 'prepare_inference_routing'):
-            trainer.model.encoder.prepare_inference_routing()
+        # V8: prepare_inference_routing() removed — A_t rows are the routing signatures.
+        # No SVD post-training needed (Lemma 1 + Theorem 2 in IDEA_Overall.md).
 
         # Collect attention weights for GainLoRA KL replay (not needed for SpecRoute)
         if training_args.model_name != 'specroute':

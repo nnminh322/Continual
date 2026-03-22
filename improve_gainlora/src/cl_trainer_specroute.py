@@ -11,6 +11,7 @@ Key differences from GainLoRA_InfLoRA_Trainer:
 """
 
 import gc
+import math
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
@@ -89,7 +90,7 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                  compute_metrics=None, callbacks=None,
                  lambda_entropy=0.0, use_preconditioning=False,
                  precond_eps=1e-6, entropy_warmup_ratio=0.1,
-                 n_batches_c5=200):
+                 n_batches_c5=100):
         super().__init__(
             model=model, args=args, train_dataset=train_dataset,
             eval_dataset=eval_dataset, tokenizer=tokenizer,
@@ -350,8 +351,11 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                             feature_mat[index]
                         )
                     )
-                module.lora_q.lora_A.data /= (math.sqrt(3) * module.lora_q.lora_A.data.norm(dim=1, keepdim=True))
-                module.lora_v.lora_A.data /= (math.sqrt(3) * module.lora_v.lora_A.data.norm(dim=1, keepdim=True))
+                # V8 C5 normalization: scale rows to have norm = sqrt(3) (matching InfLoRA convention)
+                # Eigenvectors from C5 are already orthonormal unit vectors in null-space.
+                # We scale magnitude to sqrt(3) to match InfLoRA's Kaiming-like initialization scale.
+                module.lora_q.lora_A.data *= (math.sqrt(3) / module.lora_q.lora_A.data.norm(dim=1, keepdim=True).clamp(min=1e-8))
+                module.lora_v.lora_A.data *= (math.sqrt(3) / module.lora_v.lora_A.data.norm(dim=1, keepdim=True).clamp(min=1e-8))
                 i += 1
 
         # Free GPM bases — no longer needed after projection
@@ -390,7 +394,7 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 else:
                     labels = None
                 outputs = self.model(**inputs)
-                if step > 100:  # 100 batches sufficient for stable SVD
+                if step >= 200:  # 200 batches for stable GPM SVD (IDEA §9)
                     break
         print('end get representation')
 
