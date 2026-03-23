@@ -372,7 +372,7 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         metadata={"help": "models' name"}
     )
     threshold: Optional[float] = field(
-        default=0.99,
+        default=0.97,
         metadata={"help": "learning rate of the attention module"}
     )
     transthreshold: Optional[float] = field(

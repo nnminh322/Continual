@@ -82,6 +82,12 @@ def compute_spectral_signatures(model, config):
     Returns dict mapping layer keys to {'A': tensor (r, d_model)}.
     """
     signatures = {}
+    
+    # V9 FIX 3: Retrieve the calibration scale E[fit] collected during training
+    E_fit = getattr(model.encoder, 'current_fit_ema', 1.0)
+    if E_fit < 1e-6:
+        E_fit = 1.0
+        
     with torch.no_grad():
         # Encoder layers
         for j in range(config.num_layers):
@@ -90,18 +96,25 @@ def compute_spectral_signatures(model, config):
                 A = lora.lora_A.data.float()
                 signatures[f'enc.{j}.{name}'] = {
                     'A': A.cpu(),  # (r, d_model) — frozen routing directions
+                    'E_fit': E_fit,
                 }
         # Decoder self-attention layers
         for j in range(config.num_decoder_layers):
             attn = model.decoder.block[j].layer[0].SelfAttention
             for name, lora in [('q', attn.lora_q), ('v', attn.lora_v)]:
                 A = lora.lora_A.data.float()
-                signatures[f'dec.{j}.self.{name}'] = {'A': A.cpu()}
+                signatures[f'dec.{j}.self.{name}'] = {
+                    'A': A.cpu(),
+                    'E_fit': E_fit,
+                }
             # Decoder cross-attention layers
             attn_cross = model.decoder.block[j].layer[1].EncDecAttention
             for name, lora in [('q', attn_cross.lora_q), ('v', attn_cross.lora_v)]:
                 A = lora.lora_A.data.float()
-                signatures[f'dec.{j}.cross.{name}'] = {'A': A.cpu()}
+                signatures[f'dec.{j}.cross.{name}'] = {
+                    'A': A.cpu(),
+                    'E_fit': E_fit,
+                }
     return signatures
 
 
@@ -204,15 +217,21 @@ class T5Stack(T5PreTrainedModel):
                 current_fits_layers.append(fit)
         current_fit = torch.stack(current_fits_layers).mean(dim=0)  # (B, 1)
 
+        # V9 FIX 3: Calibration Normalization
+        # Gather EMA during training to normalize the score
         if self.training:
-            # Adaptive training bias: beta = T * ln(alpha * n_old / (1 - alpha))
-            # Compensates for softmax dilution as task count grows.
-            n_old = len(self.spectral_signatures)
-            if n_old > 0:
-                alpha = self._target_routing_alpha
-                beta = self.routing_temperature * math.log(alpha * n_old / (1.0 - alpha))
-                current_fit = current_fit + beta
-        fits.append(current_fit)
+            batch_mean = current_fit.mean().item()
+            if not hasattr(self, 'current_fit_ema'):
+                self.current_fit_ema = batch_mean
+            else:
+                self.current_fit_ema = 0.99 * self.current_fit_ema + 0.01 * batch_mean
+
+        E_fit_current = getattr(self, 'current_fit_ema', 1.0)
+        if E_fit_current < 1e-6:
+            E_fit_current = 1.0
+            
+        calibrated_current_fit = current_fit / E_fit_current
+        fits.append(calibrated_current_fit)
 
         # === OLD TASKS: A-row fit using saved A matrices ===
         # Lemma 1 (Differential Projection): ||A_t h||^2 = ||A_t Q_{t-1} h||^2
@@ -227,15 +246,27 @@ class T5Stack(T5PreTrainedModel):
                 proj = torch.matmul(h, A.T)  # (B, 1, r)
                 fit = (proj ** 2).sum(dim=-1) / (r * h_norm_sq)
                 task_fits.append(fit)
+            
             if task_fits:
                 task_fit = torch.stack(task_fits).mean(dim=0)
+                # V9 FIX 3: Apply Calibrated Normalization scale for the old task
+                # Extract E_fit from the first available sig_data (it's the same for all layers)
+                E_fit_old = list(sig_dict.values())[0].get('E_fit', 1.0)
+                if E_fit_old < 1e-6:
+                    E_fit_old = 1.0
+                task_fit = task_fit / E_fit_old
             else:
                 task_fit = torch.zeros(h.shape[0], 1, device=h.device, dtype=h.dtype)
+            
             fits.append(task_fit)
 
-        # Stack: (B, n_tasks) — all tasks use same A-row metric space
+        # Stack: (B, n_tasks) — all tasks use calibrated metric space
         fit_scores = torch.cat(fits, dim=1)  # (B, n_tasks)
-        weights = torch.softmax(fit_scores / self.routing_temperature, dim=1)  # (B, n_tasks)
+        
+        # V9 FIX 2: Sparse Hard Top-1 Routing for BOTH training and inference
+        # Since A matrices are frozen, argmax routing doesn't block crucial gradient flow
+        max_idx = fit_scores.argmax(dim=1, keepdim=True)
+        weights = torch.zeros_like(fit_scores).scatter_(1, max_idx, 1.0)  # (B, n_tasks)
 
         return weights.unsqueeze(2)  # (B, n_tasks, 1)
 

@@ -41,8 +41,6 @@ from cl_dataset import ANSWER_PREFIX
 import cupy as cp
 from torch.utils.dlpack import to_dlpack, from_dlpack
 from cupy import fromDlpack
-
-
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
     predictions_ids = np.where(predictions_ids == ignore_idx, tokenizer.pad_token_id, predictions_ids)
     predictions = tokenizer.batch_decode(
@@ -309,8 +307,7 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
 
                 # C5: Data-Informed Subspace Initialization
                 # Replace random A_t with optimal subspace from Constrained PCA.
-                # Eigenvectors of Q@C_t@Q are in null(P_old) by construction,
-                # so the InfLoRA projection below becomes a numerical near-no-op.
+                # Eigenvectors of Q@C_t@Q are in null(P_old) by construction.
                 if self._task_covariance and i < len(self._task_covariance):
                     r = module.lora_q.lora_A.data.shape[0]  # LoRA rank
                     for index in self.feature_list[i].keys():
