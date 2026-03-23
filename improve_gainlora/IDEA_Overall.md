@@ -566,6 +566,8 @@ $A_t$ này đảm bảo capture **variance task-relevant tối đa** trong null-
 | C4: Preconditioner | `precompute_preconditioners()` → eigendecomposition | `cl_trainer_specroute.py` |
 | **C5: Data-informed init** | **`pre_task_data_collection()` → `eigh(Q@C@Q)` → set `lora_A.data`** | **`cl_trainer_specroute.py`** |
 | C5: Fallback | max eigval < 1e-6 → skip C5, keep Kaiming + InfLoRA projection | `cl_trainer_specroute.py` |
+| **V10a: Learned Routing** | **`Trans_input` + `prompt_key` gating with exact post-step GPM constraints** | **`t5_specroute.py` & `cl_trainer_specroute.py`** |
+| **V10b: Grassmann Routing** | **Geometry-based routing via Grassmannian distance on batch principal subspaces** | **`t5_specroute.py`** |
 
 ---
 

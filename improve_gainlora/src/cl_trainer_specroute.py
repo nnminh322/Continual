@@ -81,6 +81,51 @@ class PeriodicGCCallback(TrainerCallback):
         return control
 
 
+class TransInputGPMCallback(TrainerCallback):
+    """V10a: Apply GPM projection to trans_input and prompt_key after optimizer step."""
+    def __init__(self, trainer):
+        self.trainer = trainer
+
+    def on_step_begin(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+        if getattr(self.trainer, "cur_task_id", 0) > 1 and getattr(self.trainer.model.encoder, "routing_mode", "") == "learned":
+            from copy import deepcopy
+            self.trainer._old_trans_input_0 = deepcopy(self.trainer.model.encoder.trans_input[0].weight.detach())
+            self.trainer._old_trans_input_1 = deepcopy(self.trainer.model.encoder.trans_input[2].weight.detach())
+            self.trainer._old_prompt_key = deepcopy(self.trainer.model.encoder.prompt_key.detach())
+
+    def on_step_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+        if getattr(self.trainer, "cur_task_id", 0) > 1 and getattr(self.trainer.model.encoder, "routing_mode", "") == "learned":
+            if not hasattr(self.trainer, "feature_trans_mat") or not self.trainer.feature_trans_mat:
+                return
+            
+            from copy import deepcopy
+            new_trans_input_0 = deepcopy(self.trainer.model.encoder.trans_input[0].weight.detach())
+            new_trans_input_1 = deepcopy(self.trainer.model.encoder.trans_input[2].weight.detach())
+            new_trans_input_0norm = new_trans_input_0.norm(dim=1, keepdim=True)
+            new_trans_input_1norm = new_trans_input_1.norm(dim=1, keepdim=True)
+
+            new_prompt_key = deepcopy(self.trainer.model.encoder.prompt_key.detach())
+            new_prompt_key_norm = new_prompt_key.norm(dim=1, keepdim=True)
+            
+            old_trans_input_0 = self.trainer._old_trans_input_0
+            old_trans_input_1 = self.trainer._old_trans_input_1
+            old_prompt_key = self.trainer._old_prompt_key
+            
+            for index in self.trainer.feature_trans_mat[0].keys():
+                new_trans_input_0[:,index*self.trainer.model.encoder.step:(index+1)*self.trainer.model.encoder.step] = self.trainer.model.encoder.trans_input[0].weight.detach()[:,index*self.trainer.model.encoder.step:(index+1)*self.trainer.model.encoder.step] - torch.mm(self.trainer.model.encoder.trans_input[0].weight.detach()[:,index*self.trainer.model.encoder.step:(index+1)*self.trainer.model.encoder.step]-old_trans_input_0[:,index*self.trainer.model.encoder.step:(index+1)*self.trainer.model.encoder.step], self.trainer.feature_trans_mat[0][index])
+                new_prompt_key[:,index*self.trainer.model.encoder.step:(index+1)*self.trainer.model.encoder.step] = self.trainer.model.encoder.prompt_key.detach()[:,index*self.trainer.model.encoder.step:(index+1)*self.trainer.model.encoder.step] - torch.mm(self.trainer.model.encoder.prompt_key.detach()[:,index*self.trainer.model.encoder.step:(index+1)*self.trainer.model.encoder.step]-old_prompt_key[:,index*self.trainer.model.encoder.step:(index+1)*self.trainer.model.encoder.step], self.trainer.feature_trans_mat[2][index])
+            new_trans_input_1 = self.trainer.model.encoder.trans_input[2].weight.detach() - torch.mm(self.trainer.model.encoder.trans_input[2].weight.detach()-old_trans_input_1, self.trainer.feature_trans_mat[1])
+
+            new_trans_input_0 = new_trans_input_0*new_trans_input_0norm / new_trans_input_0.norm(dim=1, keepdim=True).clamp(min=1e-12)
+            new_trans_input_1 = new_trans_input_1*new_trans_input_1norm / new_trans_input_1.norm(dim=1, keepdim=True).clamp(min=1e-12)
+            new_prompt_key = new_prompt_key*new_prompt_key_norm / new_prompt_key.norm(dim=1, keepdim=True).clamp(min=1e-12)
+
+            self.trainer.model.encoder.trans_input[0].weight.data.copy_(new_trans_input_0)
+            self.trainer.model.encoder.trans_input[2].weight.data.copy_(new_trans_input_1)
+            self.trainer.model.encoder.prompt_key.data.copy_(new_prompt_key)
+        return control
+
+
 class SpecRoute_Trainer(Seq2SeqTrainer):
 
     def __init__(self, model, args, train_dataset, cur_task_id, task_order,
@@ -89,6 +134,9 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                  lambda_entropy=0.0, use_preconditioning=False,
                  precond_eps=1e-6, entropy_warmup_ratio=0.1,
                  n_batches_c5=100):
+        if callbacks is None:
+            callbacks = []
+        callbacks.append(TransInputGPMCallback(self))
         super().__init__(
             model=model, args=args, train_dataset=train_dataset,
             eval_dataset=eval_dataset, tokenizer=tokenizer,
@@ -259,13 +307,14 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
         print(f'[C5] Covariance collected for {len(self._task_covariance)} layers.')
 
     def load_previous_reg_matrix(self):
-        """Load LoRA GPM bases from previous task. No trans_input GPM needed."""
+        """Load LoRA GPM bases from previous task. Also load trans_input GPM if learned routing."""
         log_path = os.path.dirname(self.args.output_dir)
         local_dir = os.path.basename(self.args.output_dir)
         print(log_path)
 
         all_dirs = os.listdir(log_path)
         reg_matrix = []
+        reg_trans_matrix = []
         for all_dir in all_dirs:
             if not os.path.isdir(os.path.join(log_path, all_dir)):
                 continue
@@ -277,21 +326,37 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                             os.path.join(os.path.join(log_path, all_dir), "reg_{}.pt".format(i))
                         ))
                         i += 1
+                if getattr(self.model.encoder, "routing_mode", "") == "learned":
+                    reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_0.pt"), weights_only=True))
+                    reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_1.pt"), weights_only=True))
+                    reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_2.pt"), weights_only=True))
+
                 print(os.path.join(log_path, all_dir))
                 print(len(reg_matrix))
                 break
-        return reg_matrix, eval(local_dir.split('-')[0]) - 1
+        return reg_matrix, reg_trans_matrix, eval(local_dir.split('-')[0]) - 1
 
     def get_reg_matrix(self):
         """
         Project current LoRA A into null-space of old tasks' GPM bases.
         No prompt_key/trans_input operations.
         """
-        self.feature_list, self._cur_task = self.load_previous_reg_matrix()
+        self.feature_list, self.feature_trans_list, self._cur_task = self.load_previous_reg_matrix()
 
         if len(self.feature_list) == 0:
             # First task: no constraints
             return
+
+        if getattr(self.model.encoder, "routing_mode", "") == "learned":
+            self.feature_trans_mat = []
+            for i in range(len(self.feature_trans_list)):
+                if i == 1:
+                    self.feature_trans_mat.append(torch.mm(self.feature_trans_list[i], self.feature_trans_list[i].T).to("cuda:0"))
+                else:
+                    feature_trans_mat = {}
+                    for index in self.feature_trans_list[i].keys():
+                        feature_trans_mat[index] = torch.mm(self.feature_trans_list[i][index], self.feature_trans_list[i][index].T).to("cuda:0")
+                    self.feature_trans_mat.append(feature_trans_mat)
 
         # Compute projection matrices for LoRA GPM
         self.feature_mat, i = [], 0
@@ -366,10 +431,9 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
     def get_repsentation(self):
         """
         Collect LoRA input covariance and compute GPM bases via SVD.
-        ESA: Use constant threshold (no increasing schedule).
-        No trans_input features collected.
+        For V10a (learned routing), also collect trans_input covariance.
         """
-        self.feature_list, self._cur_task = self.load_previous_reg_matrix()
+        self.feature_list, self.feature_trans_list, self._cur_task = self.load_previous_reg_matrix()
 
         train_dataloader = self.get_train_dataloader()
         if isinstance(train_dataloader, DataLoader) and isinstance(train_dataloader.sampler, DistributedSampler):
@@ -381,6 +445,11 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
             if hasattr(module, 'get_feature'):
                 module.get_feature = True
                 module.stage = 0
+
+        # V10a: enable trans_input covariance collection
+        if getattr(self.model.encoder, "routing_mode", "") == "learned":
+            self.model.encoder.get_chunk(self.args.chunk)
+            self.model.encoder.get_trans_feature = True
 
         print('begin get representation')
         with torch.no_grad():
@@ -394,6 +463,10 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 if step >= 200:  # 200 batches for stable GPM SVD (IDEA §9)
                     break
         print('end get representation')
+
+        # V10a: disable trans_input collection after forward pass
+        if getattr(self.model.encoder, "routing_mode", "") == "learned":
+            self.model.encoder.get_trans_feature = False
 
         # Collect LoRA covariance matrices
         mat_list = []
@@ -469,6 +542,32 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                     else:
                         self.feature_list[i][index] = from_dlpack(Ui.toDlpack())
 
+        # Collect trans_input GPM bases if learned routing
+        if getattr(self.model.encoder, "routing_mode", "") == "learned":
+            mat_trans_list = []
+            if self.model.encoder.matrix_trans_2.sum() != 0:
+                mat_trans_list.append(self.model.encoder.matrix_trans_1)
+                mat_trans_list.append(self.model.encoder.matrix_trans_2)
+                mat_trans_list.append(self.model.encoder.matrix_trans_3)
+                
+                self.feature_trans_list, self.feature_trans_mat = [], []
+                for i in range(len(mat_trans_list)):
+                    if i == 1:
+                        U, S, Vh = torch.linalg.svd(mat_trans_list[i].data, full_matrices=False)
+                        sval_total = (S**2).sum()
+                        sval_ratio = (S**2)/sval_total
+                        r = np.sum(np.cumsum(sval_ratio.cpu().numpy()) < self.args.transthreshold) + 1
+                        self.feature_trans_list.append(U[:,0:r].float())
+                    else:
+                        feature_trans_list, feature_trans_mat = {}, {}
+                        for index in mat_trans_list[i].keys():
+                            U, S, Vh = torch.linalg.svd(mat_trans_list[i][index].data, full_matrices=False)
+                            sval_total = (S**2).sum()
+                            sval_ratio = (S**2)/sval_total
+                            r = np.sum(np.cumsum(sval_ratio.cpu().numpy()) < self.args.transthreshold) + 1
+                            feature_trans_list[index] = U[:,0:r].float()
+                        self.feature_trans_list.append(feature_trans_list)
+
         print('-' * 40)
         print('Gradient Constraints Summary')
         print('-' * 40)
@@ -485,8 +584,12 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
         for i in range(len(self.feature_list)):
             torch.save(self.feature_list[i], os.path.join(self.args.output_dir, 'reg_{}.pt'.format(i)))
 
-        # No trans_input GPM to save
-
+        # Save trans_input GPM bases
+        if getattr(self.model.encoder, "routing_mode", "") == "learned" and hasattr(self, "feature_trans_list"):
+            os.makedirs(os.path.join(self.args.output_dir, 'trans_input'), exist_ok=True)
+            for i in range(len(self.feature_trans_list)):
+                torch.save(self.feature_trans_list[i], os.path.join(self.args.output_dir, 'trans_input', 'reg_{}.pt'.format(i)))
+                
     # training_step: removed — base Seq2SeqTrainer handles it correctly.
     # SpecRoute has no memory replay or custom training_step logic.
 

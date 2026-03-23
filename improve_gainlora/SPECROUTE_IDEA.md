@@ -433,5 +433,7 @@ The Routing–Protection Duality Theorem (Theorem 1) assumes $h \in \mathrm{span
 | **Adaptive GPM threshold** | ⬜ Pending | Relax constraint for later tasks to preserve capacity |
 | **Same-domain routing** | ⬜ Research | Geometry-based (no labels, no data) task similarity for routing |
 | **Rank expansion** | ⬜ Pending | Increase r for later tasks to compensate null-space shrinkage |
+| **V10a Learned Routing** | ✅ Implemented | Relax parameter-free constraint; use ROOT's MLP & prompt keys with strict GPM |
+| **V10b Grassmann Routing** | ✅ Implemented | Geometry-based routing using Grassmannian distance on batch principal subspaces |
 
-**Key constraint**: Any direction must keep zero-replay AND maintain Routing–Protection Duality narrative (SpecRoute's core theoretical contribution). Oracle routing during training is valid; inference routing must remain parameter-free for the claim to hold.
+**Key constraint**: Any direction must keep zero-replay AND maintain Routing–Protection Duality narrative (SpecRoute's core theoretical contribution). Oracle routing during training is valid; inference routing must remain parameter-free for the claim to hold (V10b achieves this, V10a relaxes it for empirical bounding).

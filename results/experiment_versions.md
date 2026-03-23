@@ -360,4 +360,20 @@ V8 fail imdb/sst2/yahoo do B_t không học (gradient bị block). V9 oracle rou
 | - | V5 | **59.55** | **62.19** | Prototype routing + entropy + preconditioning |
 | - | V6 | ~27.4 | ~35.5 | SVD + C4 only (no prototypes) — **FAILED** |
 | - | V8 | 35.78 | 43.73 | C5 Data-Informed Init + C4 precond + A-row routing (no β) — PARTIAL |
-| - | V9 | (pending) | (pending) | Oracle routing (training) + calibrated Top-1 (inference) — bug fix |
+| - | V9 | 43.14 | 51.55 | Oracle routing (training) + calibrated Top-1 (inference) — bug fix |
+| - | V10a | (pending) | (pending) | Learned Routing + GPM + C5 + C4 |
+| - | V10b | (pending) | (pending) | Grassmannian Distance Routing + C5 + C4 |
+
+---
+
+## V10 — Duality of Routing Mechanisms
+
+**Motivation**: V9 showed that Top-1 A-row routing struggles to isolate orthogonal subspaces despite C4+C5. V10 explores two distinct modes to address routing precision while preserving C5's benefits.
+
+### V10a (Learned Routing - The Practical Baseline)
+- **Method**: Reintroduces ROOT's `Trans_input` MLP and `prompt_key` gating, with exact GPM constraints applied to their weights post-optimizer step.
+- **Why**: Proves that C5 initialization and C4 preconditioning can synergize with explicit function approximation for routing. Sacrifices the "parameter-free" claim but serves as a strong upper-bound baseline.
+
+### V10b (Grassmannian Distance Routing - The Zero-Replay Ideal)
+- **Method**: Evaluates similarity by computing the Grassmannian distance (principal angles) between the batch's local principal subspace $U_{batch}$ and expert orthogonal projection $U_A$.
+- **Why**: Directly measures subset geometric alignment, entirely bypassing scale-based similarity issues (GPM-Routing paradox). Batch-level SVD aggregates representations properly. Valid for batched inference ($B \ge 8$), falling back to A-row for small batches.

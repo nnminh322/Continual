@@ -57,6 +57,7 @@ from t5_gainlora_inflora import (
     T5LayerCrossAttention,
     T5Block,
     T5PreTrainedModel,
+    Trans_input,
 )
 
 logger = logging.get_logger(__name__)
@@ -145,16 +146,43 @@ class T5Stack(T5PreTrainedModel):
         self.prompt_config = prompt_config
 
         if not self.is_decoder and not prompt_config["run_single"]:
-            # ===== Spectral routing: NO learned parameters for routing =====
-            # Spectral signatures loaded from previous tasks' saved weights
+            self.routing_mode = prompt_config.get("routing_mode", "spectral")
+            
+            # Common for all spectral/grassmann modes
             self.spectral_signatures = []  # List[dict] — one dict per old task
-            self.routing_temperature = prompt_config.get('attn_temperature', 1.0)
+            
+            if self.routing_mode == "learned":
+                # V10a: Learned routing matching GainLoRA ROOT exactly
+                self.prompt_key = nn.Parameter(torch.randn((1, config.d_model)))
+                nn.init.uniform_(self.prompt_key, -1, 1)
 
-            # Adaptive training bias: beta = T * ln(alpha * n_old / (1 - alpha))
-            # Ensures current task gets consistent routing weight ~alpha regardless
-            # of total number of tasks (fixes softmax dilution with constant bias).
-            # At inference, same A-row formula without bias (V8 symmetric routing).
-            self._target_routing_alpha = prompt_config.get('target_routing_alpha', 0.8)
+                self.trans_input = nn.Sequential(
+                    nn.Linear(config.d_model, prompt_config["mlp_hidden_dim"], bias=False),
+                    nn.SiLU(),
+                    nn.Linear(prompt_config["mlp_hidden_dim"], config.d_model, bias=False),
+                    nn.SiLU(),
+                )
+
+                self.get_trans_feature = False
+                self.stage_trans = 0
+                self.matrix_trans_1 = torch.zeros(config.d_model, config.d_model)
+                self.matrix_trans_2 = torch.zeros(prompt_config["mlp_hidden_dim"], prompt_config["mlp_hidden_dim"])
+                self.n_trans_matrix = 0
+
+                self.previous_prompts_keys = None
+                if prompt_config.get("previous_prompt_key_path") is not None and prompt_config.get("task_id", 0):
+                    print("----------Loading Previous Keys----------")
+                    self.previous_prompts_keys = nn.Parameter(torch.randn((prompt_config["task_id"], config.d_model)))
+                    self.previous_prompts_keys.data = torch.load(prompt_config["previous_prompt_key_path"], weights_only=True)
+                    self.previous_prompts_keys.requires_grad = False
+                    
+                    self.previous_trans_input = Trans_input(config.d_model, prompt_config["mlp_hidden_dim"], prompt_config["task_id"])
+                    for param in self.previous_trans_input.parameters():
+                        param.requires_grad = False
+            else:
+                # V8/V9/V10b: Spectral routing parameters
+                self.routing_temperature = prompt_config.get('attn_temperature', 1.0)
+                self._target_routing_alpha = prompt_config.get('target_routing_alpha', 0.8)
 
             # For inference logging
             self.all_attn_weights = []
@@ -174,7 +202,139 @@ class T5Stack(T5PreTrainedModel):
     # The old format (with 'value' param) causes transformers to silently ignore
     # gradient_checkpointing_kwargs (including use_reentrant=False).
 
-    def compute_spectral_routing(self, avg_inputs_embeds):
+    def get_chunk(self, chunk):
+        if self.routing_mode == "learned":
+            self.chunk_trans = chunk
+            self.index_trans, self.step_trans = chunk, self.config.d_model // chunk
+            self.step, self.index = self.step_trans, self.index_trans
+            self.matrix_trans_1, self.matrix_trans_3, self.n_trans_matrix = {}, {}, {}
+            for idx in range(self.index_trans):
+                self.matrix_trans_1[idx] = torch.zeros(self.step_trans, self.step_trans).cuda()
+                self.matrix_trans_3[idx] = torch.zeros(self.step_trans, self.step_trans).cuda()
+                self.n_trans_matrix[idx] = 0
+            self.matrix_trans_2 = self.matrix_trans_2.cuda()
+
+    def get_matrix3(self, x, medium, x_final):
+        if self.routing_mode == "learned":
+            for idx in range(self.index_trans):
+                m1_curr = torch.bmm(x[:,:,idx*self.step_trans:(idx+1)*self.step_trans].detach().permute(0, 2, 1), x[:,:,idx*self.step_trans:(idx+1)*self.step_trans].detach()).sum(dim=0).float()/(x.shape[0]*x.shape[1])
+                m3_curr = torch.bmm(x_final[:,:,idx*self.step_trans:(idx+1)*self.step_trans].detach().permute(0, 2, 1), x_final[:,:,idx*self.step_trans:(idx+1)*self.step_trans].detach()).sum(dim=0).float()/(x_final.shape[0]*x_final.shape[1])
+                
+                if len(self.matrix_trans_1) > 0 and isinstance(self.matrix_trans_1.get(idx), torch.Tensor) and self.matrix_trans_1.get(idx).sum() != 0:
+                    self.matrix_trans_1[idx] = (self.matrix_trans_1[idx]*self.n_trans_matrix[idx] + m1_curr)/(self.n_trans_matrix[idx] + x.shape[0]*x.shape[1])
+                    self.matrix_trans_3[idx] = (self.matrix_trans_3[idx]*self.n_trans_matrix[idx] + m3_curr)/(self.n_trans_matrix[idx] + x_final.shape[0]*x_final.shape[1])
+                else:
+                    self.matrix_trans_1[idx] = m1_curr
+                    self.matrix_trans_3[idx] = m3_curr
+                self.n_trans_matrix[idx] += x.shape[0]*x.shape[1]
+
+            if self.matrix_trans_2.sum() == 0:
+                self.matrix_trans_2 = torch.bmm(medium.detach().permute(0, 2, 1), medium.detach()).sum(dim=0).float()/(medium.shape[0]*medium.shape[1])
+            else:
+                self.matrix_trans_2 = (self.matrix_trans_2*self.n_trans_matrix[0] + torch.bmm(medium.detach().permute(0, 2, 1), medium.detach()).sum(dim=0).float())/(self.n_trans_matrix[0] + medium.shape[0]*medium.shape[1])
+
+    def cal_attention(self, prompt_key, x, return_logits=False):
+        # ROOT-style routing similarity
+        x = x/(x.norm(dim=-1,keepdim=True) + 1e-12)
+        prompt_key = prompt_key/(prompt_key.norm(dim=-1,keepdim=True) + 1e-12)
+        attn_scores = (x*prompt_key).sum(dim=-1, keepdim=True)
+        weights = torch.abs(torch.nn.functional.sigmoid(attn_scores*4)*2-1)
+        if not return_logits:
+            return weights
+        else:
+            return attn_scores
+
+    def compute_learned_routing(self, avg_inputs_embeds, batch_size):
+        """V10a: Learned MLP Routing copying GainLoRA exactly"""
+        prompt_key = self.prompt_key
+        if self.previous_prompts_keys is not None:
+            prompt_key = self.prompt_key.to(prompt_key.device)
+            past_prompt_key = torch.cat([prompt_key.repeat(batch_size, 1, 1), self.previous_prompts_keys.repeat(batch_size, 1, 1)], dim=1)
+
+            medium = self.trans_input[1](self.trans_input[0](avg_inputs_embeds))
+            x = self.trans_input[3](self.trans_input[2](medium))
+            if getattr(self, "get_trans_feature", False):
+                self.get_matrix3(avg_inputs_embeds, medium, x)
+
+            past_x = torch.cat([x, self.previous_trans_input(avg_inputs_embeds)], dim=1)
+            key_attention_weights = self.cal_attention(past_prompt_key, past_x)
+        else:
+            medium = self.trans_input[1](self.trans_input[0](avg_inputs_embeds))
+            x = self.trans_input[3](self.trans_input[2](medium))
+            if getattr(self, "get_trans_feature", False):
+                self.get_matrix3(avg_inputs_embeds, medium, x)
+
+            key_attention_weights = self.cal_attention(prompt_key.repeat(batch_size, 1, 1), x)
+        return key_attention_weights
+
+    def compute_grassmann_routing(self, h, h_norm_sq):
+        """V10b: Grassmann Distance Routing
+        Calculates principal angles between batch local subspace and candidate A_t subspaces.
+        """
+        B, _, d_model = h.shape
+        if self.training or B < 8:
+            # Fallback to A-row fit for very small batches or training (oracle handles training)
+            return self.compute_spectral_routing(h, h_norm_sq)
+            
+        fits = []
+        r = self.block[0].layer[0].SelfAttention.lora_q.r
+        
+        # Batch PCA to get local subspace U_batch (using SVD)
+        # h is (B, 1, d_model) -> reshape to (B, d_model)
+        h_flat = h.squeeze(1)
+        # torch.linalg.svd returns (U, S, Vh) where Vh = V^T
+        # We want right singular vectors V: h_flat = U @ diag(S) @ Vh, so V = Vh.T
+        _, _, Vh_batch = torch.linalg.svd(h_flat - h_flat.mean(dim=0, keepdim=True), full_matrices=False)
+        U_batch = Vh_batch[:r, :]  # Vh is (min(B,d), d), so first r rows = top-r right sing. vectors, shape (r, d_model)
+        
+        # Current task Grassmann dist
+        current_layer_dists = []
+        for block in self.block:
+            attn = block.layer[0].SelfAttention
+            for lora in [attn.lora_q, attn.lora_v]:
+                A = lora.lora_A.data.float().to(h.device) # (r, d_model)
+                # SVD of A^T: A^T = U_A @ diag(S_A) @ Vh_A => columns of U_A are right sing vecs of A
+                _, _, Vh_A = torch.linalg.svd(A, full_matrices=False)  # A is (r, d_model), Vh_A is (r, d_model)
+                U_A = Vh_A[:r, :]  # (r, d_model) — top-r right singular vectors of A, forming the subspace
+                
+                # Grassmann distance via principal angles
+                # cos(theta_i) = singular values of U_batch @ U_A^T
+                M = torch.matmul(U_batch, U_A.T)  # (r, r)
+                angles = torch.linalg.svdvals(M).clamp(-1.0, 1.0)
+                principal_angles = torch.acos(angles)
+                dist = torch.sqrt(torch.sum(principal_angles**2))
+                current_layer_dists.append(dist)
+        
+        current_dist = torch.stack(current_layer_dists).mean(dim=0).item()
+        fits.append(1.0 / (current_dist + 1e-4)) # Inverse dist as affinity
+        
+        # Old tasks
+        for sig_dict in self.spectral_signatures:
+            task_dists = []
+            for key, sig_data in sig_dict.items():
+                if not key.startswith('enc.'):
+                    continue
+                A = sig_data['A'].to(h.device, dtype=torch.float32)  # (r, d_model)
+                _, _, Vh_A = torch.linalg.svd(A, full_matrices=False)
+                U_A = Vh_A[:r, :]
+                
+                M = torch.matmul(U_batch, U_A.T)
+                angles = torch.linalg.svdvals(M).clamp(-1.0, 1.0)
+                dist = torch.sqrt(torch.sum(torch.acos(angles)**2))
+                task_dists.append(dist)
+            
+            if task_dists:
+                task_dist = torch.stack(task_dists).mean(dim=0).item()
+                fits.append(1.0 / (task_dist + 1e-4))
+            else:
+                fits.append(0.0)
+                
+        fit_scores = torch.tensor(fits, device=h.device).unsqueeze(0).repeat(B, 1) # (B, n_tasks)
+        max_idx = fit_scores.argmax(dim=1, keepdim=True)
+        weights = torch.zeros_like(fit_scores).scatter_(1, max_idx, 1.0)
+        return weights.unsqueeze(2)
+
+    def compute_spectral_routing(self, h, h_norm_sq):
         """
         V9: Routing with oracle-training / spectral-inference split + calibration.
 
@@ -202,9 +362,6 @@ class T5Stack(T5PreTrainedModel):
         Returns:
             (B, n_tasks, 1) routing weights: oracle one-hot (training) or top-1 (inference)
         """
-        h = avg_inputs_embeds  # (B, 1, d_model)
-        h_norm_sq = (h ** 2).sum(dim=-1) + 1e-8  # (B, 1)
-
         fits = []
 
         # === CURRENT TASK: A-row fit ===
@@ -380,29 +537,36 @@ class T5Stack(T5PreTrainedModel):
             avg_inputs_embeds = (attention_mask.unsqueeze(-1) * inputs_embeds).sum(dim=1, keepdim=True) / _mask_count
 
         if not self.is_decoder and not self.prompt_config["run_single"]:
-            if len(self.spectral_signatures) > 0:
-                # Multi-task: compute routing
-                key_attention_weights = self.compute_spectral_routing(avg_inputs_embeds)
-                # Detach: routing weights are shared across all gradient-checkpointed
-                # blocks via closure. Without detach, the second block's backward
-                # fails with "backward through graph a second time" because the
-                # first block already freed the shared graph (inputs_embeds -> routing).
-                # Safe because routing uses lora_A.data (detached) and frozen signatures.
-                key_attention_weights = key_attention_weights.detach()
-
-                if self.is_inference:
-                    self.all_attn_weights.append(
-                        key_attention_weights.squeeze().mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy()
-                    )
+            if self.routing_mode == "learned":
+                key_attention_weights = self.compute_learned_routing(avg_inputs_embeds, batch_size)
+                
+                if self.is_inference and self.previous_prompts_keys is not None:
+                    self.all_attn_weights.append(key_attention_weights.squeeze().mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy())
+                elif self.is_inference:
+                    self.all_attn_weights.append(key_attention_weights.squeeze(2).mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy())
             else:
-                # First task or no previous info: single LoRA, weight = 1
-                key_attention_weights = torch.ones(
-                    batch_size, 1, 1, device=inputs_embeds.device, dtype=inputs_embeds.dtype
-                )
-                if self.is_inference:
-                    self.all_attn_weights.append(
-                        key_attention_weights.squeeze(2).mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy()
+                if len(self.spectral_signatures) > 0:
+                    h_norm_sq = (avg_inputs_embeds ** 2).sum(dim=-1) + 1e-8  # (B, 1)
+                    if self.routing_mode == "grassmann":
+                        key_attention_weights = self.compute_grassmann_routing(avg_inputs_embeds, h_norm_sq)
+                    else:
+                        key_attention_weights = self.compute_spectral_routing(avg_inputs_embeds, h_norm_sq)
+                        
+                    key_attention_weights = key_attention_weights.detach()
+
+                    if self.is_inference:
+                        self.all_attn_weights.append(
+                            key_attention_weights.squeeze().mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy()
+                        )
+                else:
+                    # First task or no previous info: single LoRA, weight = 1
+                    key_attention_weights = torch.ones(
+                        batch_size, 1, 1, device=inputs_embeds.device, dtype=inputs_embeds.dtype
                     )
+                    if self.is_inference:
+                        self.all_attn_weights.append(
+                            key_attention_weights.squeeze(2).mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy()
+                        )
             self.key_attention_weights = key_attention_weights
         else:
             # Decoder or run_single: use whatever was passed (from encoder)

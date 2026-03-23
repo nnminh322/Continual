@@ -172,6 +172,10 @@ class ModelArguments:
                     "Adaptive bias = T*ln(alpha*n_old/(1-alpha)). Set 0 to use fixed training_bias."
         },
     )
+    previous_prompt_key_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to the previous key prompt layer."}
+    )
 
     # C4: Spectrally-Conditioned LoRA Training
     lambda_entropy: Optional[float] = field(
@@ -367,6 +371,10 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         default='SAPT',
         metadata={"help": "models' name"}
     )
+    routing_mode: Optional[str] = field(
+        default='spectral',
+        metadata={"help": "Routing mode for SpecRoute"}
+    )
     chunk: Optional[int] = field(
         default=1,
         metadata={"help": "models' name"}
@@ -512,6 +520,7 @@ def main():
         'seq_len': data_args.max_source_length,
         'mlp_hidden_dim': model_args.mlp_hidden_dim,
         'attn_temperature': model_args.attn_temperature,
+        'routing_mode': training_args.routing_mode,
         'previous_lora_path': model_args.previous_lora_path,
         'previous_prompt_key_path': model_args.previous_prompt_key_path,
         'task_id': cur_task_id,
@@ -566,13 +575,13 @@ def main():
         device = torch.device(f"cuda:{local_rank}")
     except:
         device = torch.device(f"cuda:0")
-    if model_args.load_checkpoint_from and training_args.model_name != 'specroute':
+    if model_args.load_checkpoint_from and (training_args.model_name != 'specroute' or getattr(training_args, "routing_mode", "") == "learned"):
         if not os.path.exists(model_args.load_checkpoint_from):
             logger.warning(f"load_checkpoint_from not found: {model_args.load_checkpoint_from}, skipping load")
         else:
             print("----------Loading Previous Query Projection Layer----------")
             model.encoder.trans_input.load_state_dict(torch.load(model_args.load_checkpoint_from, map_location=device))
-            if training_args.model_name in ['gainlora_inflora', 'gainlora_olora']:
+            if training_args.model_name in ['gainlora_inflora', 'gainlora_olora'] or (training_args.model_name == 'specroute' and getattr(training_args, "routing_mode", "") == "learned"):
                 model.encoder.previous_trans_input.input_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device)['0.weight'])
                 model.encoder.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device)['2.weight'])
                 model.encoder.previous_trans_input.state_dict()
@@ -661,6 +670,9 @@ def main():
             param.requires_grad = False
             if "lora_B" in name and "previous_lora_weights" not in name:
                 param.requires_grad = True
+            if getattr(training_args, "routing_mode", "") == "learned":
+                if ("trans_input" in name and "previous_trans_input" not in name) or "prompt_key" in name:
+                    param.requires_grad = True
 
     total_params, params = 0, 0
     for n, p in model.named_parameters():
@@ -1029,6 +1041,17 @@ def main():
             signatures = compute_spectral_signatures(trainer.model, config)
             torch.save(signatures, os.path.join(save_path, 'spectral_signatures.pt'))
             print("----------Saved spectral signatures----------")
+
+            if getattr(training_args, "routing_mode", "") == "learned":
+                from copy import deepcopy
+                if not prompt_config["run_single"]:
+                    if prompt_config["previous_prompt_key_path"] is not None:
+                        previous_trans_input = deepcopy(trainer.model.encoder.previous_trans_input.state_dict())
+                        torch.save(previous_trans_input, os.path.join(save_path, 'previous_trans_input.pt'))
+                        torch.save(torch.cat([trainer.model.encoder.prompt_key, trainer.model.encoder.previous_prompts_keys], dim=0).data, os.path.join(save_path, 'prompts_keys_till_now.pt'))
+                    else:
+                        torch.save(trainer.model.encoder.prompt_key.data, os.path.join(save_path, 'prompts_keys_till_now.pt'))
+                    torch.save(trainer.model.encoder.trans_input.state_dict(), os.path.join(save_path, 'trans_input.pt'))
         # Only save tokenizer for non-specroute (specroute never reloads it)
         if training_args.model_name != 'specroute':
             tokenizer.save_pretrained(save_path)
