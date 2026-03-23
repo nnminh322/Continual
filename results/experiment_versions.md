@@ -276,6 +276,80 @@ V5 prototype routing (AP=59.55) violates zero-replay: mean embeddings = data sta
 
 ---
 
+## V8 — C5 Data-Informed Init + A-row Routing (No β) + C4 Precond
+
+**Script**: `T5_small/gen_script_long_order3_t5_small_specroute.sh` (V8 commit)
+**Logs**: `/logs/t5_small_improve/improve-gainlora-v8.log` (15/15 tasks complete, 28827s)
+**Method**: C5 Constrained PCA init + A-row routing (no adaptive bias β) + C4 gradient preconditioning. No prototypes, no replay, no KL distill.
+
+### Kết quả V8 (sau tất cả 15 tasks)
+
+| Task | rougeL | EM | Nhận xét |
+|------|-------:|---:|----------|
+| yelp | 62.48 | 36.07 | -8.6 vs initial 71.08 |
+| amazon | 62.05 | 36.75 | Forgetting thấp |
+| mnli | 2.82 | 2.82 | ❌ Catastrophic (ban đầu 42.1) |
+| cb | 0.00 | 0.00 | ❌ Never learned (tiny data) |
+| copa | 48.00 | 48.00 | OK |
+| qqp | 77.03 | 77.03 | Good |
+| rte | 49.82 | 8.66 | Partial (routing mismatch rte EM≠rougeL) |
+| imdb | 0.015 | 0.00 | ❌ Never learned |
+| sst2 | 0.00 | 0.00 | ❌ Never learned |
+| dbpedia | 67.06 | 55.79 | OK |
+| agnews | 69.30 | 61.84 | OK |
+| yahoo | 4.14 | 1.99 | ❌ Near-zero |
+| multirc | 52.97 | 52.97 | OK |
+| boolq | 61.80 | 61.80 | Good |
+| wic | 0.00 | 0.00 | ❌ Routing failure |
+| **AP** | **43.73** | **35.78** | vs ROOT 61.66 / 59.70 |
+
+### Root Cause Analysis V8
+
+V8 cải thiện đáng kể so với V6 (C5 fix never-learning một phần). So sánh:
+- V6: imdb=0.0, sst2=0.0, dbpedia=52.0 → V8: imdb≈0.0, sst2=0.0, dbpedia=67.1
+- C5 giúp nmli recovery từ 0.42 (V6) lên 2.82 — vẫn thấp (ban đầu 42.1)
+- IMDB/SST2/Yahoo vẫn fail → vấn đề còn tồn tại
+
+**Nguyên nhân chính — GPM-Routing Paradox với A-row routing:**
+Khi V8 loại bỏ β (adaptive bias), current task không còn bias để win routing. Với GPM-Routing paradox:
+- `A_t ⊥ h_t` (GPM buộc A_t vào null-space, h_t align với P_old directions)
+- → `fit_current ≈ 0`, `fit_old > fit_current`
+- → softmax chọn old task → `B_t` không nhận gradient → không học
+
+C5 cải thiện alignment một phần (takes top eigenvectors of projected covariance) nhưng khi h_t chủ yếu nằm trong P_old subspace (yelp-like tasks), projected component nhỏ → C5 vẫn bị hạn chế.
+
+### Kết luận V8
+**Partial success.** C5 giúp mnli, rte, dbpedia, agnews, multirc cải thiện đáng kể. Nhưng imdb/sst2/yahoo vẫn EM≈0 → problem chưa giải quyết triệt để. AP=43.73 vs ROOT=61.66.
+
+**Nhận định: V8 vẫn fail do routing bug — B_t không nhận gradient khi fit_current < fit_old.**
+
+---
+
+## V9 — Oracle Training + Calibrated Top-1 Inference (Bug Fix)
+
+**Script**: Cùng script V8, code commits V9
+**Logs**: Pending (V9 là fix cho routing bug trong V8)
+**Method**: V8 + hai thay đổi:
+1. **Oracle routing trong training**: current task luôn được route với weight=1.0, tránh GPM-Routing paradox kill gradient
+2. **Calibrated Top-1 tại inference**: EMA normalization của A-row fit scores để fair comparison giữa tasks
+
+### Thay đổi từ V8 → V9
+
+| Aspect | V8 | V9 |
+|--------|----|----|
+| Training routing | Softmax/argmax A-row (β đã bỏ) | **Oracle: weight=1.0 cho current task** |
+| Inference routing | argmax A-row raw | **argmax A-row calibrated (/ EMA E_fit)** |
+| β adaptive bias | ❌ Đã loại bỏ | ❌ Không cần (oracle thay thế) |
+| Gradient flow | Bị block khi fit_current < fit_old | **Đảm bảo: B_t luôn nhận gradient** |
+
+### Dự kiến cải thiện
+
+V8 fail imdb/sst2/yahoo do B_t không học (gradient bị block). V9 oracle routing fix điều này:
+- Training: B_t học trong null-space với C5-init A_t → quality cao hơn V8
+- Inference: calibrated argmax routing → fair comparison nhưng vẫn bị GPM-Routing paradox limit
+
+---
+
 ## Changelog
 
 | Date | Version | AP(EM) unwt | AP(rougeL) unwt | Key Change |
@@ -285,3 +359,5 @@ V5 prototype routing (AP=59.55) violates zero-replay: mean embeddings = data sta
 | - | V3 | ~27.66 | - | Adaptive bias + symmetric (WRONG script) |
 | - | V5 | **59.55** | **62.19** | Prototype routing + entropy + preconditioning |
 | - | V6 | ~27.4 | ~35.5 | SVD + C4 only (no prototypes) — **FAILED** |
+| - | V8 | 35.78 | 43.73 | C5 Data-Informed Init + C4 precond + A-row routing (no β) — PARTIAL |
+| - | V9 | (pending) | (pending) | Oracle routing (training) + calibrated Top-1 (inference) — bug fix |

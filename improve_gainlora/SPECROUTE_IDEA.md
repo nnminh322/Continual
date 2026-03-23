@@ -373,17 +373,19 @@ where $H_\ell = -\sum_i \hat{\sigma}_i \log \hat{\sigma}_i$ is the spectral entr
 
 ---
 
-## 11. Empirical Status & Open Problems (Post-V6)
+## 11. Empirical Status & Open Problems
 
 ### 11.1 Summary of All Versions
 
-| Version | AP(EM) | Routing | Key Insight |
-|---------|-------:|---------|-------------|
-| ROOT | 59.70 | Learned MLP | Baseline |
-| V2 | 30.73 | SVD spectral | 4 tasks EM=0 (misrouting) |
-| V3 | 27.66 | SVD + adaptive bias | Wrong script + train-inference mismatch |
-| V5 | 59.55 | **Prototype** (⚠️ invalid) | Matches ROOT but violates zero-replay |
-| V6 | ~27.4 | SVD + C4 | C4 hypothesis FAILED |
+| Version | AP(EM) | AP(rougeL) | Routing | Key Insight |
+|---------|-------:|------------|---------|-------------|
+| ROOT | 59.70 | 61.66 | Learned MLP | Baseline |
+| V2 | 30.73 | - | SVD spectral | 4 tasks EM=0 (misrouting) |
+| V3 | 27.66 | - | SVD + adaptive bias | Wrong script + train-inference mismatch |
+| V5 | 59.55 | 62.19 | **Prototype** (⚠️ invalid) | Matches ROOT but violates zero-replay |
+| V6 | ~27.4 | ~35.5 | SVD + C4 | C4 hypothesis FAILED |
+| V8 | 35.78 | 43.73 | A-row + C5 init | C5 partial fix, routing bug kills imdb/sst2/yahoo |
+| V9 | pending | pending | **Oracle train + calibrated inference** | Critical routing bug fix |
 
 ### 11.2 The Null-Space Collapse Problem
 
@@ -393,34 +395,43 @@ V6 reveals a **structural limitation** of GPM-based orthogonal protection for Sp
 
 **Consequence**: For late tasks (≥task 8 in 15-task sequence), LoRA-B literally cannot learn — eval_loss stays at 6-8 throughout training, EM=0. This is NOT a routing problem; it's a **learning capacity** problem.
 
-**Why ROOT survives**: ROOT also uses InfLoRA GPM on LoRA parameters, but its **learned MLP routing** (`trans_input` + `prompt_key`) operates in a SEPARATE parameter space. ROOT's routing mechanism is decoupled from LoRA null-space constraints. ROOT can still route correctly to experts that learned within their null-space because routing doesn't depend on the quality of SVD signatures from constrained subspaces.
+**C5 partially fixes this**: By using data-informed Constrained PCA to set $A_t$ to top-r eigenvectors of $QC_tQ$, we maximize variance captured in the null-space. V8 shows improvement on mnli, dbpedia, agnews, multirc. But same-domain tasks (yelp↔imdb↔sst2) still fail because their inputs lie in P_old subspace → projected component tiny even after C5.
 
-**Why C4 cannot help**: The preconditioner $(AA^T+\epsilon I)^{-1/2}$ equalizes gradients WITHIN the null-space. Entropy regularization maximizes rank WITHIN the null-space. But if the null-space itself is missing task-relevant directions, these optimizations operate on an uninformative subspace.
+**Why ROOT survives**: ROOT also uses InfLoRA GPM on LoRA parameters, but its **learned MLP routing** (`trans_input` + `prompt_key`) operates in a SEPARATE parameter space. ROOT's routing mechanism is decoupled from LoRA null-space constraints.
 
-### 11.3 The Dual Failure of SVD Routing
+**Why C4 cannot help**: The preconditioner $(AA^T+\epsilon I)^{-1/2}$ equalizes gradients WITHIN the null-space. If the null-space is missing task-relevant directions, C4 operates on an uninformative subspace.
 
-V6 demonstrates TWO distinct failure modes:
+### 11.3 The GPM-Routing Paradox (Critical Bug in V8)
 
-1. **Never-learning** (IMDB/SST2/Yahoo): LoRA-B cannot learn within constrained null-space → expert has no useful singular values → spectral signature is noise → routing to this expert is random.
+V8 exposed a **critical implementation error** when β adaptive bias was removed:
 
-2. **Routing degradation** (yelp/dbpedia/agnews): Even well-trained experts see their predict scores drop (yelp: 55→36) not from parameter forgetting (params frozen) but from SVD routing distributing weight to wrong experts as more tasks accumulate.
+**Mechanism**: With spectral routing during training:
+- GPM forces `A_t ⊥ h_t` (A_t in null-space, h_t aligns with P_old directions for same-domain tasks)
+- → `fit_current ≈ 0`, `fit_old > 0`
+- → routing selects old task (weight=1.0 to old task, 0 to current)
+- → `B_t` receives zero gradient → never learns
+
+**V8 vs V8+β (V7)**: β (adaptive bias) was a counter-measure — it boosts current task score above old tasks in softmax. Removing β in V8 without replacing the gradient flow mechanism causes the bug.
+
+**V9 fix — Oracle Training Routing**: During training of task t, always set current task weight=1.0 (oracle). Task ID is available at training time → this is standard CL practice, NOT cheating. At inference, use calibrated A-row argmax (no task ID available).
+
+**V9 Calibration Normalization**: EMA of fit scores during training ($\hat{\mu}_t$) stored in signatures. At inference: $\alpha_t^{\text{cal}} = \alpha_t / \hat{\mu}_t$. Normalizes scale differences across tasks (early tasks have larger null-space → larger raw scores).
 
 ### 11.4 Fundamental Question
 
 > Under strict zero-replay, is parameter-free spectral routing viable for ≥15-task sequences?
 
-The Routing–Protection Duality Theorem (Theorem 1) assumes $h \in \mathrm{span}(V_{t^*})$. V6 shows this assumption fails in practice: real inputs live in a shared input distribution, and GPM forces later experts into null-space directions that are poorly aligned with actual inputs.
+The Routing–Protection Duality Theorem (Theorem 1) assumes $h \in \mathrm{span}(V_{t^*})$. Empirically: real inputs live in shared input distribution, and GPM forces later experts into null-space directions poorly aligned with actual inputs (same-domain tasks). Oracle training + C5 init maximizes learning quality; inference routing via calibrated A-row argmax remains limited by the fundamental GPM-Routing paradox for same-domain tasks.
 
-### 11.5 V7 Directions (To Be Explored)
+### 11.5 Open Problems & Future Directions
 
-Possible approaches, ranked by compatibility with zero-replay:
+| Direction | Status | Description |
+|-----------|--------|-------------|
+| **Oracle training (V9)** | ✅ Implemented | Fixes gradient flow; inference routing still limited |
+| **Calibrated inference** | ✅ Implemented | EMA normalization for fair argmax |
+| **C5 data-informed init** | ✅ Implemented (V8) | Maximizes task-relevant variance in null-space |
+| **Adaptive GPM threshold** | ⬜ Pending | Relax constraint for later tasks to preserve capacity |
+| **Same-domain routing** | ⬜ Research | Geometry-based (no labels, no data) task similarity for routing |
+| **Rank expansion** | ⬜ Pending | Increase r for later tasks to compensate null-space shrinkage |
 
-| Direction | Description | Zero-Replay? | Risk |
-|-----------|-------------|:---:|------|
-| **Relaxed orthogonality** | $A_t \leftarrow A_t - (1-\eta)A_t P_{\text{old}}$, allow partial overlap | ✅ | May increase forgetting |
-| **Adaptive GPM threshold** | Higher base $\varepsilon_0$ or task-adaptive relaxation for later tasks | ✅ | Trade-off: learning capacity vs protection |
-| **Rank expansion** | Increase $r$ for later tasks (more dims to compensate null-space loss) | ✅ | Compute/memory cost |
-| **Learned lightweight routing** | Small trainable routing head (like ROOT but minimal) | ⚠️ Need GPM | Adds parameters, routing drift |
-| **Hybrid: spectral + fallback** | SVD routing for early tasks, heuristic for late tasks | ✅ | Complexity, how to detect boundary |
-
-**Key constraint**: Any V7 must keep zero-replay AND ideally maintain the Routing–Protection Duality narrative (SpecRoute's core theoretical contribution). If the solution requires learned routing, the theoretical novelty claim weakens significantly.
+**Key constraint**: Any direction must keep zero-replay AND maintain Routing–Protection Duality narrative (SpecRoute's core theoretical contribution). Oracle routing during training is valid; inference routing must remain parameter-free for the claim to hold.

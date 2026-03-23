@@ -176,7 +176,7 @@ class T5Stack(T5PreTrainedModel):
 
     def compute_spectral_routing(self, avg_inputs_embeds):
         """
-        V8: A-row routing for ALL tasks (training and inference).
+        V9: Routing with oracle-training / spectral-inference split + calibration.
 
         Theory (IDEA_Overall.md §3):
         - Lemma 1 (Differential Projection): ||A_t h||^2 = ||A_t Q_{t-1} h||^2
@@ -188,23 +188,27 @@ class T5Stack(T5PreTrainedModel):
           over all A_t in the restricted Stiefel manifold
         - C5 advantage over random: d'/r * PEV_r(C_tilde) ≈ 44x at task 8 (T5-small)
 
-        Training: A-row fit + adaptive bias β(n) for current task.
-          β(n) is a cold-start mechanism (B_t=0 initially, gradient needs routing).
-          NOT a routing quality booster. Symmetry = same metric formula, not same distribution.
-        Inference: A-row fit for ALL tasks. No prepare_inference_routing().
+        Training: Oracle routing (current task always selected, index 0).
+          Rationale: GPM-Routing paradox forces fit_current ≈ 0 on current task's data.
+          If spectral argmax is used during training, B_t never receives gradients.
+          Task ID is available at training time → oracle is valid, not cheating.
+
+        Inference: Hard Top-1 spectral routing with calibration normalization.
+          Calibration (FIX 3 EMA) normalizes per-task scale differences for fair argmax.
 
         Args:
             avg_inputs_embeds: (B, 1, d_model) — averaged input token embeddings
 
         Returns:
-            (B, n_tasks, 1) routing weights via softmax over projection fits
+            (B, n_tasks, 1) routing weights: oracle one-hot (training) or top-1 (inference)
         """
         h = avg_inputs_embeds  # (B, 1, d_model)
         h_norm_sq = (h ** 2).sum(dim=-1) + 1e-8  # (B, 1)
 
         fits = []
 
-        # === CURRENT TASK: A-row fit (+ adaptive bias during training) ===
+        # === CURRENT TASK: A-row fit ===
+        # Used for calibration EMA (training) and inference routing score.
         current_fits_layers = []
         for block in self.block:
             attn = block.layer[0].SelfAttention
@@ -262,11 +266,23 @@ class T5Stack(T5PreTrainedModel):
 
         # Stack: (B, n_tasks) — all tasks use calibrated metric space
         fit_scores = torch.cat(fits, dim=1)  # (B, n_tasks)
-        
-        # V9 FIX 2: Sparse Hard Top-1 Routing for BOTH training and inference
-        # Since A matrices are frozen, argmax routing doesn't block crucial gradient flow
-        max_idx = fit_scores.argmax(dim=1, keepdim=True)
-        weights = torch.zeros_like(fit_scores).scatter_(1, max_idx, 1.0)  # (B, n_tasks)
+
+        if self.training:
+            # Oracle routing during training: always route to current task (index 0).
+            # Rationale: during task-t training we have the oracle task label.
+            # Using spectral argmax here would zero out B_t gradients whenever
+            # fit_current < fit_old (which happens systematically due to GPM-Routing
+            # paradox: GPM forces A_t ⊥ h_t, so fit_t ≈ 0 even on task-t data).
+            # Oracle routing is NOT cheating — task ID is always available at training
+            # time in continual learning (GainLoRA also uses task labels to train routing).
+            weights = torch.zeros_like(fit_scores)
+            weights[:, 0] = 1.0
+        else:
+            # Hard Top-1 at inference: no task label available, use calibrated spectral routing.
+            # Calibration normalization (FIX 3) ensures fair comparison across tasks
+            # despite systematic scale differences in A-row fit magnitudes.
+            max_idx = fit_scores.argmax(dim=1, keepdim=True)
+            weights = torch.zeros_like(fit_scores).scatter_(1, max_idx, 1.0)
 
         return weights.unsqueeze(2)  # (B, n_tasks, 1)
 

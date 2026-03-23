@@ -261,24 +261,35 @@ Với T5-small task 8 ($d' \approx 351$, $r=8$): tỷ lệ $\approx 44\times \cd
 
 ---
 
-### 3.8 Training–Inference Symmetry
+### 3.8 Training–Inference Routing Split
 
-**Mệnh đề 2** *(Routing Symmetry).* V8 training và inference dùng cùng formula:
+**Mệnh đề 2** *(Two-Phase Routing).* SpecRoute dùng hai cơ chế routing khác nhau theo phase:
 
-| Phase | Formula |
-|-------|---------|
-| Training (task $t$) | $\alpha_t^\text{train}(h) = \dfrac{\|A_t h\|^2}{r\|h\|^2} + \beta(n)$ |
-| Inference | $\alpha_t^\text{inf}(h) = \dfrac{\|A_t h\|^2}{r\|h\|^2}$ |
+| Phase | Cơ chế | Lý do |
+|-------|---------|-------|
+| Training (task $t$) | **Oracle: luôn route 100% về current task** | Task ID luôn biết khi training; spectral routing sẽ kill gradient vì GPM-Routing paradox |
+| Inference | **Hard Top-1 spectral routing** (với calibration normalization) | Task ID không có; routing tự động từ A-row calibrated affinity |
 
-**Không có metric asymmetry.** V2–V7 dùng A-row proxy khi train nhưng SVD Rayleigh quotient khi inference — đây là nguồn gốc mismatch vì hai formula sống trong *hai metric space khác nhau*. V8 dùng A-row cho cả hai: đây là "symmetry" về mặt metric formula.
+**Tại sao training cần oracle routing:**
 
-$\beta(n) = \tau\ln\!\bigl(\alpha_\text{target} \cdot n / (1-\alpha_\text{target})\bigr)$ — **cold-start mechanism** cho gradient flow khi $B_t = 0$ lúc đầu training. Nó không phải "fake routing quality"; expert $B_t$ học để transform task $t$'s features trong null-space, và những features đó (C5 A-row directions) vẫn có tín hiệu tại inference dù không còn β. β giải quyết vấn đề *gradient starvation*, không phải routing quality. Loại bỏ β khi inference là *có chủ đích* — không có task ID, không thể biết n để tính β, và không cần: $A_t$ đã align với task $t$'s null-space variance.
+GPM-Routing Paradox (§3.10) buộc $A_t \perp h_t$ theo nghĩa: $A_t$ nằm trong null-space của $P_{\text{old}}$, trong khi $h_t$ có energy lớn nhất trên $\text{span}(P_{\text{old}})$ cho các task cùng domain với old tasks. Hệ quả: $\|A_t h_t\|^2 \approx 0$ → fit score của current task gần như 0 → spectral argmax chọn old task → $B_t$ không nhận gradient → **không bao giờ học**.
 
-> **Về asymmetry β tạo ra:** Expert $B_t$ được train với score tổng $\alpha_t + \beta$ nhưng deploy không có β. Điều này CÓ ảnh hưởng nếu $\alpha_t$ lúc inference quá nhỏ để win softmax. Đây là lý do Phản biện 1 (asymmetric capacity giữa old vs new experts) là concern thực — và lý do mục tiêu của C5 maximize $\alpha_t$ là cần thiết: đảm bảo $\|A_t Q_{t-1} h\|^2$ đủ lớn kể cả không có β.
+Oracle routing trong training là standard practice trong CL: mọi task-specific CL method (GainLoRA, O-LoRA) đều dùng task ID trong training (GainLoRA train MLP routing bằng CE loss với task label). Oracle routing không phải cheating — task ID luôn available khi training theo CL protocol.
 
-**Điều kiện α-sufficiency (để inference không cần β):** Routing của expert $t$ thắng tại inference nếu:
-$$E[\alpha_t(h) \mid h \sim p_t] - \max_{s \neq t} E[\alpha_s(h) \mid h \sim p_t] > 0$$
-Điều kiện này được hụ bởi Định lý 3: margin là $\lambda_t^\min/r - 0.005\bar{\sigma}^2/r$, dương khi $\lambda_t^\min > 0.005\bar{\sigma}^2$. C5 maximize $\lambda_t^\min = \lambda_r(\tilde{C}_t)$ (r-th eigenvalue của projected covariance), đây cũng chính là largest feasible $\lambda_r$ trong $\mathcal{A}_t$. Nếu $\lambda_r(\tilde{C}_t)$ quá nhỏ (null-space collapse hoặc task tương đồng domain), margin bị nhiễu — đây là giới hạn của setting, được thảo luận trong §3.10.
+**Calibration Normalization (FIX 3) tại inference:**
+
+A-row fit scores có scale khác nhau giữa các tasks (task đầu có $A_t$ trong full $d$-dim space, task sau bị constrain vào null-space nhỏ hơn). Để argmax so sánh công bằng, chúng tôi normalize mỗi task's score bằng EMA fit scale thu thập khi training:
+
+$$\alpha_t^{\text{cal}}(h) = \frac{\alpha_t(h)}{\hat{\mu}_t}, \qquad \hat{\mu}_t = \text{EMA}\!\left[\frac{\|A_t h\|^2}{r\|h\|^2}\right]_{\text{training data of } t}$$
+
+Routing inference: $t^* = \arg\max_t \alpha_t^{\text{cal}}(h)$ (hard Top-1).
+
+**Điều kiện α-sufficiency (để inference routing đúng):**
+
+Routing của expert $t$ thắng tại inference nếu $\alpha_t^{\text{cal}}(h_t) > \alpha_s^{\text{cal}}(h_t)$ cho mọi $s \neq t$. Đây phụ thuộc vào:
+- Scale consistency: $\hat{\mu}_t$ ước lượng tốt $E[\alpha_t | h \sim p_t]$ → calibrated score ổn.
+- C5 advantage: $\alpha_t$ trên task-t data cao hơn $\alpha_s$ (s là task khác domain) → sau calibration vẫn win.
+- Same-domain limit: task cùng domain có $\alpha_t \approx \alpha_s$ ngay cả sau calibration — đây là giới hạn cấu trúc được thảo luận §3.10.
 
 ---
 
@@ -320,17 +331,13 @@ Null-space (sau $t-1$ tasks) là một không gian $d - N_{\text{protected}}$ ch
 
 **V8 thay đổi từ V7:** Cả training lẫn inference đều dùng **A-row formula** — loại bỏ hoàn toàn `prepare_inference_routing()` và SVD inference mismatch. Lý do từ Lemma 1 + Định lý 2: $A_t$ rows với C5 init đã là routing optimal directions; SVD của $B_tA_t$ chỉ thêm $\sigma^2$-weighting từ B optimization artifact, không có đảm bảo lý thuyết.
 
-**Routing formula (Training và Inference):**
+**Routing formula (Inference):**
 
-$$w(h) = \mathrm{softmax}\!\left(\frac{[\alpha_1(h),\; \ldots,\; \alpha_T(h)]}{\tau}\right)$$
+$$t^* = \arg\max_t \;\alpha_t^{\text{cal}}(h), \qquad \alpha_t^{\text{cal}}(h) = \frac{\|A_t h\|^2/r\|h\|^2}{\hat{\mu}_t}$$
 
-$$\alpha_t(h) = \frac{\|A_t\, h\|^2}{r\,\|h\|^2}, \qquad \text{(A-row affinity — cả train lẫn inference)}$$
+trong đó $\hat{\mu}_t$ là EMA fit scale thu thập khi training task $t$ (Calibration Normalization, §3.8).
 
-**Training** (task $t$ thêm adaptive bias):
-
-$$\alpha_t^{\mathrm{train}}(h) = \frac{\|A_t\, h\|^2}{r\,\|h\|^2} + \beta(n), \qquad \beta(n) = \tau \cdot \ln\!\left(\frac{\alpha_{\mathrm{target}} \cdot n}{1 - \alpha_{\mathrm{target}}}\right)$$
-
-trong đó $n = |\{\text{task cũ}\}|$ và $\alpha_{\mathrm{target}} \in (0,1)$ là routing weight mục tiêu cho task hiện tại (mặc định 0.8).
+**Training** (task $t$): oracle routing — current task luôn được gán weight=1.0 (§3.8).
 
 **Lý giải A-row routing (từ Lemma 1 + Định lý 2):**
 
@@ -346,9 +353,9 @@ $$\frac{E[\alpha_t^\text{C5}(h)]}{E[\alpha_t^\text{rand}(h)]} = \frac{d'}{r} \cd
 
 | Phase | Cơ chế routing | Notes |
 |-------|----------------|-------|
-| Training (task $t$) | $\|A_t h\|^2/(r\|h\|^2) + \beta(n)$ | $\beta$ bù softmax dilution |
-| **Inference (mọi task)** | **$\|A_t h\|^2/(r\|h\|^2)$** | **V8: không SVD, không $\sigma^2$-weighting** |
-| Đảm bảo lý thuyết | Định lý 3 margin bound + C5 advantage $44\times$ | Cả hai phase đều dùng cùng metric space |
+| Training (task $t$) | **Oracle: weight=1.0 cho current task** | Tránh GPM-Routing paradox kill gradient |
+| **Inference (mọi task)** | **Hard Top-1 calibrated A-row argmax** | **Calibration normalize scale; không SVD** |
+| Đảm bảo lý thuyết | Định lý 3 margin bound + C5 advantage $44\times$ | Inference routing dùng calibrated affinity |
 
 ### C3 — Capacity-Aware Subspace Allocation
 
@@ -537,7 +544,7 @@ $A_t$ này đảm bảo capture **variance task-relevant tối đa** trong null-
    - Tính projected covariance: $\tilde{C}_t = Q C_t Q$ ($Q = I - P_{\text{old}}$)
    - Eigenvectors của $\tilde{C}_t$ → khởi tạo $A_t$ (thay thế random Kaiming)
 3. InfLoRA: chuẩn hoá $A_t$ (đã nằm trong null-space từ eigenvector decomposition).
-4. Huấn luyện `lora_B` với A-row routing + adaptive bias $\beta(n)$ + gradient preconditioning (C4.1).
+4. Huấn luyện `lora_B` với **oracle routing** (current task weight=1.0) + gradient preconditioning (C4.1). EMA fit scale cho calibration normalization tự động được thu thập trong quá trình training.
 5. Sau training: cập nhật GPM bases (200 batches). **Không gọi `prepare_inference_routing()`** — $A_t$ đóng băng từ bước 2 là signature đủ dùng.
 6. Lưu tất cả artifacts cho task tiếp theo.
 
@@ -548,10 +555,11 @@ $A_t$ này đảm bảo capture **variance task-relevant tối đa** trong null-
 | Lý thuyết | Implementation | File |
 |-----------|---------------|------|
 | Spectral signature $\mathcal{S}_t = A_t$ | `lora_A` weights (frozen after C5 init) — **không cần SVD** | `t5_specroute.py` |
-| Spectral affinity $\alpha_t(h)$ (inference) | A-row fit: `(proj**2).sum(-1) / (r * h_norm_sq)` | `compute_spectral_routing()` |
-| A-row proxy $\alpha_t^{\mathrm{train}}$ (training) | A-row fit + adaptive bias $\beta(n)$ | `compute_spectral_routing()` |
+| Spectral affinity $\alpha_t(h)$ (inference) | Calibrated A-row fit: `fit / E_fit_ema`, hard Top-1 argmax | `compute_spectral_routing()` |
+| Oracle routing (training) | `weights[:, 0] = 1.0` — current task always selected | `compute_spectral_routing()` |
+| ~~A-row proxy $\alpha_t^{\mathrm{train}}$ + $\beta(n)$~~ | ~~A-row fit + adaptive bias~~ | **❌ Loại bỏ (V9 oracle training)** |
 | ~~Symmetric inference SVD~~ | ~~`prepare_inference_routing()` → SVD của $B_t A_t$~~ | **❌ Loại bỏ hoàn toàn (V8)** |
-| Routing $w = \mathrm{softmax}(\alpha / \tau)$ | `torch.softmax(fit_scores / temp)` | `compute_spectral_routing()` |
+| Calibration normalization $\hat{\mu}_t$ | EMA fit scale collected during training, stored in signatures | `compute_spectral_routing()` |
 | Drift-free input $h$ | `inputs_embeds = embed_tokens(input_ids)` → mean-pool | `T5Stack.forward()` |
 | GPM + InfLoRA null-space | `get_reg_matrix()` | `cl_trainer_specroute.py` |
 | Dynamic ESA threshold | `(1−ε₀)·t/T + ε₀` | `cl_trainer_specroute.py` |
@@ -569,7 +577,7 @@ $A_t$ này đảm bảo capture **variance task-relevant tối đa** trong null-
 | Benchmarks | SuperNI (15 tasks, 2 orderings), Long (15 tasks, 2 orderings) |
 | Metrics | AP (Average Performance, ↑), FT (Forgetting, ↓) |
 | LoRA | $r = 8$, target=Q+V, InfLoRA (chỉ B trained, A đóng băng) |
-| Routing | $\tau = 1.0$, $\alpha_{\mathrm{target}} = 0.8$, adaptive $\beta(n)$ (train); **A-row formula (inference, V8 — không SVD)** |
+| Routing | Oracle training (current task weight=1.0); Hard Top-1 calibrated A-row (inference) |
 | ESA | $\varepsilon_0 = 0.995$ (dynamic) |
 | C4 | Gradient preconditioning bật (`--use_preconditioning True`), $\epsilon = 10^{-6}$; entropy reg đã loại bỏ V7 |
 | **C5** | **N_batch = 100, `torch.linalg.eigh` trên projected covariance, fallback nếu max_eigval < 1e-6** |
