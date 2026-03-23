@@ -959,6 +959,7 @@ def main():
             precond_eps=model_args.precond_eps,
             entropy_warmup_ratio=model_args.entropy_warmup_ratio,
             n_batches_c5=model_args.n_batches_c5,
+            previous_lora_path=model_args.previous_lora_path
         )
         if training_args.do_train:
             if not model_args.run_single:  # C5 is only useful for tasks t>=2

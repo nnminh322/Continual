@@ -133,7 +133,8 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                  compute_metrics=None, callbacks=None,
                  lambda_entropy=0.0, use_preconditioning=False,
                  precond_eps=1e-6, entropy_warmup_ratio=0.1,
-                 n_batches_c5=100):
+                 n_batches_c5=100, previous_lora_path=None):
+        self.previous_lora_path = previous_lora_path
         if callbacks is None:
             callbacks = []
         callbacks.append(TransInputGPMCallback(self))
@@ -308,13 +309,42 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
 
     def load_previous_reg_matrix(self):
         """Load LoRA GPM bases from previous task. Also load trans_input GPM if learned routing."""
-        log_path = os.path.dirname(self.args.output_dir)
-        local_dir = os.path.basename(self.args.output_dir)
-        print(log_path)
-
-        all_dirs = os.listdir(log_path)
         reg_matrix = []
         reg_trans_matrix = []
+        log_path = os.path.dirname(self.args.output_dir)
+        local_dir = os.path.basename(self.args.output_dir)
+
+        # If explicit path provided, use it (comma separated for multiple past tasks)
+        if hasattr(self, "previous_lora_path") and self.previous_lora_path:
+            previous_lora_list = self.previous_lora_path.split(',')
+            # InfLoRA GPM bases are cumulative; we only need the bases from the immediately preceding task
+            # because InfLoRA's loading logic in ROOT/GainLoRA builds upon them.
+            # Actually, the specroute implementation loads reg_{i}.pt from the PREVIOUS task only.
+            last_task_path = previous_lora_list[-1]
+            
+            i = 0
+            for module in self.model.modules():
+                if hasattr(module, 'get_feature'):
+                    path = os.path.join(last_task_path, "reg_{}.pt".format(i))
+                    if os.path.exists(path):
+                        mat = torch.load(path, map_location='cpu')
+                        if torch.isnan(mat).any() or torch.isinf(mat).any():
+                            mat = torch.nan_to_num(mat, nan=0.0)
+                        reg_matrix.append(mat)
+                    i += 1
+            if getattr(self.model.encoder, "routing_mode", "") == "learned":
+                for name in ['reg_0.pt', 'reg_1.pt', 'reg_2.pt']:
+                    path = os.path.join(last_task_path, 'trans_input', name)
+                    if os.path.exists(path):
+                        mat = torch.load(path, map_location='cpu', weights_only=True)
+                        if torch.isnan(mat).any() or torch.isinf(mat).any():
+                            mat = torch.nan_to_num(mat, nan=0.0)
+                        reg_trans_matrix.append(mat)
+            
+            print(f"[GPM] Loaded bases from {last_task_path}")
+            return reg_matrix, reg_trans_matrix, len(previous_lora_list) - 1
+
+        all_dirs = os.listdir(log_path)
         for all_dir in all_dirs:
             if not os.path.isdir(os.path.join(log_path, all_dir)):
                 continue
@@ -322,14 +352,22 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 i = 0
                 for module in self.model.modules():
                     if hasattr(module, 'get_feature'):
-                        reg_matrix.append(torch.load(
-                            os.path.join(os.path.join(log_path, all_dir), "reg_{}.pt".format(i))
-                        ))
+                        path = os.path.join(os.path.join(log_path, all_dir), "reg_{}.pt".format(i))
+                        mat = torch.load(path, map_location='cpu')
+                        if torch.isnan(mat).any() or torch.isinf(mat).any():
+                            print(f'[GPM] WARNING: {path} contains NaN/Inf. Cleaning to 0.')
+                            mat = torch.nan_to_num(mat, nan=0.0, posinf=0.0, neginf=0.0)
+                        reg_matrix.append(mat)
                         i += 1
                 if getattr(self.model.encoder, "routing_mode", "") == "learned":
-                    reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_0.pt"), weights_only=True))
-                    reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_1.pt"), weights_only=True))
-                    reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_2.pt"), weights_only=True))
+                    for name in ['reg_0.pt', 'reg_1.pt', 'reg_2.pt']:
+                        path = os.path.join(log_path, all_dir, 'trans_input', name)
+                        if os.path.exists(path):
+                            mat = torch.load(path, map_location='cpu', weights_only=True)
+                            if torch.isnan(mat).any() or torch.isinf(mat).any():
+                                print(f'[GPM] WARNING: {path} contains NaN/Inf. Cleaning.')
+                                mat = torch.nan_to_num(mat, nan=0.0)
+                            reg_trans_matrix.append(mat)
 
                 print(os.path.join(log_path, all_dir))
                 print(len(reg_matrix))
@@ -380,10 +418,25 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                         P_old = feature_mat[index]                     # [step, step]
                         Q     = torch.eye(module.step, device=P_old.device) - P_old
                         C_tilde = Q @ C_t.to(P_old.device) @ Q
-                        # Enforce symmetry for numerical stability
+                        # Enforce symmetry and add tiny jitter for numerical stability
                         C_tilde = (C_tilde + C_tilde.T) * 0.5
-                        # eigh returns ascending eigenvalues; take last r (largest)
-                        eigvals, eigvecs = torch.linalg.eigh(C_tilde.float())
+                        # Guard against NaNs or Infs that might cause linalg.eigh to fail
+                        if torch.isnan(C_tilde).any() or torch.isinf(C_tilde).any():
+                            print(f'[C5] WARNING: Layer {i+1} index {index} contains NaN/Inf in C_tilde. Cleaning.')
+                            C_tilde = torch.nan_to_num(C_tilde, nan=0.0, posinf=0.0, neginf=0.0)
+                        
+                        # Add tiny diagonal jitter to prevent ill-conditioned matrix errors (error code 641)
+                        # Scaling jitter to mean magnitude of C_tilde
+                        jitter_scale = 1e-10 * (C_tilde.abs().mean() + 1e-12)
+                        C_tilde += jitter_scale * torch.eye(C_tilde.shape[0], device=C_tilde.device)
+                        
+                        try:
+                            # eigh returns ascending eigenvalues; take last r (largest)
+                            eigvals, eigvecs = torch.linalg.eigh(C_tilde.float())
+                        except torch._C._LinAlgError as e:
+                            print(f'[C5] WARNING: Layer {i+1} index {index} - linalg.eigh failed: {e}. Falling back.')
+                            continue
+
                         # Fallback: if null-space signal is degenerate, keep Kaiming init
                         if eigvals[-1].item() < 1e-6:
                             print(f'[C5] Layer {i+1} index {index}: max_eigval={eigvals[-1].item():.2e} < 1e-6, fallback to Kaiming+InfLoRA')
