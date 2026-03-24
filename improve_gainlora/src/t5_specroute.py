@@ -893,7 +893,7 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
             
         if 'lm_head.weight' in state_dict:
             model.lm_head.weight.data.copy_(state_dict['lm_head.weight'])
-        
+            
         # 5. Extract and load encoder/decoder stacks after stripping prefixes
         # Standard T5 has 'encoder.block.0...' but we need 'block.0...'
         encoder_state = {k[len('encoder.'):]: v for k, v in state_dict.items() if k.startswith('encoder.')}

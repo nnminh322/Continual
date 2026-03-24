@@ -638,24 +638,17 @@ class T5Attention(nn.Module):
         
         def agg_lora_states(hidden_states, lora_layer, pre_lora_layer, key_attention_weights):
             if pre_lora_layer is not None:
-                # Optimized memory: compute weighted sum iteratively to avoid huge concatenation
-                # key_attention_weights shape: [batch_size, n_tasks, 1]
+                cur_lora_states = lora_layer(hidden_states).unsqueeze(0)
+                with torch.no_grad():
+                    pre_lora_states = torch.cat([pre_lora(hidden_states).unsqueeze(0) for pre_lora in pre_lora_layer], dim=0)
+                concat_q = torch.cat([cur_lora_states, pre_lora_states], dim=0).transpose(0, 1).reshape(batch_size, -1, hidden_states.shape[1]*self.inner_dim)
+                agg_lora_states = torch.matmul(key_attention_weights.transpose(1, 2), concat_q).squeeze()
                 
-                # 1. Current expert
-                weights = key_attention_weights.squeeze(-1) # [batch_size, n_tasks]
-                agg_lora_states = lora_layer(hidden_states) * weights[:, 0].view(-1, 1, 1)
-                
-                # 2. Previous experts
-                for i, pre_lora in enumerate(pre_lora_layer):
-                    with torch.no_grad():
-                        agg_lora_states += pre_lora(hidden_states) * weights[:, i + 1].view(-1, 1, 1)
-                        
             else:
-                # Task 1: single expert
-                weights = key_attention_weights.squeeze(-1) # [batch_size, 1]
-                agg_lora_states = lora_layer(hidden_states) * weights[:, 0].view(-1, 1, 1)
+                cur_lora_states = lora_layer(hidden_states).unsqueeze(0).transpose(0, 1).reshape(batch_size, -1, hidden_states.shape[1]*self.inner_dim)
+                agg_lora_states = torch.matmul(key_attention_weights.transpose(1, 2), cur_lora_states).squeeze()
             
-            return agg_lora_states
+            return agg_lora_states.reshape(batch_size, -1, self.inner_dim)
 
         # modified
         if self.get_feature:
