@@ -681,8 +681,7 @@ class T5Attention(nn.Module):
                 position_bias = torch.zeros(
                     (1, self.n_heads, real_seq_length, key_length), device=scores.device, dtype=scores.dtype
                 )
-                if self.gradient_checkpointing and self.training:
-                    position_bias.requires_grad = True
+
             else:
                 position_bias = self.compute_bias(real_seq_length, key_length, device=scores.device)
 
