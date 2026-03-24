@@ -550,13 +550,6 @@ class T5Stack(T5PreTrainedModel):
         if not self.is_decoder and not self.prompt_config["run_single"]:
             if self.routing_mode == "learned":
                 key_attention_weights = self.compute_learned_routing(avg_inputs_embeds, batch_size)
-                # NOTE: NOT detached here — matching ROOT GainLoRA exactly.
-                # trans_input needs gradient flow through key_attention_weights to learn routing.
-                
-                if self.is_inference and self.previous_prompts_keys is not None:
-                    self.all_attn_weights.append(key_attention_weights.squeeze().mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy())
-                elif self.is_inference:
-                    self.all_attn_weights.append(key_attention_weights.squeeze(2).mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy())
             else:
                 if len(self.spectral_signatures) > 0:
                     h_norm_sq = (avg_inputs_embeds ** 2).sum(dim=-1) + 1e-8  # (B, 1)
@@ -564,22 +557,35 @@ class T5Stack(T5PreTrainedModel):
                         key_attention_weights = self.compute_grassmann_routing(avg_inputs_embeds, h_norm_sq)
                     else:
                         key_attention_weights = self.compute_spectral_routing(avg_inputs_embeds, h_norm_sq)
-                        
-                    key_attention_weights = key_attention_weights.detach()
-
-                    if self.is_inference:
-                        self.all_attn_weights.append(
-                            key_attention_weights.squeeze().mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy()
-                        )
                 else:
-                    # First task or no previous info: single LoRA, weight = 1
+                    # First task: expert is always 1.0
                     key_attention_weights = torch.ones(
                         batch_size, 1, 1, device=inputs_embeds.device, dtype=inputs_embeds.dtype
                     )
-                    if self.is_inference:
-                        self.all_attn_weights.append(
-                            key_attention_weights.squeeze(2).mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy()
-                        )
+
+            # ROUTING SELECTION during training:
+            if self.training:
+                if self.routing_mode == "learned":
+                    # For learned mode, use the network weights so it can update via backprop (ROOT behavior)
+                    # We rely on non-zero initialization and fp32 stability to avoid the zero-gradient trap.
+                    key_attention_weights = key_attention_weights
+                else:
+                    # For spectral/grassmann, use Oracle current task (index 0)
+                    oracle_weights = torch.zeros_like(key_attention_weights)
+                    oracle_weights[:, 0, 0] = 1.0
+                    key_attention_weights = key_attention_weights * 0.0 + oracle_weights
+            else:
+                # In inference, we detach for spectral/grassmann to avoid unintended training of bases
+                if self.routing_mode != "learned":
+                    key_attention_weights = key_attention_weights.detach()
+
+            # Logging weights during inference
+            if self.is_inference:
+                if key_attention_weights.shape[1] > 1:
+                    self.all_attn_weights.append(key_attention_weights.squeeze().mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy())
+                else:
+                    self.all_attn_weights.append(key_attention_weights.squeeze(2).mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy())
+
             self.key_attention_weights = key_attention_weights
         else:
             # Decoder or run_single: use whatever was passed (from encoder)
@@ -838,6 +844,75 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
 
     def get_decoder(self):
         return self.decoder
+
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path, prompt_config, *model_args, **kwargs):
+        """Custom loader to handle T5Stack and prefix-based state_dict mapping."""
+        # Force strict=False in kwargs if not present
+        kwargs.pop("strict", None)
+        
+        # 1. Initialize model skeleton
+        config = kwargs.get("config", T5Config.from_pretrained(pretrained_model_name_or_path))
+        model = cls(config, prompt_config)
+        
+        # 2. Determine weights file path using transformers utility
+        from transformers.utils import cached_file
+        import os
+        
+        try:
+            if os.path.isdir(pretrained_model_name_or_path):
+                # Local directory
+                if os.path.exists(os.path.join(pretrained_model_name_or_path, 'pytorch_model.bin')):
+                    weights_path = os.path.join(pretrained_model_name_or_path, 'pytorch_model.bin')
+                else:
+                    weights_path = os.path.join(pretrained_model_name_or_path, 'model.safetensors')
+            else:
+                # Hub model
+                try:
+                    weights_path = cached_file(pretrained_model_name_or_path, 'pytorch_model.bin')
+                except:
+                    weights_path = cached_file(pretrained_model_name_or_path, 'model.safetensors')
+        except Exception as e:
+            print(f"[SpecRoute] Error finding weights for {pretrained_model_name_or_path}: {e}")
+            return model
+
+        # 3. Load state_dict
+        if weights_path.endswith('.safetensors'):
+            from safetensors.torch import load_file
+            state_dict = load_file(weights_path, device='cpu')
+        else:
+            state_dict = torch.load(weights_path, weights_only=True, map_location='cpu')
+        
+        # 4. Correctly map state_dict keys to model members
+        # tied weights usually use 'shared.weight'
+        if 'shared.weight' in state_dict:
+            model.shared.weight.data.copy_(state_dict['shared.weight'])
+        elif 'encoder.embed_tokens.weight' in state_dict:
+            # Fallback if names are different
+            model.shared.weight.data.copy_(state_dict['encoder.embed_tokens.weight'])
+            
+        if 'lm_head.weight' in state_dict:
+            model.lm_head.weight.data.copy_(state_dict['lm_head.weight'])
+        
+        # 5. Extract and load encoder/decoder stacks after stripping prefixes
+        # Standard T5 has 'encoder.block.0...' but we need 'block.0...'
+        encoder_state = {k[len('encoder.'):]: v for k, v in state_dict.items() if k.startswith('encoder.')}
+        decoder_state = {k[len('decoder.'):]: v for k, v in state_dict.items() if k.startswith('decoder.')}
+        
+        if not encoder_state: 
+            # If state_dict already flat (unlikely for T5-small hub but possible for custom checkpoints)
+            encoder_state = state_dict
+        if not decoder_state: 
+            decoder_state = state_dict
+        
+        # Load with strict=False to allow for LoRA params missing in base file
+        load_info_enc = model.encoder.load_state_dict(encoder_state, strict=False)
+        load_info_dec = model.decoder.load_state_dict(decoder_state, strict=False)
+        
+        print(f"[SpecRoute] Weights loaded from {weights_path}")
+        print(f"  Encoder missing keys: {len(load_info_enc.missing_keys)} (expected: {model.prompt_config['lora_r']*2*model.config.num_layers*2 if not model.prompt_config['run_single'] else 0})")
+        
+        return model
 
     def forward(
         self,
