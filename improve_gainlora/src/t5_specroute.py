@@ -539,6 +539,12 @@ class T5Stack(T5PreTrainedModel):
         if not self.is_decoder and not self.prompt_config["run_single"]:
             if self.routing_mode == "learned":
                 key_attention_weights = self.compute_learned_routing(avg_inputs_embeds, batch_size)
+                # CRITICAL: Detach routing weights to prevent gradient from flowing back
+                # through the LoRA aggregation chain into trans_input.
+                # trans_input receives gradients only via avg_inputs_embeds path (at encoder input),
+                # NOT indirectly through thousands of matmul chains inside T5Attention.
+                # Without detach: gradient paths leak through key_attention_weights → exploding NaN.
+                key_attention_weights = key_attention_weights.detach()
                 
                 if self.is_inference and self.previous_prompts_keys is not None:
                     self.all_attn_weights.append(key_attention_weights.squeeze().mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy())

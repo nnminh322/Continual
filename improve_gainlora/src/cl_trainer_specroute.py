@@ -101,11 +101,11 @@ class TransInputGPMCallback(TrainerCallback):
             from copy import deepcopy
             new_trans_input_0 = deepcopy(self.trainer.model.encoder.trans_input[0].weight.detach())
             new_trans_input_1 = deepcopy(self.trainer.model.encoder.trans_input[2].weight.detach())
-            new_trans_input_0norm = new_trans_input_0.norm(dim=1, keepdim=True)
-            new_trans_input_1norm = new_trans_input_1.norm(dim=1, keepdim=True)
+            new_trans_input_0norm = new_trans_input_0.norm(dim=1, keepdim=True).clamp(min=1e-12)
+            new_trans_input_1norm = new_trans_input_1.norm(dim=1, keepdim=True).clamp(min=1e-12)
 
             new_prompt_key = deepcopy(self.trainer.model.encoder.prompt_key.detach())
-            new_prompt_key_norm = new_prompt_key.norm(dim=1, keepdim=True)
+            new_prompt_key_norm = new_prompt_key.norm(dim=1, keepdim=True).clamp(min=1e-12)
             
             old_trans_input_0 = self.trainer._old_trans_input_0
             old_trans_input_1 = self.trainer._old_trans_input_1
@@ -116,9 +116,15 @@ class TransInputGPMCallback(TrainerCallback):
                 new_prompt_key[:,index*self.trainer.model.encoder.step:(index+1)*self.trainer.model.encoder.step] = self.trainer.model.encoder.prompt_key.detach()[:,index*self.trainer.model.encoder.step:(index+1)*self.trainer.model.encoder.step] - torch.mm(self.trainer.model.encoder.prompt_key.detach()[:,index*self.trainer.model.encoder.step:(index+1)*self.trainer.model.encoder.step]-old_prompt_key[:,index*self.trainer.model.encoder.step:(index+1)*self.trainer.model.encoder.step], self.trainer.feature_trans_mat[2][index])
             new_trans_input_1 = self.trainer.model.encoder.trans_input[2].weight.detach() - torch.mm(self.trainer.model.encoder.trans_input[2].weight.detach()-old_trans_input_1, self.trainer.feature_trans_mat[1])
 
-            new_trans_input_0 = new_trans_input_0*new_trans_input_0norm / new_trans_input_0.norm(dim=1, keepdim=True).clamp(min=1e-12)
-            new_trans_input_1 = new_trans_input_1*new_trans_input_1norm / new_trans_input_1.norm(dim=1, keepdim=True).clamp(min=1e-12)
-            new_prompt_key = new_prompt_key*new_prompt_key_norm / new_prompt_key.norm(dim=1, keepdim=True).clamp(min=1e-12)
+            new_trans_input_0 = torch.nan_to_num(
+                new_trans_input_0 * new_trans_input_0norm / new_trans_input_0.norm(dim=1, keepdim=True).clamp(min=1e-12),
+                nan=0.0, posinf=0.0, neginf=0.0)
+            new_trans_input_1 = torch.nan_to_num(
+                new_trans_input_1 * new_trans_input_1norm / new_trans_input_1.norm(dim=1, keepdim=True).clamp(min=1e-12),
+                nan=0.0, posinf=0.0, neginf=0.0)
+            new_prompt_key = torch.nan_to_num(
+                new_prompt_key * new_prompt_key_norm / new_prompt_key.norm(dim=1, keepdim=True).clamp(min=1e-12),
+                nan=0.0, posinf=0.0, neginf=0.0)
 
             self.trainer.model.encoder.trans_input[0].weight.data.copy_(new_trans_input_0)
             self.trainer.model.encoder.trans_input[2].weight.data.copy_(new_trans_input_1)
