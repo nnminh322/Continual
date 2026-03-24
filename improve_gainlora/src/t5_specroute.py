@@ -235,10 +235,21 @@ class T5Stack(T5PreTrainedModel):
 
     def cal_attention(self, prompt_key, x, return_logits=False):
         # ROOT-style routing similarity
-        x = x/(x.norm(dim=-1,keepdim=True) + 1e-12)
-        prompt_key = prompt_key/(prompt_key.norm(dim=-1,keepdim=True) + 1e-12)
-        attn_scores = (x*prompt_key).sum(dim=-1, keepdim=True)
-        weights = torch.abs(torch.nn.functional.sigmoid(attn_scores*4)*2-1)
+        # Force float32 to prevent underflow/overflow in fp16/bf16 on H100
+        x_fp32 = x.float()
+        prompt_key_fp32 = prompt_key.float()
+        
+        # Add epsilon to prevent div-by-zero, clamp to prevent extreme values
+        x_norm = x_fp32 / (x_fp32.norm(dim=-1, keepdim=True).clamp_min(1e-12))
+        prompt_key_norm = prompt_key_fp32 / (prompt_key_fp32.norm(dim=-1, keepdim=True).clamp_min(1e-12))
+        
+        attn_scores = (x_norm * prompt_key_norm).sum(dim=-1, keepdim=True)
+        # Scaled sigmoid gating exact to ROOT GainLoRA
+        weights_fp32 = torch.abs(torch.nn.functional.sigmoid(attn_scores * 4.0) * 2.0 - 1.0)
+        
+        weights = weights_fp32.to(x.dtype)
+        attn_scores = attn_scores.to(x.dtype)
+        
         if not return_logits:
             return weights
         else:

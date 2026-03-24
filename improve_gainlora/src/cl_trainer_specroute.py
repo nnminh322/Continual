@@ -117,14 +117,14 @@ class TransInputGPMCallback(TrainerCallback):
             new_trans_input_1 = self.trainer.model.encoder.trans_input[2].weight.detach() - torch.mm(self.trainer.model.encoder.trans_input[2].weight.detach()-old_trans_input_1, self.trainer.feature_trans_mat[1])
 
             new_trans_input_0 = torch.nan_to_num(
-                new_trans_input_0 * new_trans_input_0norm / new_trans_input_0.norm(dim=1, keepdim=True).clamp(min=1e-12),
-                nan=0.0, posinf=0.0, neginf=0.0)
+                new_trans_input_0.float() * new_trans_input_0norm.float() / new_trans_input_0.float().norm(dim=1, keepdim=True).clamp_min(1e-12),
+                nan=0.0, posinf=0.0, neginf=0.0).to(new_trans_input_0.dtype)
             new_trans_input_1 = torch.nan_to_num(
-                new_trans_input_1 * new_trans_input_1norm / new_trans_input_1.norm(dim=1, keepdim=True).clamp(min=1e-12),
-                nan=0.0, posinf=0.0, neginf=0.0)
+                new_trans_input_1.float() * new_trans_input_1norm.float() / new_trans_input_1.float().norm(dim=1, keepdim=True).clamp_min(1e-12),
+                nan=0.0, posinf=0.0, neginf=0.0).to(new_trans_input_1.dtype)
             new_prompt_key = torch.nan_to_num(
-                new_prompt_key * new_prompt_key_norm / new_prompt_key.norm(dim=1, keepdim=True).clamp(min=1e-12),
-                nan=0.0, posinf=0.0, neginf=0.0)
+                new_prompt_key.float() * new_prompt_key_norm.float() / new_prompt_key.float().norm(dim=1, keepdim=True).clamp_min(1e-12),
+                nan=0.0, posinf=0.0, neginf=0.0).to(new_prompt_key.dtype)
 
             self.trainer.model.encoder.trans_input[0].weight.data.copy_(new_trans_input_0)
             self.trainer.model.encoder.trans_input[2].weight.data.copy_(new_trans_input_1)
