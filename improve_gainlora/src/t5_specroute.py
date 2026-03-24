@@ -663,8 +663,13 @@ class T5Stack(T5PreTrainedModel):
             if self.gradient_checkpointing and self.training:
                 def create_custom_forward(module):
                     def custom_forward(*inputs):
-                        return tuple(module(*inputs, use_cache, output_attentions,
-                                            key_attention_weights=key_attention_weights))
+                        # inputs = (hidden_states, attn_mask, pos_bias, enc_hs, enc_attn_mask, enc_dec_pos_bias, layer_head_mask, cross_attn_head_mask, None, key_attn_weights)
+                        return tuple(module(inputs[0], attention_mask=inputs[1], position_bias=inputs[2],
+                                            encoder_hidden_states=inputs[3], encoder_attention_mask=inputs[4],
+                                            encoder_decoder_position_bias=inputs[5], layer_head_mask=inputs[6],
+                                            cross_attn_layer_head_mask=inputs[7], past_key_value=inputs[8],
+                                            use_cache=use_cache, output_attentions=output_attentions,
+                                            key_attention_weights=inputs[9]))
                     return custom_forward
                 # Use _gradient_checkpointing_func (set by new-format
                 # gradient_checkpointing_enable) if available, else fallback
@@ -681,6 +686,7 @@ class T5Stack(T5PreTrainedModel):
                         layer_head_mask,
                         cross_attn_layer_head_mask,
                         None,
+                        key_attention_weights,
                     )
                 else:
                     layer_outputs = checkpoint(
@@ -694,7 +700,8 @@ class T5Stack(T5PreTrainedModel):
                         layer_head_mask,
                         cross_attn_layer_head_mask,
                         None,
-                        use_reentrant=False,
+                        key_attention_weights,
+                        use_reentrant=True,
                     )
             else:
                 layer_outputs = layer_module(
