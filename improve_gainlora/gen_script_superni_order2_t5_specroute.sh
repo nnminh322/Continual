@@ -49,9 +49,14 @@ elif [ "$GPU_MEM" -gt 16000 ]; then
     echo "[GPU] Strategy: P100 16GB (fp32 + gradient_checkpointing)"
 else
     GPU_MODE="a100"
-    GPU_IDS="${1:-0}"
+    if [ "$NUM_GPUS" -ge 2 ]; then
+        GPU_IDS="0,1"
+        echo "[GPU] Strategy: ${NUM_GPUS}x ${GPU_MEM}MB DataParallel (RTX3090/A100, fp32)"
+    else
+        GPU_IDS="${1:-0}"
+        echo "[GPU] Strategy: 1x ${GPU_MEM}MB GPU (fp32)"
+    fi
     FP16_FLAG=""
-    echo "[GPU] Strategy: A100 (single GPU, fp32)"
 fi
 
 echo "[GPU] Using CUDA_VISIBLE_DEVICES=$GPU_IDS"
