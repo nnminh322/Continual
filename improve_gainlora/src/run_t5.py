@@ -839,10 +839,11 @@ def main():
         return result
     print(f"-----Gradient checkpointing: {training_args.gradient_checkpointing} -----")
     if training_args.gradient_checkpointing:
-        # use_reentrant=False: don't require input requires_grad=True
-        # Recommended by PyTorch 2.5+ (will be mandatory in future versions)
+        # use_reentrant=True: allows backward through graph 2x (needed for SpecRoute + PEFT)
+        # When key_attention_weights passes through checkpointed layers, reentrant mode
+        # handles the complex computation graph without "backward second time" errors
         model.gradient_checkpointing_enable(
-            gradient_checkpointing_kwargs={"use_reentrant": False}
+            gradient_checkpointing_kwargs={"use_reentrant": True}
         )
         model.enable_input_require_grads()
 
