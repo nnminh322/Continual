@@ -320,6 +320,13 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
         log_path = os.path.dirname(self.args.output_dir)
         local_dir = os.path.basename(self.args.output_dir)
 
+        # CRITICAL: Task 1 (cur_task_id=0) has NO previous task. Return empty immediately.
+        # Without this guard, stale directories from previous experiment runs
+        # (e.g., 0-yelp from a crashed run) can be mistakenly loaded as "previous task".
+        if self.cur_task_id == 0:
+            print(f"[GPM] Task 1 (cur_task_id=0): no previous task to load.")
+            return reg_matrix, reg_trans_matrix, -1
+
         # If explicit path provided, use it (comma separated for multiple past tasks)
         if hasattr(self, "previous_lora_path") and self.previous_lora_path:
             previous_lora_list = self.previous_lora_path.split(',')
