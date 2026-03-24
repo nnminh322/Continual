@@ -574,10 +574,10 @@ class T5Stack(T5PreTrainedModel):
                     oracle_weights = torch.zeros_like(key_attention_weights)
                     oracle_weights[:, 0, 0] = 1.0
                     key_attention_weights = key_attention_weights * 0.0 + oracle_weights
-            else:
-                # In inference, we detach for spectral/grassmann to avoid unintended training of bases
-                if self.routing_mode != "learned":
-                    key_attention_weights = key_attention_weights.detach()
+            # In inference or non-learned training, we detach to avoid 
+            # "backward through graph second time" error with checkpointing.
+            if self.routing_mode != "learned":
+                key_attention_weights = key_attention_weights.detach()
 
             # Logging weights during inference
             if self.is_inference:

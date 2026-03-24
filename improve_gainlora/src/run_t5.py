@@ -987,14 +987,7 @@ def main():
             _a_ok = _lora.lora_A.data.norm().item() > 0
             print(f"  lora_A norm={_lora.lora_A.data.norm().item():.6f}, requires_grad={_lora.lora_A.requires_grad} {'OK' if _a_ok else 'ZERO - BUG!'}")
             print(f"  lora_B norm={_lora.lora_B.data.norm().item():.6f}, requires_grad={_lora.lora_B.requires_grad}")
-            # Quick forward+backward test
-            _test_x = torch.randn(1, 3, _lora.lora_A.shape[1], device=device)
-            _lora.lora_B.grad = None
-            _y = _lora(_test_x)
-            _y.sum().backward()
-            _b_grad = _lora.lora_B.grad.norm().item() if _lora.lora_B.grad is not None else 0
-            print(f"  lora_B.grad norm={_b_grad:.6e} {'OK' if _b_grad > 0 else 'ZERO - BUG!'}")
-            model.zero_grad()
+
             if not _a_ok:
                 raise RuntimeError("lora_A is all zeros! from_pretrained no_init_weights fix failed.")
         print("=" * 60)
