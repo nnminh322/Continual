@@ -638,31 +638,24 @@ class T5Attention(nn.Module):
         
         def agg_lora_states(hidden_states, lora_layer, pre_lora_layer, key_attention_weights):
             if pre_lora_layer is not None:
-                cur_lora_states = lora_layer(hidden_states).unsqueeze(0)
-                with torch.no_grad():
-                    pre_lora_states = torch.cat([pre_lora(hidden_states).unsqueeze(0) for pre_lora in pre_lora_layer], dim=0)
-                concat_q = torch.cat([cur_lora_states, pre_lora_states], dim=0).transpose(0, 1).reshape(batch_size, -1, hidden_states.shape[1]*self.inner_dim)
-                # if not self.training:
-                #     print("ori", key_attention_weights[0])
+                # Optimized memory: compute weighted sum iteratively to avoid huge concatenation
+                # key_attention_weights shape: [batch_size, n_tasks, 1]
                 
-                # if not self.training:
-                    # key_attention_weights = torch.tensor([[0.05, 0.95]]).repeat(batch_size, 1, 1).to(dtype=torch.bfloat16, device=concat_q.device).transpose(1, 2)
-                    # print("oral", key_attention_weights[0])
-                    # print("-"*20)
-                # import ipdb
-                agg_lora_states = torch.matmul(key_attention_weights.transpose(1, 2), concat_q).squeeze()
-                # if not self.training:
-                #     # key_attention_weights = torch.tensor([[0, 1]]).repeat(batch_size, 1, 1).to(dtype=torch.bfloat16, device=concat_q.device)
-                #     # key_attention_weights = key_attention_weights.transpose(1, 2)
-                    
-                #     agg_lora_states = pre_lora_states
+                # 1. Current expert
+                weights = key_attention_weights.squeeze(-1) # [batch_size, n_tasks]
+                agg_lora_states = lora_layer(hidden_states) * weights[:, 0].view(-1, 1, 1)
                 
+                # 2. Previous experts
+                for i, pre_lora in enumerate(pre_lora_layer):
+                    with torch.no_grad():
+                        agg_lora_states += pre_lora(hidden_states) * weights[:, i + 1].view(-1, 1, 1)
+                        
             else:
-                # ipdb.set_trace()
-                cur_lora_states = lora_layer(hidden_states).unsqueeze(0).transpose(0, 1).reshape(batch_size, -1, hidden_states.shape[1]*self.inner_dim)
-                agg_lora_states = torch.matmul(key_attention_weights.transpose(1, 2), cur_lora_states).squeeze()
+                # Task 1: single expert
+                weights = key_attention_weights.squeeze(-1) # [batch_size, 1]
+                agg_lora_states = lora_layer(hidden_states) * weights[:, 0].view(-1, 1, 1)
             
-            return agg_lora_states.reshape(batch_size, -1, self.inner_dim)
+            return agg_lora_states
 
         # modified
         if self.get_feature:
