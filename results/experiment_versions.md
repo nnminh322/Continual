@@ -377,3 +377,120 @@ V8 fail imdb/sst2/yahoo do B_t không học (gradient bị block). V9 oracle rou
 ### V10b (Grassmannian Distance Routing - The Zero-Replay Ideal)
 - **Method**: Evaluates similarity by computing the Grassmannian distance (principal angles) between the batch's local principal subspace $U_{batch}$ and expert orthogonal projection $U_A$.
 - **Why**: Directly measures subset geometric alignment, entirely bypassing scale-based similarity issues (GPM-Routing paradox). Batch-level SVD aggregates representations properly. Valid for batched inference ($B \ge 8$), falling back to A-row for small batches.
+
+### V10a Results
+
+| Task | Final EM | Best EM | Forgetting |
+|------|------:|------:|------:|
+| yelp | 33.45 | 56.49 | 23.04 |
+| amazon | 35.37 | 53.05 | 17.68 |
+| mnli | 30.54 | 49.11 | 18.57 |
+| cb | 0.00 | 57.14 | 57.14 |
+| copa | 55.00 | 55.00 | 0.00 |
+| qqp | 11.95 | 78.84 | 66.89 |
+| rte | 10.11 | 57.76 | 47.65 |
+| imdb | 89.89 | 91.51 | 1.62 |
+| sst2 | 65.25 | 88.88 | 23.62 |
+| dbpedia | 40.70 | 98.47 | 57.78 |
+| agnews | 42.67 | 90.05 | 47.38 |
+| yahoo | 61.88 | 66.01 | 4.13 |
+| multirc | 43.13 | 59.12 | 15.99 |
+| boolq | 62.45 | 62.45 | 0.00 |
+| wic | 56.43 | 56.43 | 0.00 |
+| **Cl (EM)** | **42.59** | | **27.25** |
+
+**V10a is CATASTROPHIC**: Cl=42.59 (vs ROOT 59.70), FT=27.25 (vs ROOT ~low, V5 0.91).
+
+### V10a Root Cause Analysis
+
+**100% of forgetting comes from routing failure**, not weight overwriting (LoRA B matrices for old tasks are frozen in `previous_lora_weights`).
+
+**Three critical differences from ROOT:**
+
+1. **TransInputGPMCallback (THE KILLER)**: V10a applies GPM projection to `trans_input` + `prompt_key` every training step with threshold=0.995. By task 9, ~95% of routing feature space is locked → routing effectively frozen → cannot distinguish new tasks. ROOT does NOT constrain routing during training.
+
+2. **Missing prompt_key re-initialization**: ROOT re-initializes `prompt_key` before each task using SVD of trans_input output covariance (task 1) or random-in-null-space (task 2+). V10a starts from `nn.init.uniform_(-1, 1)` every task → no data-informed, orthogonal starting point.
+
+3. **No trans_input covariance collection**: ROOT collects 1000 batches of trans_input feature covariance for prompt_key initialization. V10a only collects LoRA covariance (for C5).
+
+**The deadly combination**: Random prompt_key + Over-constrained routing = Bad starting point + Cannot learn = Routing failure = Catastrophic forgetting.
+
+---
+
+## V11 — ROOT Routing + C5 Init + Advanced Inference Routing
+
+### Motivation
+
+V10a proved that GPM on routing is fundamentally wrong: routing needs discriminative capacity, not orthogonality constraints. V11 reverts to ROOT's proven routing mechanism while keeping C5 (data-informed LoRA A init) and C4 (gradient preconditioning) for improved per-task expert quality. Additionally, V11 introduces two advanced inference-time routing strategies grounded in information theory.
+
+### Base Fix (all V11 variants)
+1. **Disable TransInputGPMCallback**: `use_routing_gpm = False` (default)
+2. **ROOT-style prompt_key re-init**: SVD of trans_input output covariance (task 1) or null-space random SVD (task 2+)
+3. **Keep C5**: Data-informed A init via Constrained PCA in null-space
+4. **Keep C4**: Gradient preconditioning (AA^T + εI)^{-1/2}
+
+### V11a: Base (ROOT routing + C5)
+**Script**: `T5_small/gen_script_long_order3_t5_small_specroute_v11a.sh`
+**Args**: `--routing_mode learned --routing_strategy base`
+**Expected**: ≈ ROOT AP (routing identical), potentially better due to C5.
+
+### V11b: Softmax Routing Normalization (Option B)
+
+**Script**: `T5_small/gen_script_long_order3_t5_small_specroute_v11b.sh`
+**Args**: `--routing_mode learned --routing_strategy softmax --routing_temp 0.1`
+
+**Mathematical formulation:**
+ROOT uses independent sigmoid routing: $w_k = |\sigma(4 \cos(x_k, p_k)) \cdot 2 - 1|$.
+Each task gets weight in [0,1] independently → multiple experts may contribute equally → cross-expert interference.
+
+V11b converts to competitive softmax gating (standard MoE):
+$$p_k = \frac{\exp(s_k / \tau)}{\sum_j \exp(s_j / \tau)}$$
+where $s_k = \text{logit}(w_k) = \log w_k - \log(1 - w_k)$ and $\tau$ is temperature.
+
+**Information-theoretic justification:**
+Let $Y$ = model output, $T$ = task, $X$ = input. Output: $Y = \sum_k p_k f_k(X)$.
+$$H(Y|X) \geq \sum_k p_k H(f_k(X)|X) \quad \text{(concavity of entropy)}$$
+Cross-expert interference term: $\sum_{j \neq k} p_j \|f_j(X) - f_k(X)\|^2$.
+Minimizing this ≡ concentrating $p$ on argmax (one expert dominates) ≡ lower $\tau$.
+In the limit $\tau \to 0$: softmax → argmax (hard top-1 routing, zero interference).
+
+**Expected improvement**: Lower FT due to sharper expert selection.
+
+### V11c: Product-of-Experts Ensemble (Option C)
+
+**Script**: `T5_small/gen_script_long_order3_t5_small_specroute_v11c.sh`
+**Args**: `--routing_mode learned --routing_strategy ensemble --routing_temp 0.1 --ensemble_weight 0.7`
+
+**Mathematical formulation:**
+Fuse learned ($p_L$) and spectral ($p_S$) routing via Product-of-Experts (Hinton, 2002):
+$$p_{\text{ens}}(T=k|x) \propto p_L(T=k|x)^\gamma \cdot p_S(T=k|x)^{1-\gamma}$$
+In log space:
+$$\log p_{\text{ens}} = \gamma \cdot \frac{s_L^{(k)}}{\tau} + (1-\gamma) \cdot \frac{s_S^{(k)}}{\tau} + \text{const}$$
+
+**Bayesian justification:**
+If learned and spectral routing encode independent evidence about task identity $T$:
+$$p(T|x) \propto p_L(T|x) \cdot p_S(T|x) \quad \text{(posterior = product of likelihoods)}$$
+This is the classical Product-of-Experts derivation (assuming uniform prior on T).
+
+**Complementary error profiles:**
+- Learned routing: excels on recently trained tasks (MLP adapts); degrades on distant old tasks (feature drift)
+- Spectral routing: parameter-free → zero drift; weaker on same-domain tasks (GPM forces $A_k \perp A_j$)
+- When both agree: high confidence → nearly always correct
+- When they disagree: hedged prediction → reduces worst-case error
+
+**Channel capacity argument:**
+Each routing method has limited channel capacity $C_L, C_S$ for encoding task identity.
+Ensemble capacity: $C_{\text{ens}} \geq \max(C_L, C_S)$ (data processing inequality) with equality iff one subsumes the other.
+Since learned and spectral use orthogonal feature spaces (MLP output vs A-row projection), $C_{\text{ens}} > \max(C_L, C_S)$.
+
+**Expected improvement**: Both AP ↑ (better routing accuracy) and FT ↓ (spectral stabilizes learned).
+
+### Hyperparameters
+All V11 variants:
+- lora_r = 8, lora_alpha = 32
+- lr = 3e-4, epochs = 10
+- threshold = 0.995, transthreshold = 0.995
+- mlp_hidden_dim = 100
+
+V11b specific: routing_temp = 0.1
+V11c specific: routing_temp = 0.1, ensemble_weight = 0.7

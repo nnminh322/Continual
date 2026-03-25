@@ -18,6 +18,7 @@ from torch.utils.data.distributed import DistributedSampler
 from transformers import GenerationConfig
 from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.trainer import *
+from typing import Optional, List, Tuple
 from transformers.trainer_pt_utils import (
     nested_truncate, nested_concat, nested_numpify,
     find_batch_size,
@@ -82,11 +83,15 @@ class PeriodicGCCallback(TrainerCallback):
 
 
 class TransInputGPMCallback(TrainerCallback):
-    """V10a: Apply GPM projection to trans_input and prompt_key after optimizer step."""
+    """V10a: Apply GPM projection to trans_input and prompt_key after optimizer step.
+    V11: Disabled by default (use_routing_gpm=False). Hard GPM on routing kills
+    discriminative capacity → catastrophic forgetting. See V10a analysis."""
     def __init__(self, trainer):
         self.trainer = trainer
 
     def on_step_begin(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+        if not getattr(self.trainer, "use_routing_gpm", False):
+            return control
         if getattr(self.trainer, "cur_task_id", 0) > 1 and getattr(self.trainer.model.encoder, "routing_mode", "") == "learned":
             from copy import deepcopy
             self.trainer._old_trans_input_0 = deepcopy(self.trainer.model.encoder.trans_input[0].weight.detach())
@@ -94,6 +99,8 @@ class TransInputGPMCallback(TrainerCallback):
             self.trainer._old_prompt_key = deepcopy(self.trainer.model.encoder.prompt_key.detach())
 
     def on_step_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+        if not getattr(self.trainer, "use_routing_gpm", False):
+            return control
         if getattr(self.trainer, "cur_task_id", 0) > 1 and getattr(self.trainer.model.encoder, "routing_mode", "") == "learned":
             if not hasattr(self.trainer, "feature_trans_mat") or not self.trainer.feature_trans_mat:
                 return
@@ -313,6 +320,109 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
 
         print(f'[C5] Covariance collected for {len(self._task_covariance)} layers.')
 
+    # ================================================================
+    # V11: ROOT-style Prompt-Key Re-initialization
+    # ================================================================
+
+    def _reinit_prompt_key(self):
+        """Re-initialize prompt_key using SVD of trans_input output covariance.
+
+        ROOT's key insight: prompt_key must be in the null-space of previous
+        routing features to ensure orthogonal task separation.
+
+        Task 1: prompt_key = top eigenvector of trans_input output covariance C_3.
+          This aligns the routing key with the dominant direction of the MLP's
+          output space → maximizes discriminability for the first task.
+          Formally: p_1 = argmax_{||p||=1} p^T C_3 p (Rayleigh quotient)
+
+        Task t>1: prompt_key = top eigenvector of random matrix projected into
+          null-space of old routing features.
+          p_t = U_1 of SVD(Q_old · R) where Q_old = I - P_old, R ~ N(0,1)
+          This guarantees: p_t ⊥ span({p_1,...,p_{t-1}}) up to GPM threshold.
+        """
+        module = self.model.encoder
+        if not hasattr(module, 'prompt_key'):
+            return
+
+        # Ensure chunk dimensions are set up
+        module.get_chunk(self.args.chunk)
+
+        # Collect trans_input output covariance (200 batches)
+        module.get_trans_feature = True
+        module.stage_trans = 0
+
+        print('[V11] Collecting trans_input covariance for prompt_key init...')
+        train_dataloader = self.get_train_dataloader()
+        if isinstance(train_dataloader, DataLoader) and isinstance(
+            train_dataloader.sampler, DistributedSampler
+        ):
+            train_dataloader.sampler.set_epoch(77)
+
+        with torch.no_grad():
+            for step, inputs in enumerate(train_dataloader):
+                inputs = self._prepare_inputs(inputs)
+                inputs.pop('labels', None)
+                self.model(**inputs)
+                if step >= 200:
+                    break
+
+        pre_norm = module.prompt_key.detach().norm()
+
+        if len(self.feature_trans_list) == 0:
+            # === TASK 1: Data-informed init ===
+            # prompt_key = top eigenvector of output covariance (matrix_trans_3)
+            for index in module.matrix_trans_3.keys():
+                cur_trans_matrix = module.matrix_trans_3[index]
+                cur_trans_matrix = torch.nan_to_num(cur_trans_matrix, nan=0.0, posinf=1e6, neginf=-1e6)
+                try:
+                    U, S, V = torch.linalg.svd(cur_trans_matrix)
+                except Exception:
+                    cpu_mat = cur_trans_matrix.detach().cpu().float()
+                    U, S, V = torch.linalg.svd(cpu_mat)
+                    U = U.to(device=cur_trans_matrix.device, dtype=cur_trans_matrix.dtype)
+                module.prompt_key.data[:, index*module.step:(index+1)*module.step].copy_(U[:, :1].T)
+            print('[V11] Task 1: prompt_key = top eigvec of trans_input output covariance.')
+        else:
+            # === TASK t>1: Null-space orthogonal init ===
+            # Build projection matrix P_old from saved routing GPM bases
+            feature_trans_mat_2 = {}
+            if len(self.feature_trans_list) >= 3:
+                for index in self.feature_trans_list[2].keys():
+                    feature_trans_mat_2[index] = torch.mm(
+                        self.feature_trans_list[2][index],
+                        self.feature_trans_list[2][index].T
+                    ).to("cuda:0")
+
+            for index in module.matrix_trans_3.keys():
+                cur_trans_matrix = torch.randn_like(module.matrix_trans_3[index])
+                if index in feature_trans_mat_2:
+                    # Q_old * R: project random matrix into null-space
+                    cur_trans_matrix = cur_trans_matrix - torch.mm(
+                        feature_trans_mat_2[index], cur_trans_matrix
+                    )
+                try:
+                    U, S, V = torch.linalg.svd(cur_trans_matrix)
+                except Exception:
+                    cpu_mat = cur_trans_matrix.detach().cpu().float()
+                    U, S, V = torch.linalg.svd(cpu_mat)
+                    U = U.to(device=cur_trans_matrix.device, dtype=cur_trans_matrix.dtype)
+                module.prompt_key.data[:, index*module.step:(index+1)*module.step].copy_(U[:, :1].T)
+            print(f'[V11] Task {self.cur_task_id+1}: prompt_key = top eigvec in null-space of old routing features.')
+
+        # Normalize to preserve original scale (ROOT convention)
+        module.prompt_key.data /= math.sqrt(module.chunk_trans)
+        module.prompt_key.data *= pre_norm
+
+        # Cleanup covariance accumulators
+        for index in list(module.matrix_trans_3.keys()):
+            module.matrix_trans_1[index].zero_()
+            module.matrix_trans_3[index].zero_()
+            module.n_trans_matrix[index] = 0
+        module.matrix_trans_2.zero_()
+        module.get_trans_feature = False
+        module.stage_trans = 0
+        print(f'[V11] prompt_key re-initialized. norm={module.prompt_key.data.norm().item():.4f}')
+
     def load_previous_reg_matrix(self):
         """Load LoRA GPM bases from previous task. Also load trans_input GPM if learned routing."""
         reg_matrix = []
@@ -389,10 +499,25 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
 
     def get_reg_matrix(self):
         """
-        Project current LoRA A into null-space of old tasks' GPM bases.
-        No prompt_key/trans_input operations.
+        V11: Project current LoRA A into null-space of old tasks' GPM bases.
+        Also re-initialize prompt_key for learned routing (ROOT-style SVD).
         """
         self.feature_list, self.feature_trans_list, self._cur_task = self.load_previous_reg_matrix()
+
+        # ================================================================
+        # V11: Prompt-key re-initialization (ROOT-style)
+        # ================================================================
+        # ROOT achieves low forgetting because:
+        # 1. prompt_key is initialized in the null-space of old routing features
+        #    → orthogonal to old keys → naturally separable tasks
+        # 2. trans_input (MLP) is free to learn without GPM constraint
+        #    → discriminative routing features
+        #
+        # Math: For task t, prompt_key_t ∈ null(P_old) where P_old = Σ U_k U_k^T
+        # This ensures cos(prompt_key_t, prompt_key_k) ≈ 0 for k < t
+        # → different tasks activate different experts.
+        if getattr(self.model.encoder, "routing_mode", "") == "learned":
+            self._reinit_prompt_key()
 
         if len(self.feature_list) == 0:
             # First task: no constraints
