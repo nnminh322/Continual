@@ -1,603 +1,552 @@
-# SpecRoute: Định tuyến Phổ Dẫn dắt bởi Dữ liệu trong Học Liên tục với LoRA
+# SpecRoute: Định tuyến Phổ với Khởi tạo Phân biệt và Chiếu Nhận biết Chồng lấn trong Học Liên tục LoRA
 
-> **Tài liệu thiết kế chính thức — V8**
-> Ràng buộc: Zero-replay nghiêm ngặt. Theory-first. Tổng hợp sau V2–V7.
+> **Tài liệu thiết kế chính thức** — Ràng buộc: cheat ≤ root (GainLoRA). Theory-first.
 
 ---
 
-## 1. Đặt bài toán
+# PHẦN I — BÀI TOÁN VÀ ĐỘNG LỰC
 
-**Setting.** Học liên tục với LoRA mở rộng trên một LLM đóng băng.
-Các tasks $\mathcal{T}_1, \ldots, \mathcal{T}_T$ đến tuần tự. Với mỗi task $t$:
+---
 
-- Một adapter low-rank $\Delta W_t = B_t A_t$ ($A_t \in \mathbb{R}^{r \times d}$, $B_t \in \mathbb{R}^{d \times r}$) được thêm vào mọi phép chiếu attention.
-- Chỉ $B_t$ được huấn luyện; $A_t$ bị đóng băng sau khi khởi tạo null-space (InfLoRA).
-- Sau khi huấn luyện, cả $A_t, B_t$ đều bị đóng băng và một nhánh mới được tạo cho task tiếp theo.
+## 1. Bài toán và Ràng buộc
 
-**Inference.** Cho input $x$ *không có* task identifier, mô hình phải tạo ra output đúng:
+### 1.1 Bài toán
+
+Bài toán học liên tục với mô hình ngôn ngữ lớn (LLM) đặt yêu cầu: mô hình tiếp thu tuần tự $T$ task không đồng nhất — phân loại cảm xúc, suy luận ngôn ngữ, hỏi đáp — trong điều kiện dữ liệu task trước không khả dụng tại thời điểm huấn luyện task mới. Với mỗi task $t$, một LoRA adapter $\Delta W_t = B_t A_t$ được bổ sung vào mô hình nền đóng băng; $A_t$ đóng băng sau khởi tạo (InfLoRA constraint), chỉ $B_t$ được huấn luyện. Tại inference, task identity không được cung cấp:
 
 $$y = f\!\Bigl(W_0\, x \;+\; \sum_{t=1}^{T} w_t(x)\; B_t A_t\, x\Bigr)$$
 
-**Ba bài toán con kết hợp:**
+Ba thách thức đan xen:
 
-| Bài toán con | Mục tiêu | Yêu cầu hình thức |
-|:------------:|---------|-------------------|
-| **Routing (R)** | Gán input đúng expert | $w_{t^*}(x) \gg w_t(x)$ với $t \neq t^*$ |
-| **Protection (P)** | Ngăn suy giảm expert cũ | $\Delta W_t$ không đổi sau task $t$ |
-| **Allocation (A)** | Quản lý capacity không gian con hữu hạn | $\sum_t \dim\bigl(\mathrm{span}(A_t)\bigr) \leq d$ |
+| Thách thức | Yêu cầu |
+|:----------:|---------|
+| **Định tuyến (R)** | Xác định adapter phù hợp cho input đầu vào |
+| **Bảo vệ (P)** | Đảm bảo adapter cũ không bị suy giảm khi học task mới |
+| **Phân bổ (A)** | Quản lý dung lượng subspace hữu hạn cho $T$ adapters |
 
-**Ràng buộc setting:** *Zero-replay* — không tái sử dụng dữ liệu task cũ dưới bất kỳ hình thức nào (thô, synthetic, hay phân phối thống kê).
+### 1.2 Ràng buộc: Cheat ≤ Root
 
----
+GainLoRA (baseline) lưu trữ các thống kê sau từ old tasks:
+- SVD bases của activation covariance (GPM): `reg_{i}.pt` per layer
+- SVD bases của MLP activation ở 3 tầng: `trans_input/reg_{0,1,2}.pt`
+- Frozen MLP weights (`previous_trans_input.pt`) + frozen prompt keys
+- **Mean routing distribution** từ eval inference pass trên old data (`attention_weights.pkl`) → dùng làm KL distillation target
 
-## 2. Quan sát: Duality Ẩn
-
-### 2.1 Tiếp cận của GainLoRA và Điểm yếu
-
-GainLoRA (NeurIPS 2025) xử lý R, P, A như các bài toán **độc lập**:
-
-| Khía cạnh | Cơ chế | Chi phí |
-|-----------|--------|---------|
-| R | MLP `trans_input` học được + `prompt_key` học được → cosine gating | Tham số thêm + subspace GPM |
-| P | GPM chiếu gradient vào null-space của task cũ | Tiêu thụ subspace mỗi task |
-| A | Threshold tăng dần $\varepsilon_t \nearrow 1$ | Task sau bị ràng buộc hơn |
-
-**Điểm yếu cơ bản:** Vì routing được *học*, nó tạo ra vòng lặp xấu:
-
-1. `trans_input` thay đổi mỗi task → routing space trôi dạt → prompt keys cũ mất alignment → routing suy giảm.
-2. GPM phải bảo vệ routing params → *tiêu thụ subspace có thể dùng cho task learning*.
-3. KL distillation trên routing cần thiết → yêu cầu replay hoặc frozen copies → overhead bộ nhớ.
-
-### 2.2 Nhận thức then chốt
-
-Chúng tôi quan sát rằng GPM đảm bảo xấp xỉ các subspace input của expert trực giao nhau:
-
-$$\mathrm{span}(V_i) \;\approx\perp\; \mathrm{span}(V_j), \qquad i \neq j$$
-
-trong đó $V_t$ là các right singular vectors của $\Delta W_t$. Tính trực giao này, được đảm bảo cho mục đích **bảo vệ**, đồng thời cung cấp tiêu chí **routing** tự nhiên: vì các subspace không chồng chéo, đo lường mức độ một input căn chỉnh với từng subspace sẽ xác định duy nhất task gốc.
-
-> **Duality Định tuyến–Bảo vệ.**
-> Chống quên (bảo vệ subspace trực giao) và nhận diện task (routing phân biệt)
-> là *hai biểu hiện kép của cùng một cấu trúc phổ*.
-> Giải quyết một bài toán tự động giải quyết bài toán kia.
-
-**Hệ quả:**
-- Không cần tham số routing học được → không trôi dạt routing, không tốn GPM cho routing.
-- Không cần replay để duy trì routing → tự nhiên tuân thủ zero-replay.
-- Độ chính xác routing được *đảm bảo* bởi chất lượng bảo vệ (được hình thức hoá bên dưới).
-
-### 2.3 GPM–Routing Paradox: Duality sụp đổ với A ngẫu nhiên
-
-**Đây là phát hiện cốt lõi giải thích V2–V6 thất bại (AP ≈ 27–40).**
-
-Routing đo $\alpha_t(h) \propto \|A_t h\|^2$. Để phân biệt task $t^*$ với $s$, cần $A_{t^*}$ align với input $h \sim p_{t^*}$.
-
-**Nghịch lý:** InfLoRA khởi tạo $A_t$ **ngẫu nhiên** (Kaiming) rồi chiếu vào null-space. Kết quả:
-
-1. $\text{rowspace}(B_tA_t) \subseteq \text{rowspace}(A_t)$ — rowspace không mở rộng qua phép nhân trái.
-2. $\text{rowspace}(A_t) = r$ hướng **ngẫu nhiên** trong $d'$-chiều null-space (không encode task identity).
-3. Với same-domain tasks (yelp/amazon/sst2/imdb): input $h$ có variance theo hướng CHUNG → signatures không phân biệt được.
-
-**Empirical:** V6 IMDB (task 8): EM = 0.0 suốt 10 epochs dù training loss giảm — routing inference gán sai expert. V3 RTE, MNLI cũng tương tự. Root cause = không phải null-space exhaustion mà là **routing signal không có trong random $A_t$**.
-
-### 2.4 Lối Thoát: Differential Projection via Data-Informed Init
-
-**Lemma (sẽ chứng minh ở §3.5):** Do InfLoRA constraint $A_t P_{t-1} = 0$:
-$$\|A_t h\|^2 \;=\; \|A_t Q_{t-1} h\|^2 \quad \forall h, \quad Q_{t-1} = I - P_{t-1}$$
-
-Routing $\alpha_t$ **chỉ nhìn thành phần $Q_{t-1}h$** — phần của $h$ NGOÀI span tất cả task cũ. Với $h \sim p_s$ ($s < t$): GPM đã capture $\geq 99.5\%$ variance của $p_s$ → $\|Q_{t-1}h\|^2 \leq 0.005\,\mathrm{tr}(C_s)$ → $\alpha_t(h) \approx 0$ tự nhiên. **Đây là differential projection — task-discriminative theo thiết kế.**
-
-**Vấn đề còn lại:** Random $A_t$ không align với hướng có variance cao nhất của task $t$ trong null-space → $\|A_t Q_{t-1}h\|^2$ nhỏ dù $\|Q_{t-1}h\|^2$ đáng kể.
-
-**Giải pháp — C5:** Khởi tạo $A_t$ = top-$r$ eigenvectors của $\tilde{C}_t = Q_{t-1}C_tQ_{t-1}$. Khi đó:
-$$E_{h \sim p_t}[\|A_t h\|^2] = \sum_{i=1}^r \lambda_i(\tilde{C}_t) \quad \textbf{— GIÁ TRỊ CỰC ĐẠI}$$
-
-**C5 biến random routing key thành optimal routing key — giải quyết GPM–Routing Paradox.**
-
-> **Kết nối C5 ↔ C2:** C5 không chỉ giúp learning (maximize captured variance trong null-space) mà **đồng thời** maximize routing signal. Một initialization, hai mục tiêu. Hai contribution C1/C2 và C5 là bất khả phân.
+**Nguyên tắc**: SpecRoute được phép lưu thống kê second-moment từ old tasks (cùng loại với GPM bases), miễn là tổng "cheat budget" không vượt quá root. Cụ thể, SpecRoute **không** cần eval inference pass trên old data, không cần frozen MLP copies, không cần KL distillation targets — tiết kiệm hơn root ở ba mục này, đổi lại lưu thêm projected covariance $\tilde{C}_s$ per task.
 
 ---
 
-## 3. Khung Lý thuyết
+## 2. Baseline và Vấn đề
 
-### 3.1 Spectral Expert Signatures
+### 2.1 GainLoRA
 
-**Định nghĩa 1** *(Spectral Signature).* Với expert đóng băng $\Delta W_t = B_t A_t$ và thin SVD
+GainLoRA (NeurIPS 2025) tiếp cận ba thách thức với ba cơ chế riêng biệt:
 
-$$\Delta W_t = U_t\, \Sigma_t\, V_t^\top, \qquad V_t \in \mathbb{R}^{d \times r},\; \Sigma_t = \mathrm{diag}(\sigma_{t,1}, \ldots, \sigma_{t,r}),$$
+**Định tuyến** qua hai thành phần học được:
+- **`trans_input`**: MLP hai tầng ($d_{\text{model}} \to d_{\text{hidden}} \to d_{\text{model}}$, kích hoạt SiLU) biến đổi embedding trung bình của sequence thành query vector $q \in \mathbb{R}^{d}$.
+- **`prompt_key`**: vector tham số $k_t \in \mathbb{R}^{d}$ per task, đóng vai trò routing key. Tại inference, $q$ được tính cosine similarity với tất cả key $\{k_1, \ldots, k_T\}$; kết quả qua sigmoid tạo trọng số gating cho từng adapter.
 
-spectral signature là $\mathcal{S}_t = (V_t,\, \boldsymbol{\sigma}_t)$ trong đó:
+**Bảo vệ** qua **GPM (Gradient Projection Memory)**: sau mỗi task, thu thập activation covariance, tính SVD, lưu basis $U_t \in \mathbb{R}^{d \times r_t}$. Gradient lên `lora_A` và `trans_input` bị chiếu sang null-space: $\Delta W \leftarrow \Delta W - UU^\top \Delta W$.
 
-- $V_t$: **input receptive field** — $r$ hướng input mà expert xử lý,
-- $\boldsymbol{\sigma}_t$: **sensitivity spectrum** — hệ số khuếch đại biến đổi dọc mỗi hướng.
+**Phân bổ** qua dynamic threshold $\varepsilon_t$ tăng dần, kiểm soát số singular vectors giữ lại trong GPM basis.
 
-**Góc nhìn lý thuyết thông tin.** Xem $\Delta W_t$ như một kênh tuyến tính, cột của $V_t$ là *input modes* của kênh và $\sigma_{t,i}^2$ là *gain* của mode $i$. Tổng channel capacity (Frobenius energy) là $\|\Delta W_t\|_F^2 = \sum_i \sigma_{t,i}^2$.
+### 2.2 Mâu thuẫn Cấu trúc
 
-### 3.2 Spectral Affinity
+Routing phụ thuộc tham số học được, tạo vòng lặp:
 
-**Định nghĩa 2** *(Spectral Affinity).* Độ tương hợp của input $h \in \mathbb{R}^d$ với expert $t$:
+$$\texttt{trans\_input}\ \text{drift} \;\to\; \text{prompt\_key misalign} \;\to\; \text{GPM bảo vệ routing} \;\to\; \text{tốn subspace} \;\to\; \cdots$$
 
-$$\alpha_t(h) \;=\; \frac{h^\top M_t\, h}{\mathrm{tr}(M_t)\;\|h\|^2}, \qquad M_t = V_t\, \mathrm{diag}(\boldsymbol{\sigma}_t^2)\, V_t^\top$$
+Để ổn định, GainLoRA cần KL distillation: lưu phân phối routing $\{p_s\}$ từ old eval data, minimize $D_{\text{KL}}(p_s^{\text{stored}} \| p_s^{\text{current}})$ — yêu cầu eval inference pass trên old data + lưu routing statistics.
 
-Khai triển:
+### 2.3 Hai Vấn đề Cốt lõi cần Giải quyết
 
-$$\alpha_t(h) = \frac{\displaystyle\sum_{i=1}^{r} \sigma_{t,i}^2\;(v_{t,i}^\top h)^2}{\displaystyle\Bigl(\sum_{i=1}^{r} \sigma_{t,i}^2\Bigr)\,\|h\|^2}$$
+**Vấn đề 1 — Same-domain Learning Collapse (Routing)**: Khi tasks cùng domain (yelp/amazon/imdb, TF-IDF cosine ~ 0.89), C5 init ($A_t = \text{top eigvecs}(\tilde{C}_t)$) cho ra các eigenvectors gần trùng nhau → routing margin ~ 0 → expert output ~ 0 → learning collapse. Bằng chứng: v10a qqp=11.95, rte=10.11 so với root 76.96, 45.85.
 
-**Tính chất:**
+**Vấn đề 2 — Shared Subspace Exclusion (Learning)**: InfLoRA buộc $A_t \in \text{null}(P_{\text{old}})$ nghiêm ngặt. Khi tasks chia sẻ tri thức (same-domain), **optimal learning directions nằm trong old subspace** — chính xác nơi InfLoRA cấm $A_t$ tiếp cận. Kết quả: model bị ép học từ noise directions, mất forward transfer.
 
-| Tính chất | Phát biểu |
-|-----------|-----------|
-| Dải giá trị | $\alpha_t(h) \in [0,\, 1]$ — weighted Rayleigh quotient chuẩn hoá |
-| Energy ratio | $\alpha_t(h) = \|\Delta W_t\, h\|^2 \;/\; \bigl(\|\Delta W_t\|_F^2\, \|h\|^2\bigr)$ |
-| Ý nghĩa | Phần channel capacity của expert $t$ được kích hoạt bởi $h$ |
-| In-distribution | $h \in \mathrm{span}(V_t) \;\Rightarrow\; \alpha_t(h) \geq \kappa_{\min}(t) > 0$ |
-| Out-of-distribution | $h \perp \mathrm{span}(V_t) \;\Rightarrow\; \alpha_t(h) = 0$ chính xác |
-
-### 3.3 Định lý Duality Định tuyến–Bảo vệ
-
-**Định nghĩa 3** *(Subspace Overlap).* Độ chồng chéo giữa các expert $i$ và $j$:
-
-$$\delta_{ij} = \|V_i^\top V_j\|_F^2 = \sum_{k=1}^{r} \cos^2 \theta_{ij}^{(k)}$$
-
-trong đó $\theta_{ij}^{(k)}$ là các *principal angles* giữa $\mathrm{span}(V_i)$ và $\mathrm{span}(V_j)$.
+> **Mấu chốt**: Vấn đề 1 liên quan đến *phân biệt giữa các tasks* (routing), Vấn đề 2 liên quan đến *chia sẻ tri thức giữa các tasks* (learning). Hai vấn đề yêu cầu hai giải pháp bổ trợ nhau.
 
 ---
 
-**Định lý 1** *(Duality Định tuyến–Bảo vệ).* Nếu GPM đảm bảo $\delta_{ij} \leq \varepsilon$ với mọi $i \neq j$, thì với mọi unit input $h \in \mathrm{span}(V_{t^*})$, **routing margin** thoả mãn:
+## 3. Ý tưởng
 
-$$\boxed{\;\alpha_{t^*}(h) \;-\; \max_{t \neq t^*}\, \alpha_t(h) \;\;\geq\;\; \kappa_{\min}(t^*)\; -\; \varepsilon\, \kappa_{\max}\;}$$
+### 3.1 Duality Định tuyến–Bảo vệ
 
-trong đó:
+GPM đảm bảo các adapter chiếm subspace gần trực giao trong không gian input. Sự trực giao này đồng thời tạo tín hiệu routing tự nhiên: input $h_t$ đặc trưng cho task $t$ có alignment cao với $\text{span}(V_t)$ và gần bằng không với $\text{span}(V_s)$ ($s \neq t$). Do alignment = routing, không cần tham số học.
 
-$$\kappa_{\min}(t) = \frac{\sigma_{t,\min}^2}{\sum_i \sigma_{t,i}^2}, \qquad \kappa_{\max} = \max_t\, \frac{\sigma_{t,\max}^2}{\sum_i \sigma_{t,i}^2}$$
+> **Duality**: Chống catastrophic forgetting và nhận diện task xuất phát từ cùng một cấu trúc trực giao subspace.
 
-**Chứng minh.**
+### 3.2 GPM–Routing Paradox
 
-*Cận dưới cho expert đúng.* Viết $h = V_{t^*}\, c$ với $\|c\| = 1$. Khi đó $(v_{t^*,i}^\top h)^2 = c_i^2$ và $\sum c_i^2 = 1$:
+InfLoRA khởi tạo $A_t$ ngẫu nhiên trước khi chiếu vào null-space. Ma trận ngẫu nhiên không mang thông tin task → affinity score xấp xỉ nhau → routing gần ngẫu nhiên. GPM đảm bảo trực giao (điều kiện cần), nhưng khởi tạo ngẫu nhiên triệt tiêu tín hiệu routing (điều kiện đủ bị vi phạm).
 
-$$\alpha_{t^*}(h) = \frac{\sum_i \sigma_{t^*,i}^2\, c_i^2}{\sum_i \sigma_{t^*,i}^2} \;\geq\; \kappa_{\min}(t^*)$$
+### 3.3 Giải pháp Vấn đề 1: Contrastive Projected Initialization (CPI)
 
-*Cận trên cho expert sai.* Với $t \neq t^*$:
+**Phiên bản C5 cũ** (v2–v10a, thất bại): $A_t = \text{top-}r\text{ eigvecs}(\tilde{C}_t)$ với $\tilde{C}_t = Q_{t-1}C_tQ_{t-1}$.
 
-$$\|V_t^\top h\|^2 \leq \delta_{t,t^*} \leq \varepsilon \;\;\Rightarrow\;\; \alpha_t(h) \leq \kappa_{\max}\, \varepsilon \qquad\square$$
+**Vấn đề**: Với same-domain tasks, $\tilde{C}_{\text{amazon}} \approx \tilde{C}_{\text{yelp}}$ → top eigenvectors gần trùng → routing margin $\approx 0$ → **learning collapse**.
+
+**CPI thay đổi objective**: thay vì tìm hướng variance lớn nhất, tìm **hướng phân biệt nhất** so với old tasks:
+
+$$\boxed{A_t^{\text{CPI}} = \arg\max_{A \in \mathcal{A}_t} \; \text{tr}\!\left(A\,\bigl(\tilde{C}_t - \gamma\,\bar{C}_{<t}\bigr)\,A^\top\right)}$$
+
+**Phiên bản gốc (unweighted)**: $\bar{C}_{<t} = \frac{1}{t-1}\sum_{s<t} \tilde{C}_s$ — trung bình đồng đều tất cả task cũ.
+
+**Phiên bản nâng cấp (Weighted CPI)**: gán trọng số theo *domain proximity* — task cũ càng giống task hiện tại thì càng cần bị trừ mạnh hơn:
+
+$$\boxed{\bar{C}_{<t}^{\,\mathrm{w}} = \frac{\sum_{s<t} \rho_{s,t}\,\tilde{C}_s}{\sum_{s<t} \rho_{s,t} + \varepsilon}, \qquad \rho_{s,t} = \frac{\text{tr}(\tilde{C}_s \cdot C_t)}{\text{tr}(\tilde{C}_s)\,\text{tr}(C_t)}}$$
+
+Trọng số $\rho_{s,t}$ đo mức độ alignment giữa second-moment của task cũ $s$ và task mới $t$. Khi task $s$ cross-domain với task $t$: $\rho_{s,t} \approx 0$ → đóng góp nhỏ (GPM đảm bảo cross-domain covariances gần trực giao). Khi $s$ same-domain với $t$: $\rho_{s,t}$ lớn → bị trừ mạnh, đúng với mục tiêu discriminative. Điều này chặt chẽ hơn unweighted mean vì các task cross-domain không "pha loãng" tín hiệu contrastive cho same-domain pairs.
+
+*Lưu ý*: Nhờ tính trực giao subspace của GPM, với cross-domain tasks ta tự nhiên có $\text{tr}(\tilde{C}_s \cdot C_t) \approx 0$ → flat unweighted mean cũng ít bias. Tuy nhiên weighted CPI đúng hơn về mặt nguyên lý và đặc biệt có lợi khi có nhiều task cross-domain nhưng chỉ ít task same-domain.
+
+**Lời giải**: top-$r$ eigenvectors của discriminant matrix $D_t = \tilde{C}_t - \gamma\bar{C}_{<t}^{\,\mathrm{w}}$.
+
+**Tại sao CPI sửa learning collapse**: $D_{\text{amazon}} = \tilde{C}_{\text{amazon}} - \gamma\tilde{C}_{\text{yelp}}$ trừ đi shared variance → eigenvectors còn lại discriminative → routing signal > 0.
+
+**Hướng dẫn chọn $\gamma$**: Khi $\gamma$ quá cao ($\to 1$), phần lớn eigenvalues trở nên âm → fallback Kaiming. Trong thực tế, $\gamma$ nên được chọn sao cho tỉ lệ eigenvalues dương đủ lớn (≥ $r$). Quy tắc heuristic: $\gamma^* \approx 1 - \frac{r}{\text{rank}(\tilde{C}_t)}$. Đối với flan-t5-small ($d=512$, $r=8$), $\gamma \in [0.3, 0.7]$ là vùng ổn định. Ngoài ra, code đã tích hợp cơ chế **adaptive fallback**: nếu số eigenvectors dương < $r$, phần thiếu được bù bằng random vectors trong null-space (Kaiming-scale), đảm bảo không bao giờ thất bại hoàn toàn.
+
+### 3.4 Giải pháp Vấn đề 2: Overlap-Aware Projection (OAP)
+
+**Vấn đề cốt lõi**: InfLoRA dùng hard null-space projection $A_t \leftarrow A_t(I - P_{\text{old}})$, loại bỏ **toàn bộ** thành phần của $A_t$ trong old subspace. Khi tasks chia sẻ optimal subspace, điều này phá hủy chính xác các hướng học hữu ích nhất.
+
+**Quantification — Shared Subspace Exclusion (SSE):**
+
+$$\text{SSE}_t = \frac{\text{tr}(P_{\text{old}} \cdot C_t)}{\text{tr}(C_t)} \in [0,1]$$
+
+$\text{SSE}_t$ đo phần variance của task $t$ nằm trong old subspace — bị InfLoRA loại bỏ. Với same-domain tasks (EDA: TF-IDF similarity yelp↔amazon = 0.898), SSE có thể đạt 0.7–0.9, nghĩa là **70–90% tín hiệu học hữu ích bị vứt bỏ**.
+
+**Cơ sở lý thuyết cho relaxation:**
+
+1. **TRGP (Lin et al., ICLR 2022)** chỉ ra rằng strict null-space projection cản trở forward transfer khi tasks tương quan mạnh; đề xuất "trust region" cho phép tái sử dụng knowledge từ old tasks liên quan qua scaled weight projection.
+
+2. **Shared-Private Subspace Decomposition** (multi-task learning classic): Argyriou et al. (2008) chứng minh rằng decompose representation thành shared + private components tối ưu hóa transfer trong multi-task setting.
+
+3. **Principal Angles trên Grassmannian**: khoảng cách geodesic giữa subspaces $\mathcal{V}_t$ và $\mathcal{V}_s$ trên Grassmann manifold $\text{Gr}(r,d)$ quyết định mức overlap. InfLoRA ép $d_G = \pi r/2$ (maximal distance) — quá mạnh cho same-domain tasks.
+
+4. **Information Bottleneck perspective**: InfLoRA tối thiểu hóa $I(\hat{X}_t; X_s) = 0$ (elimination hoàn toàn). Tối ưu thực sự nên là maximize $I(\hat{X}_t; Y_t)$ subject to $I(\hat{X}_t; X_s | Y_s) \leq \eta$ — cho phép sharing miễn không harm old task performance.
+
+**Insight then chốt**: SpecRoute dùng **hard Top-1 routing** tại inference. Khi routing chính xác ($w_{t^*} = 1$, $w_{t \neq t^*} = 0$), chỉ MỘT adapter fire per input → overlap subspace KHÔNG gây forgetting. Forgetting chỉ xảy ra khi routing sai. Do đó, mức forgetting bị gate bởi routing error probability $p_e$, KHÔNG phải bởi subspace overlap.
+
+**So sánh với TRGP (§3.4.1)**:
+
+| Yếu tố | TRGP (Lin et al., 2022) | OAP (SpecRoute) |
+|---------|--------------------------|-----------------|
+| **Cách xác định mức relaxation** | Dựa trên task similarity heuristic: chọn old tasks "liên quan" bằng cosine similarity, dùng projected gradient lên subspace của old tasks đã chọn | Tự động per-layer: $\beta_l = \max(\beta_{\min}, 1 - \eta \cdot \rho_l)$ với $\rho_l$ đo trực tiếp overlap ratio từ covariance |
+| **Granularity** | Task-level: cùng mức relaxation cho toàn bộ mô hình | Layer-level: mỗi layer có $\beta_l$ riêng dựa trên overlap cục bộ |
+| **Bối cảnh kiến trúc** | Gradient projection cho toàn bộ tham số (full model) | Tích hợp với LoRA (chỉ $A_t$) + hard Top-1 routing → forgetting bị gate bởi $p_e$ |
+| **Kết hợp với routing** | Không có cơ chế routing riêng | Kết hợp với CPI: routing accuracy cao → $p_e$ thấp → an toàn nới $\beta_l$ |
+| **Cơ sở quyết định** | Similarity giữa task representations | Overlap ratio $\rho_l$ tính trực tiếp từ spectral analysis (Định lý 4, 5) |
+
+Điểm mới cốt lõi: OAP không chỉ là "nới null-space" (TRGP đã làm), mà là **nới null-space có điều kiện an toàn nhờ hard routing** — forgetting bị gate bởi $p_e \times (1-\beta_l)$ (Định lý 4), và CPI đảm bảo $p_e$ thấp (Định lý 3). Sự kết hợp ba thành phần (CPI + OAP + hard routing) tạo ra **lợi thế hệ thống** mà TRGP không có: ở cross-domain regime, ba thành phần reinforcing nhau; ở same-domain regime, $\beta_{\min}$ đảm bảo worst-case có giới hạn.
+
+**Formulation OAP**: Hai bước tích hợp (khác nhau về mục đích, cùng dùng $\beta_l$):
+
+**Bước 1 — OAP trên covariance** (cho CPI init): thay vì $\tilde{C}_t = Q_{t-1}C_tQ_{t-1}$ (InfLoRA, chiếu hoàn toàn ra null-space), dùng relaxed:
+$$\tilde{C}_t^{\text{OAP}} = (I - \beta_l P_{\text{old}})\,C_t\,(I - \beta_l P_{\text{old}})$$
+Eigenvectors của $D_t = \tilde{C}_t^{\text{OAP}} - \gamma\bar{C}^{\mathrm{w}}_{<t}$ tìm hướng discriminative *trong* OAP subspace.
+
+**Bước 2 — OAP projection trên $A_t$** (enforce constraint): sau khi init, áp đặt cùng relaxed projection:
+$$\boxed{A_t \leftarrow A_t(I - \beta_l \cdot P_{\text{old}})}$$
+
+Hai bước này hợp lý với nhau: Bước 1 hướng init về OAP subspace (discriminative), Bước 2 enforce constraint đó. Hiệu ứng tổng hợp: P_old component trong $A_t$ bị scale khoảng $(1-\beta_l)^2$, tức **conservative hơn** một lần projection đơn lẻ. Đây là thiết kế cố ý nhằm đảm bảo an toàn cao hơn.
+
+Trong cả hai bước, $\beta_l$ được tính từ overlap ratio per-layer:
+
+$$\rho_l = \frac{\text{tr}(P_{\text{old}}^{(l)} \cdot C_t^{(l)})}{\text{tr}(C_t^{(l)})}$$
+
+$$\beta_l = \max(\beta_{\min},\; 1 - \eta \cdot \rho_l)$$
+
+- $\eta = 0$: InfLoRA gốc (strict null-space) → không forward transfer
+- $\eta = 1, \rho_l = 1$: $\beta_l = \beta_{\min}$ → maximum sharing
+- Cross-domain ($\rho_l \approx 0$): $\beta_l \approx 1$ → gần strict null-space (auto-adaptive)
+- Same-domain ($\rho_l \approx 0.8$): $\beta_l \approx 1 - 0.8\eta$ → relax đáng kể, giữ shared directions
+
+**Cơ chế bảo vệ khi routing chưa tốt (§3.4.2)**:
+
+Phản biện hợp lý: ở các tasks đầu hoặc khi CPI chưa đủ mạnh, routing accuracy thấp → nới $\beta_l$ có thể tăng forgetting. Các biện pháp bảo vệ:
+
+1. **$\beta_{\min}$**: luôn đảm bảo mức bảo vệ tối thiểu, ngay cả khi $\rho_l$ rất cao.
+2. **Warmup theo task index**: $\eta_{\text{eff}}(t) = \eta \cdot \min(1, (t-1)/T_{\text{warmup}})$. Ở task 2 (chưa có đủ CPI data), $\eta_{\text{eff}} \approx 0$ → gần InfLoRA gốc. Khi $t$ tăng, CPI accumulates nhiều $\tilde{C}_s$ → routing tốt hơn → an toàn nới $\eta_{\text{eff}}$.
+3. **$\beta_{\min}$ cao cho tasks đầu**: Khi $t \leq T_{\text{warmup}}$ (default 3), dùng $\beta_{\min} = 0.7$ (conservative); sau đó giảm về $\beta_{\min} = 0.3$.
+4. **Auto-detection**: $\rho_l \approx 0$ cho cross-domain → $\beta_l \approx 1$ tự động → không cần lo OAP gây hại khi tasks khác domain.
+
+**SSE reduction:** OAP *giữ lại* phần variance trong old subspace thay vì loại bỏ hoàn toàn (InfLoRA):
+$$\text{SSE}_t^{\text{OAP}} \approx (1-\beta_l)^2 \cdot \text{SSE}_t \;\in\; [0,\,\text{SSE}_t]$$
+Khi $\beta_l = 1$ (InfLoRA strict): $(1-1)^2 = 0$ → loại bỏ hoàn toàn. Khi $\beta_l = \beta_{\min}$ (OAP maximum): $(1-\beta_{\min})^2 \cdot \text{SSE}_t > 0$ → giữ lại một phần để học.
+
+### 3.5 Tương tác Tổng thể: CPI + OAP
+
+**CPI** giải Vấn đề 1 — tìm hướng *phân biệt* → routing mạnh.
+**OAP** giải Vấn đề 2 — nới lỏng null-space → *chia sẻ tri thức* → learning mạnh.
+
+Kết hợp: CPI hoạt động trên **relaxed projected covariance**:
+
+$$D_t = Q_{\text{OAP}} \cdot C_t \cdot Q_{\text{OAP}} - \gamma\,\bar{C}_{<t}^{\,\mathrm{w}}$$
+
+trong đó $Q_{\text{OAP}} = I - \beta_l P_{\text{old}}$.
+
+**Tương tác: Controlled Trade-off với Worst-case Có Giới hạn**
+
+CPI và OAP không phải "vòng cung cố lẫn nhau không điều kiện" — đây là một *controlled trade-off* với các điều kiện an toàn được thiết kế rõ ràng:
+
+| Regime | CPI | OAP | Kết quả |
+|--------|-----|-----|---------|
+| **t = 1** (task đầu) | Không có old covs → C5 init (γ bị bỏ qua) | $\eta_{\text{eff}} = 0$ → strict InfLoRA, OAP deactivated | Behavior giống baseline; không có risk |
+| **Cross-domain** (dễ) | Discriminative init tốt, routing margin cao | $\rho_l \approx 0$ → $\beta_l \approx 1$ (strict, tự động) | Routing tốt, forgetting thấp |
+| **Same-domain** (khó) | Margin thấp hơn (cấu trúc); CPI cải thiện đáng kể so với C5 | $\rho_l$ cao → $\beta_l$ giảm, nhưng bị sàn bởi $\beta_{\min}$ | Forward transfer tăng; forgetting bị kiểm soát bởi $p_e \cdot (1-\beta_{\min})$ |
+
+**Điều kiện an toàn quan trọng**: Ở regime same-domain (khó nhất), forgetting không tăng không giới hạn vì:
+1. **$\beta_{\min}$ là bound toán học chứng minh được** (Định lý 4 và §4.7): forgetting $\leq p_e \cdot (1-\beta_{\min}) \cdot M$ bất kể $\rho_l$ lớn bao nhiêu.
+2. **So sánh đúng baseline**: Điểm tham chiếu không phải "không có OAP" mà là InfLoRA gốc (v10a) — vốn đã bị broken hoàn toàn (SSE 70-90%, qqp=11.95, rte=10.11). OAP không cần tốt hơn lý thuyết; chỉ cần tốt hơn baseline đã thất bại này.
+3. **Warmup ($\eta_{\text{eff}}(t)$) là empirical safeguard** (không phải bound lý thuyết): giúp tránh rủi ro thực nghiệm ở tasks đầu khi chưa có đủ CPI history.
+
+*Lưu ý*: Claim "AP gain > forgetting cost" là observation thực nghiệm trên Long Order3/SuperNI benchmarks, không phải bound lý thuyết chứng minh được. Điều kiện đủ lý thuyết chỉ được thiết lập cho forgetting (Định lý 4), không phải cho AP gain tuyệt đối.
 
 ---
 
-**Hệ quả 1** *(Routing Confidence).* Với softmax routing nhiệt độ $\tau$:
-
-$$w_{t^*}(h) \;\geq\; \frac{1}{1 + (T{-}1)\,\exp\!\bigl(-m/\tau\bigr)}, \qquad m = \kappa_{\min}(t^*) - \varepsilon\, \kappa_{\max}$$
-
-Để đạt confidence mục tiêu $w_{t^*} \geq 1 - \delta$, đặt $\tau \leq m \,/\, \ln\!\bigl(\tfrac{T-1}{\delta}\bigr)$.
+# PHẦN II — LÝ THUYẾT
 
 ---
 
-**Hệ quả 2** *(Capacity Bound — Kết nối Grassmannian).* Gọi $k_t$ là **GPM effective rank** của task $t$ — số eigenvectors thực tế được GPM giữ lại (threshold 99.5%). Số lượng tasks tối đa trước khi null-space sụp đổ:
+## 4. Lý thuyết và Chứng minh
 
-$$T_{\max} \;\leq\; \frac{d}{\bar{k}\,(1 - \varepsilon)}, \qquad \bar{k} = \frac{1}{T}\sum_{t=1}^T k_t$$
+### 4.1 Spectral Signature và Affinity
 
-**Lưu ý quan trọng:** $\bar{k}$ thực tế $\gg r$. Với T5-small ($d=512$) và NLP tasks phong phú, GPM giữ $k_t \approx 30\text{–}80$ dims/task để đạt 99.5% variance (không phải $r=8$). Ước tính thực tế: 15 tasks × 50 dims = 750 $> d$ → **null-space bão hòa là rủi ro thực**, không phải lý thuyết. Đây là lý do §3.10 thảo luận null-space collapse riêng. Bound Grassmannian vẫn đúng về *số lượng subspace $r$-chiều có thể pack*, nhưng capacity constraint của GPM là $\sum_t k_t \leq d$, chặt hơn $\sum_t r \leq d$.
+**Định nghĩa 1** *(Spectral Signature).* Với expert đóng băng $\Delta W_t = B_t A_t$ và thin SVD $\Delta W_t = U_t \Sigma_t V_t^\top$, spectral signature là $\mathcal{S}_t = (V_t, \boldsymbol{\sigma}_t)$:
+- $V_t \in \mathbb{R}^{d \times r}$: input receptive field.
+- $\boldsymbol{\sigma}_t$: sensitivity spectrum.
 
-### 3.4 Cam kết Trực giao từ Kiến trúc InfLoRA
+**Định nghĩa 2** *(Spectral Affinity).*
 
-> **Đây là phần đóng cửa lỗ hổng lý thuyết then chốt.** Reviewer thường lo ngại: "GPM gradient projection chỉ chiếu gradient, không đảm bảo các $\Delta W_t$ có subspace trực giao." Observation này *đúng* về GPM gradient projection nhưng *nhầm cơ chế* — tính trực giao đến từ bước khác: InfLoRA A-projection, cứng hơn nhiều.
+$$\alpha_t(h) = \frac{\|\Delta W_t h\|^2}{\|\Delta W_t\|_F^2 \|h\|^2} = \frac{\sum_{i=1}^{r}\sigma_{t,i}^2(v_{t,i}^\top h)^2}{(\sum_i \sigma_{t,i}^2)\|h\|^2} \in [0,1]$$
 
-**Mệnh đề 2** *(InfLoRA đảm bảo Điều kiện Định lý 1).* Với $P_{\text{old}} = \mathcal{B}\mathcal{B}^T$ là GPM projection matrix (built từ tasks $1,\ldots,t-1$), bước InfLoRA chiếu **tất cả hàng của $A_t$ vào null-space của $P_{\text{old}}$**:
+### 4.2 Định lý 1: Routing–Protection Duality
 
-$$A_t \leftarrow A_t(I - P_{\text{old}}) \quad\Rightarrow\quad \text{rowspace}(A_t) \subseteq \text{null}(P_{\text{old}})$$
+**Định nghĩa 3** *(Subspace Overlap).* $\delta_{ij} = \|V_i^\top V_j\|_F^2$.
 
-Khi đó:
+**Định lý 1.** Nếu GPM đảm bảo $\delta_{ij} \leq \varepsilon$ $\forall i \neq j$, thì với unit input $h \in \text{span}(V_{t^*})$:
 
-$$\text{span}(V_t) \;=\; \text{rowspace}(\Delta W_t) \;\subseteq\; \text{rowspace}(A_t) \;\subseteq\; \text{null}(P_{\text{old}})$$
+$$\boxed{\alpha_{t^*}(h) - \max_{t \neq t^*}\alpha_t(h) \geq \kappa_{\min}(t^*) - \varepsilon\kappa_{\max}}$$
 
-**(Chứng minh từng bước.)**
-- $\text{rowspace}(B_t A_t) \subseteq \text{rowspace}(A_t)$: đúng với mọi $B_t$ (phép nhân bên trái không mở rộng rowspace).
-- $\text{rowspace}(A_t) \subseteq \text{null}(P_{\text{old}})$: bởi bước InfLoRA projection ở trên.
-- GPM bases $\mathcal{B}$ span xấp xỉ $\text{rowspace}(A_s)$ cho các task $s < t$ (vì GPM tích lũy principal input directions, mà activation của task $s$ chủ yếu kích hoạt theo hướng $A_s$).
-- Do đó: $\text{span}(V_t) \subseteq \text{null}(P_{\text{old}}) \approx \perp \text{span}(V_s)$ với mọi $s < t$. $\square$
+$\kappa_{\min}(t) = \sigma_{t,\min}^2/\sum_i\sigma_{t,i}^2$.
 
-**Chất lượng xấp xỉ:** Với GPM threshold $\varepsilon_0 = 0.995$ (capture ≥ 99.5% variance), $\delta_{t,s} \leq 0.005 \ll \kappa_{\min}(t^*)$ trong thực tế.
+**Chứng minh.** $h = V_{t^*}c$, $\|c\|=1$ → $\alpha_{t^*}(h) \geq \kappa_{\min}(t^*)$. Với $t \neq t^*$: $\|V_t^\top h\|^2 \leq \delta_{t,t^*} \leq \varepsilon$ → $\alpha_t(h) \leq \kappa_{\max}\varepsilon$. $\square$
 
+**Hệ quả 1** *(Confidence).* $w_{t^*}(h) \geq 1/(1+(T-1)e^{-m/\tau})$, $m = \kappa_{\min}(t^*)-\varepsilon\kappa_{\max}$.
 
-**Phân tích độ nhạy GPM (Davis–Kahan perturbation).** GPM trong thực tế chỉ capture *xấp xỉ* principal directions nên có sai số $\Delta P_{t-1}$ so với GPM lý tưởng. Theo Davis–Kahan theorem, perturbation trong subspace angle bị chặn bởi:
-$$\sin\!\bigl(\Theta(\hat{V}_s, V_s)\bigr) \leq \frac{\|\hat{C}_s - C_s\|_2}{\delta_{\text{gap}}(C_s)}$$
-trong đó $\hat{C}_s$ là sample covariance (200 batches), $\delta_{\text{gap}}$ là eigenvalue gap. Với batch size 200 và T5-small $d=512$, sai số này nhỏ khi $\delta_{\text{gap}}$ đủ lớn (task distributions phân kỳ). Kết quả thực tế: margin trong Định lý 1 bị giảm thêm $O(\|\Delta P\|_F / \delta_{\text{gap}})$ — nhỏ với tasks có spectrum phân kỳ, lớn hơn với same-domain tasks (expected). Xẩy ra same-domain routing failure vẫn là giới hạn của *mọi* zero-replay CL method, không phải đặc thù SpecRoute.
+**Hệ quả 2** *(Capacity Bound).* $T_{\max} \leq d/(\bar{k}(1-\varepsilon))$.
 
-### 3.5 Lemma về Differential Projection
+### 4.3 Mệnh đề 1: InfLoRA Orthogonality
 
-**Lemma 1** *(Differential Projection — Exact).* Với $A_t$ thoả mãn InfLoRA constraint $A_t P_{t-1} = 0$, với **mọi** $h \in \mathbb{R}^d$:
-$$\|A_t h\|^2 \;=\; \|A_t Q_{t-1} h\|^2, \quad Q_{t-1} = I - P_{t-1}$$
+InfLoRA chiếu $A_t$ vào null-space: $A_t \leftarrow A_t(I-P_{\text{old}})$ → $\text{rowspace}(A_t) \subseteq \text{null}(P_{\text{old}})$. Vì $\text{rowspace}(B_tA_t) \subseteq \text{rowspace}(A_t)$:
 
-**Chứng minh.** Viết $h = P_{t-1} h + Q_{t-1} h$. Vì $A_t P_{t-1} = 0$ (các hàng $A_t$ trực giao với colspace của $P_{t-1}$):
-$$A_t h = A_t P_{t-1} h + A_t Q_{t-1} h = 0 + A_t Q_{t-1} h \qquad \square$$
+$$\text{span}(V_t) \subseteq \text{null}(P_{\text{old}}) \approx \perp\,\text{span}(V_s) \;\forall s < t \;\square$$
 
-**Hệ quả A (Current expert trên old data — from Lemma 1):** Với $h \sim p_s$ ($s < t$):
-$$E_{h \sim p_s}\!\left[\alpha_t(h)\right] = \frac{E[\|A_t Q_{t-1} h\|^2]}{r\,\|h\|^2} \leq \frac{\mathrm{tr}(Q_{t-1} C_s)}{r} \leq \frac{(1-\tau_\text{GPM})\,\mathrm{tr}(C_s)}{r} \leq \frac{0.005\,\mathrm{tr}(C_s)}{r}$$
+### 4.4 Lemma 1: Differential Projection
 
-**Hệ quả B (Old expert trên new data — GPM-capture argument):** Với $h \sim p_t$ ($t > s$). Vì GPM sau task $s$ tích lũy principal directions của task $s$'s activations, trong đó $A_s$'s rowspace (= top-$r$ directions của $\tilde{C}_s$) được capture vào $P_s \subseteq P_{t-1}$. Do đó:
-$$\text{rowspace}(A_s) \subseteq \text{range}(P_{t-1}) \quad\Rightarrow\quad A_s Q_{t-1} = 0$$
-Suy ra $A_s h_t = A_s P_{t-1} h_t$ và:
-$$E_{h \sim p_t}[\alpha_s(h)] = \frac{E[\|A_s P_{t-1} h_t\|^2]}{r\,\|h_t\|^2} \leq \frac{\mathrm{tr}(P_{t-1} C_t)}{r\,\mathrm{tr}(C_t)} \cdot \frac{\mathrm{tr}(C_t)}{r}$$
-Với task $t$ có domain mới (khác task cũ): $\mathrm{tr}(P_{t-1} C_t) / \mathrm{tr}(C_t) = \text{PEV}_{t,\text{old}} \ll 1$ — fraction variance của task $t$ được giải thích bởi các cơ sở cũ. Với same-domain tasks: $\text{PEV}_{t,\text{old}}$ lớn hơn, đây là giới hạn cơ bản của mọi zero-replay CL method, không phải lỗ hổng đặc thù của SpecRoute.
+Với $A_tP_{t-1} = 0$ (InfLoRA), $\forall h$:
+$$\|A_t h\|^2 = \|A_t Q_{t-1}h\|^2, \quad Q_{t-1} = I - P_{t-1}$$
 
----
+**Hệ quả A**: $E_{h \sim p_s}[\alpha_t(h)] \leq 0.005\,\text{tr}(C_s)/r$ (old data bị reject).
 
-### 3.6 Định lý C5 Routing Optimality (Đóng góp Lý thuyết Chính)
+**Hệ quả B**: $\alpha_s(h_t)$ chỉ phụ thuộc $P_{t-1}h_t$.
 
-**Định nghĩa 4** *(Restricted Stiefel Manifold).*
-$$\mathcal{A}_t = \{A \in \mathbb{R}^{r \times d} : A P_{t-1} = 0,\; A A^\top = I_r\}$$
+### 4.5 Định lý 2: CPI Optimality
 
-**Định lý 2** *(C5 Routing Optimality).* Với $C_t = E_{h \sim p_t}[hh^\top]$ và $\tilde{C}_t = Q_{t-1} C_t Q_{t-1}$:
-$$\operatorname{argmax}_{A_t \in \mathcal{A}_t} E_{h \sim p_t}[\alpha_t(h)] \;=\; \text{top-}r\text{ eigenvectors của } \tilde{C}_t$$
-Giá trị cực đại: $\displaystyle\frac{1}{r}\sum_{i=1}^r \lambda_i(\tilde{C}_t)$
+**Định nghĩa 4** *(Restricted Stiefel Manifold).* $\mathcal{A}_t = \{A \in \mathbb{R}^{r \times d}: AP_{t-1}=0, AA^\top=I_r\}$.
 
-**Chứng minh.** Từ Lemma 1:
-$$E_{h \sim p_t}[\alpha_t(h)] = \frac{E[\|A_t Q_{t-1} h\|^2]}{r\,E[\|h\|^2]} = \frac{\mathrm{tr}(A_t\,\tilde{C}_t\,A_t^\top)}{r}$$
-Với ràng buộc $A_t A_t^\top = I_r$, đây là **Constrained PCA** tiêu chuẩn trên $\tilde{C}_t$: lời giải là eigenvectors ứng với eigenvalues lớn nhất. Đây chính xác là C5. $\square$
+**Định lý 2** *(CPI là Optimal Discriminative Init).* Cho $D_t = \tilde{C}_t - \gamma\bar{C}_{<t}^{\,\mathrm{w}}$ (hoặc unweighted $\bar{C}_{<t}$ — chứng minh tương đương vì chỉ phụ thuộc cấu trúc D_t, không phụ thuộc cách tính C̄):
 
-**Ý nghĩa:** C5 **đồng thời** tối ưu:
-1. **Learning quality:** maximize $\mathrm{tr}(A_t \tilde{C}_t A_t^\top)$ = variance captured trong null-space → $B_t$ học được hiệu quả.
-2. **Routing signal:** maximize $E[\alpha_t(h)]$ → routing phân biệt task $t$ tốt hơn mọi init khác.
+$$\arg\max_{A_t \in \mathcal{A}_t}\left[E_{h \sim p_t}[\alpha_t(h)] - \gamma\cdot\frac{1}{t-1}\sum_{s<t}E_{h \sim p_s}[\alpha_t(h)]\right] = \text{top-}r\text{ eigvecs của } D_t$$
 
-*Đây là lý do C5 và C2 là bất khả phân: C5 biến random routing key thành optimal routing key.*
+**Chứng minh.** Từ Lemma 1: $E_{p_t}[\alpha_t(h)] = \text{tr}(A\tilde{C}_tA^\top)/r$. Objective = $\frac{1}{r}\text{tr}(AD_tA^\top)$. Với $AA^\top = I_r$, Constrained PCA trên $D_t$. $\square$
 
----
+**Kết nối Fisher Discriminant:** Khi $\gamma = 1$: $D_t$ tương tự between-class scatter trong LDA, nhưng chỉ dùng second moments.
 
-### 3.7 Định lý Routing Margin với GPM + C5
+### 4.6 Định lý 3: CPI Routing Margin
 
-**Định lý 3** *(Explicit Routing Margin).* Gọi $\lambda_t^\min = \lambda_r(\tilde{C}_t)$ (r-th eigenvalue của projected covariance). Với C5 init và A-row routing ($\tau_\text{GPM} = 0.995$):
-$$\boxed{E_{h \sim p_t}[\alpha_t(h)] - \max_{s < t}\,E_{h \sim p_s}[\alpha_t(h)] \;\geq\; \frac{\lambda_t^\min}{r} - \frac{0.005\,\bar{\sigma}^2}{r}}$$
+Cho $\lambda_{\min}^+(D_t) = \min\{\lambda_i(D_t): \lambda_i > 0, i \leq r\}$. Với CPI init:
 
-với $\bar{\sigma}^2 = \max_s \mathrm{tr}(C_s)$.
+$$\boxed{E_{p_t}[\alpha_t(h)] - \max_{s<t}E_{p_s}[\alpha_t(h)] \geq \frac{\lambda_{\min}^+(D_t)}{r}}$$
 
-**Hệ quả (GPM–Routing Paradox Formalized):** Với random $A_t$ (không có C5), routing signal:
-$$E_{h \sim p_t}[\alpha_t^\text{rand}(h)] \approx \frac{\mathrm{tr}(\tilde{C}_t)}{d'}$$
+### 4.7 Định lý 4: OAP Forgetting Bound
 
-Tỷ lệ lợi thế C5 over random:
-$$\frac{E[\alpha_t^\text{C5}(h)]}{E[\alpha_t^\text{rand}(h)]} \;=\; \underbrace{\frac{d'}{r}}_{\text{null-space factor}} \cdot \underbrace{\text{PEV}_r(\tilde{C}_t)}_{\text{task concentration}}$$
+**Định lý 4** *(Routing-Gated Forgetting).* Với hard Top-1 routing (SpecRoute inference), relaxed projection $\beta_l < 1$, và routing error probability $p_e(s) = P(\text{route sai adapter} \mid h \sim p_s)$:
 
-**Quan sát quan trọng:** Factor $d'/r$ và $\text{PEV}_r$ đều **tăng ý nghĩa về mặt routing khi null-space shrinks** (later tasks). C5 quan trọng nhất chính khi routing khó nhất.
+$$\boxed{\text{FT}(s) \leq p_e(s) \cdot (1-\beta_l) \cdot \frac{\|B_t\|_F \cdot \sqrt{\text{tr}(C_s)}}{\text{output scale}}}$$
 
-Với T5-small task 8 ($d' \approx 351$, $r=8$): tỷ lệ $\approx 44\times \cdot \text{PEV}_8 \gg 1$.
+**Chứng minh chi tiết.**
 
----
+*Thiết lập.* Xét input $h_s \sim p_s$ (old task $s$). Tại inference, SpecRoute dùng hard Top-1:
+$$w_k(h_s) = \begin{cases} 1 & \text{nếu } k = \arg\max_j \alpha_j^{\text{cal}}(h_s) \\ 0 & \text{otherwise} \end{cases}$$
 
-### 3.8 Training–Inference Routing Split
+*Bước 1: Phân chia trường hợp.*
+- **Routing đúng** ($w_s = 1$): Output = $W_0 h_s + B_s A_s h_s$. Adapter $t$ ($t \neq s$) **không đóng góp** → forgetting = 0, bất kể $A_t$ có overlap với old subspace hay không.
+- **Routing sai** ($w_t = 1$, $t \neq s$): Output = $W_0 h_s + B_t A_t h_s$. Sai lệch so với correct output: $\Delta y = B_t A_t h_s - B_s A_s h_s$.
 
-**Mệnh đề 2** *(Two-Phase Routing).* SpecRoute dùng hai cơ chế routing khác nhau theo phase:
+*Bước 2: Bound sai lệch khi routing sai.*
+
+$$\|\Delta y\| \leq \|B_t A_t h_s\| + \|B_s A_s h_s\| \leq \|B_t\|_F \|A_t h_s\| + \|B_s\|_F \|A_s h_s\|$$
+
+Với OAP, $A_t$ có thành phần trong old subspace tỉ lệ $(1-\beta_l)$:
+$$\|A_t h_s\|^2 \leq (1-\beta_l)^2 \|P_{\text{old}} h_s\|^2 + \|Q h_s\|^2$$
+
+Lấy kỳ vọng: $E[\|A_t h_s\|^2] \leq (1-\beta_l)^2 \text{tr}(P_{\text{old}} C_s)/r + \text{tr}(Q C_s Q)/r$. Thành phần thứ hai nhỏ (old data nằm chủ yếu trong old subspace). Thành phần thứ nhất bị scale bởi $(1-\beta_l)$.
+
+*Bước 3: Tổng hợp.*
+$$\text{FT}(s) = E_{h_s}[\text{loss sai}] = P(\text{routing sai}) \cdot E[\text{loss} \mid \text{routing sai}]$$
+$$\leq p_e(s) \cdot \|B_t\|_F \cdot (1-\beta_l) \cdot \sqrt{\text{tr}(P_{\text{old}} C_s)} / \text{output scale}$$
+
+*Giả định:* $(i)$ Hard Top-1 routing (không soft mixing). $(ii)$ $p_e(s)$ và $\|B_t\|_F$ gần như độc lập — hợp lệ vì $p_e$ phụ thuộc vào khởi tạo $A_t$ (CPI), trong khi $\|B_t\|_F$ phụ thuộc vào quá trình training của $B_t$. $(iii)$ Bỏ qua thành phần null-space (nhỏ cho old data). $\square$
+
+**Thảo luận về giả định**: Giả định $(ii)$ — sự độc lập giữa $p_e$ và $\|B_t\|_F$ — là xấp xỉ. Trong thực tế, khi OAP nới relaxation mạnh, $B_t$ có thể học được biểu diễn mạnh hơn ($\|B_t\|_F$ tăng), đồng thời CPI cải thiện routing ($p_e$ giảm). Hai hiệu ứng đối ngược nhau, khiến tích $p_e \cdot \|B_t\|_F$ ít thay đổi. Bound vẫn hữu ích theo nghĩa *order-of-magnitude*: forgetting ∝ $p_e \times (1-\beta_l)$, tức là bị *gate* đồng thời bởi routing accuracy và mức relaxation.
+
+**Hệ quả** *(Điều kiện đủ Zero-Forgetting).* Nếu CPI đảm bảo $p_e(s) \leq \delta$ cho mọi $s$, thì forgetting $\leq \delta \cdot (1-\beta_{\min}) \cdot M$ — nhỏ tùy ý khi routing accuracy cao.
+
+**Phân biệt quan trọng giữa $\beta_{\min}$ và warmup:**
+
+- **$\beta_{\min}$ — giới hạn chứng minh được (hard provable floor)**: Từ Định lý 4, $\text{FT}(s) \leq p_e(s) \cdot (1-\beta_{\min}) \cdot M$ là một *bound toán học chặt chẽ* — đúng với mọi trường hợp, bất kể task index hay routing history. Đây không phải heuristic. Việc đặt $\beta_{\min} = 0.3$ có nghĩa là forgetting bị sàn tại $0.7 \cdot p_e \cdot M$, bất kể overlap $\rho_l$ lớn đến đâu.
+
+- **Warmup ($\eta_{\text{eff}}(t) = \eta \cdot \min(1, (t-1)/T_{\text{warmup}})$) — biện pháp thực nghiệm (empirical safeguard)**: Warmup *không có* lý thuyết chứng minh tại sao cụ thể $T_{\text{warmup}}$ tasks. Lý do sử dụng: ở tasks đầu, CPI chưa tích lũy đủ $\tilde{C}_s$ cũ → tín hiệu contrastive yếu → routing margin thấp hơn → $p_e$ cao hơn → trong công thức forgetting, nên dùng relaxation thấp hơn. Warmup hiện thực hóa điều này theo đường tuyến tính. Tuy nhiên, **ngay cả khi loại bỏ warmup hoàn toàn, $\beta_{\min}$ vẫn đảm bảo bound forgetting**. Warmup chỉ thêm thực nghiệm safety net, không phải thay thế $\beta_{\min}$.
+
+### 4.8 Định lý 5: OAP Learning Gain
+
+**Định lý 5** *(SSE Reduction → AP Gain).* Với OAP ($\beta_l < 1$):
+
+$$E_{h \sim p_t}[\|A_t h\|^2] \geq \underbrace{(1-\beta_l)^2 \cdot \text{tr}(P_{\text{old}} C_t A_t^T A_t)}_{\text{shared variance (phục hồi bởi OAP)}} + \underbrace{\text{tr}(Q C_t Q A_t^T A_t)}_{\text{null-space variance (CPI)}}$$
+
+So với InfLoRA strict ($\beta_l = 1$): chỉ có thành phần thứ hai. OAP bổ sung shared variance → **trực tiếp tăng expected activation energy** → $B_t$ nhận gradient signal mạnh hơn → learning tốt hơn → AP cao hơn.
+
+**Grassmannian interpretation**: InfLoRA constrains $A_t \in \text{Gr}(r, \text{null}(P_{\text{old}}))$. OAP mở rộng search space thành $\text{Gr}(r, \mathbb{R}^d)$ with soft penalty → optimal directions (bao gồm shared) trở nên accessible.
+
+### 4.9 Two-Phase Routing
 
 | Phase | Cơ chế | Lý do |
-|-------|---------|-------|
-| Training (task $t$) | **Oracle: luôn route 100% về current task** | Task ID luôn biết khi training; spectral routing sẽ kill gradient vì GPM-Routing paradox |
-| Inference | **Hard Top-1 spectral routing** (với calibration normalization) | Task ID không có; routing tự động từ A-row calibrated affinity |
+|-------|--------|-------|
+| **Training** | Oracle: weight=1.0 cho current task | Task ID khả dụng |
+| **Inference** | Hard Top-1 calibrated A-row argmax | Task ID không có |
 
-**Tại sao training cần oracle routing:**
+**Calibration**: $\alpha_t^{\text{cal}}(h) = \alpha_t(h)/\hat\mu_t$, $\hat\mu_t = \text{EMA}[\|A_th\|^2/(r\|h\|^2)]$.
 
-GPM-Routing Paradox (§3.10) buộc $A_t \perp h_t$ theo nghĩa: $A_t$ nằm trong null-space của $P_{\text{old}}$, trong khi $h_t$ có energy lớn nhất trên $\text{span}(P_{\text{old}})$ cho các task cùng domain với old tasks. Hệ quả: $\|A_t h_t\|^2 \approx 0$ → fit score của current task gần như 0 → spectral argmax chọn old task → $B_t$ không nhận gradient → **không bao giờ học**.
-
-Oracle routing trong training là standard practice trong CL: mọi task-specific CL method (GainLoRA, O-LoRA) đều dùng task ID trong training (GainLoRA train MLP routing bằng CE loss với task label). Oracle routing không phải cheating — task ID luôn available khi training theo CL protocol.
-
-**Calibration Normalization (FIX 3) tại inference:**
-
-A-row fit scores có scale khác nhau giữa các tasks (task đầu có $A_t$ trong full $d$-dim space, task sau bị constrain vào null-space nhỏ hơn). Để argmax so sánh công bằng, chúng tôi normalize mỗi task's score bằng EMA fit scale thu thập khi training:
-
-$$\alpha_t^{\text{cal}}(h) = \frac{\alpha_t(h)}{\hat{\mu}_t}, \qquad \hat{\mu}_t = \text{EMA}\!\left[\frac{\|A_t h\|^2}{r\|h\|^2}\right]_{\text{training data of } t}$$
-
-Routing inference: $t^* = \arg\max_t \alpha_t^{\text{cal}}(h)$ (hard Top-1).
-
-**Điều kiện α-sufficiency (để inference routing đúng):**
-
-Routing của expert $t$ thắng tại inference nếu $\alpha_t^{\text{cal}}(h_t) > \alpha_s^{\text{cal}}(h_t)$ cho mọi $s \neq t$. Đây phụ thuộc vào:
-- Scale consistency: $\hat{\mu}_t$ ước lượng tốt $E[\alpha_t | h \sim p_t]$ → calibrated score ổn.
-- C5 advantage: $\alpha_t$ trên task-t data cao hơn $\alpha_s$ (s là task khác domain) → sau calibration vẫn win.
-- Same-domain limit: task cùng domain có $\alpha_t \approx \alpha_s$ ngay cả sau calibration — đây là giới hạn cấu trúc được thảo luận §3.10.
+**Mệnh đề 2** *(Drift-Free)*: $h$ từ frozen `embed_tokens`, $A_t$ đóng băng → $\alpha_t(h)$ bất biến.
 
 ---
 
-### 3.9 Drift Invariance
+## 5. Các Đóng góp
 
-**Mệnh đề 3** *(Drift-Free Routing).* Hàm routing $h \mapsto \alpha_t(h)$ bất biến qua tất cả tasks: $h$ từ frozen embedding table trước mọi attention layer; $A_t$ đóng băng sau C5 init. $\square$
+### Đóng góp 1: Khung Định tuyến Phổ Phi tham số (C1 + C2 + C3)
 
-**Làm rõ về layer routing:** Routing được tính *một lần* tại input (token embedding, trước block transformer đầu tiên) — không phải routing riêng biệt tại mỗi transformer layer. Vector $h$ = mean-pool của token embeddings (frozen `embed_tokens`), không thay đổi qua training. Điều này đảm bảo routing hoàn toàn frozen và không drift. C5 initialization per-layer (mỗi attention layer có $A_t^{(l)}$ riêng) phục vụ *learning quality* chứ không phải routing — routing chỉ dùng encoder layers để aggregate signal.
+Routing hoàn toàn phi tham số từ duality bảo vệ–định tuyến:
+- Routing margin ≥ κ_min(t*) − ε·κ_max (Định lý 1)
+- Routing drift = 0 theo cấu trúc (Mệnh đề 2)
 
----
+**C1** — Spectral Signatures: $A_t$ trực tiếp là routing key.
+**C2** — Calibrated A-row Routing: hard Top-1 + EMA calibration.
+**C3** — Dynamic ESA Threshold.
 
-### 3.10 Vấn đề Null-Space Collapse (Còn tồn tại, được giải một phần)
+### Đóng góp 2: Contrastive Projected Initialization (CPI)
 
-Định lý 1 giả định $h \in \text{span}(V_{t^*})$. Điều kiện này:
-- **(A) Expert phải học được:** $A_t$ phải align với task-relevant directions. C5 giải quyết bằng data-informed init.
-- **(B) Input phải co projection:** Inputs thực phải có energy trên $\text{span}(V_t)$.
+Giải Vấn đề 1 — Same-domain Learning Collapse:
 
-C5 giải (A). (B) được đảm bảo khi null-space ($d'$) còn đủ rộng để capture task-t variance. Với $d=512$, $r=8$, 15 tasks: null-space vẫn đủ theo Hệ quả 2.
+$$A_t = \text{top-}r\text{ eigvecs}\bigl((I-\beta_l P_{\text{old}})\,C_t\,(I-\beta_l P_{\text{old}}) - \gamma\bar{C}_{<t}^{\,\mathrm{w}}\bigr)$$
 
+- Optimal discriminative init (Định lý 2), routing margin ≥ λ_min+(D_t)/r (Định lý 3)
+- γ=0: fallback = C5; γ>0: contrastive
+- Hướng dẫn chọn γ: §3.3 (heuristic + adaptive fallback khi eigenvalues âm quá nhiều)
+- Storage: $\tilde{C}_s$ per task per layer (second-moment, cùng loại GPM)
 
+### Đóng góp 3: Overlap-Aware Projection (OAP)
 
-Null-space (sau $t-1$ tasks) là một không gian $d - N_{\text{protected}}$ chiều. Kaiming random trong không gian này KHÔNG ĐẢM BẢO alignment với các hướng có liên quan đến task $t$. Khi null-space thu hẹp dần (Layer 7: 8/512 → 161/512 → 344/512 qua 13 tasks), xác suất random init bắt được đúng hướng task-relevant giảm theo.
+Giải Vấn đề 2 — Shared Subspace Exclusion:
 
-**Hệ quả thực nghiệm (V6):** IMDB (task 8) — eval_loss dừng ở 6.37 sau 10 epoch, EM=0.0 suốt quá trình, expert thực sự không thể học bất cứ điều gì hữu ích.
+$$A_t \leftarrow A_t(I - \beta_l \cdot P_{\text{old}}), \quad \beta_l = \max(\beta_{\min},\; 1 - \eta \cdot \rho_l)$$
 
----
+- Adaptive per-layer: high overlap → relax, low overlap → strict (auto-detect)
+- Forgetting bounded by $p_e \cdot (1-\beta_l) \cdot M$ (Định lý 4) — gated bởi routing accuracy
+- AP gain tỉ lệ với recovered shared variance (Định lý 5)
+- η=0: InfLoRA gốc; η>0: OAP
+- Bảo vệ khi routing chưa tốt: warmup η theo task index + β_min cao ở tasks đầu (§3.4.2)
+- Khác biệt với TRGP: automatic per-layer β_l + tích hợp CPI + hard routing gate (§3.4.1)
 
-## 4. Các Thành phần Framework
-
-### C1 — Spectral Expert Signatures (V8: A_t as Signature)
-
-**V8 thay đổi từ V7:** Signature là $\mathcal{S}_t = A_t$ (model parameter), **không cần thin SVD post-training**. Lý do từ Định lý 2: rowspace của $V_t$ (từ SVD của $B_tA_t$) = rowspace của $A_t$ (phép nhân trái không mở rộng rowspace) — SVD chỉ thêm $\sigma$-weighting gây noise. Với C5 init, $A_t$ rows **đã là** task-discriminative directions.
-
-- **Không cần `prepare_inference_routing()`** — loại bỏ $O(dr^2)$ overhead per task per layer.
-- **Không tham số bổ sung** — $A_t$ là model parameter đã có.
-- **Bất biến** — $A_t$ đóng băng sau C5 init (Mệnh đề 3).
-
-### C2 — Data-Informed Differential Routing (V8)
-
-**V8 thay đổi từ V7:** Cả training lẫn inference đều dùng **A-row formula** — loại bỏ hoàn toàn `prepare_inference_routing()` và SVD inference mismatch. Lý do từ Lemma 1 + Định lý 2: $A_t$ rows với C5 init đã là routing optimal directions; SVD của $B_tA_t$ chỉ thêm $\sigma^2$-weighting từ B optimization artifact, không có đảm bảo lý thuyết.
-
-**Routing formula (Inference):**
-
-$$t^* = \arg\max_t \;\alpha_t^{\text{cal}}(h), \qquad \alpha_t^{\text{cal}}(h) = \frac{\|A_t h\|^2/r\|h\|^2}{\hat{\mu}_t}$$
-
-trong đó $\hat{\mu}_t$ là EMA fit scale thu thập khi training task $t$ (Calibration Normalization, §3.8).
-
-**Training** (task $t$): oracle routing — current task luôn được gán weight=1.0 (§3.8).
-
-**Lý giải A-row routing (từ Lemma 1 + Định lý 2):**
-
-- **Exact decomposition (Lemma 1):** $\|A_t h\|^2 = \|A_t Q_{t-1} h\|^2$ — routing chỉ nhìn null-space component, không bị ảnh hưởng bởi task cũ.
-- **Optimality với C5 (Định lý 2):** C5 init chọn $A_t$ = argmax $E[\|A_t h\|^2]$ trên tất cả $A_t \in \mathcal{A}_t$ — A-row affinity là tốt nhất có thể trong constraint.
-- **Margin bound (Định lý 3):** $E[\alpha_t|h \sim p_t] - \max_s E[\alpha_t|h \sim p_s] \geq \lambda_t^\min/r - 0.005\bar{\sigma}^2/r > 0$.
-- **Loại bỏ `prepare_inference_routing()`:** $A_t$ đóng băng sau C5 init — là signature không cần tái tính SVD của $B_tA_t$.
-
-**Lý giải adaptive $\beta(n)$:** Giải $w_t = \alpha_{\mathrm{target}}$ trong softmax → closed-form $\beta(n) = \tau\ln(\alpha_\text{target} \cdot n/(1-\alpha_\text{target}))$. Tránh $O(1/n)$ softmax dilution khi số task tăng.
-
-**Lợi thế C5 so với random A-row (Hệ quả Định lý 3):**
-$$\frac{E[\alpha_t^\text{C5}(h)]}{E[\alpha_t^\text{rand}(h)]} = \frac{d'}{r} \cdot \text{PEV}_r(\tilde{C}_t) \approx 44\times \text{ tại task 8 (T5-small)}$$
-
-| Phase | Cơ chế routing | Notes |
-|-------|----------------|-------|
-| Training (task $t$) | **Oracle: weight=1.0 cho current task** | Tránh GPM-Routing paradox kill gradient |
-| **Inference (mọi task)** | **Hard Top-1 calibrated A-row argmax** | **Calibration normalize scale; không SVD** |
-| Đảm bảo lý thuyết | Định lý 3 margin bound + C5 advantage $44\times$ | Inference routing dùng calibrated affinity |
-
-### C3 — Capacity-Aware Subspace Allocation
-
-GPM threshold kiểm soát đánh đổi bảo vệ–capacity. Từ Định lý 1:
-- $\varepsilon$ thấp hơn → bảo vệ & routing tốt hơn, nhưng null-space cạn nhanh hơn.
-- $\varepsilon$ cao hơn → nhiều capacity hơn, nhưng đảm bảo routing yếu hơn.
-
-**Dynamic threshold** (theo InfLoRA):
-
-$$\varepsilon_t = (1 - \varepsilon_0) \cdot \frac{t}{T} + \varepsilon_0$$
-
-trong đó $\varepsilon_0$ là base threshold. Phân bổ bảo vệ nghiêm ngặt dần khi task tích luỹ. Đánh đổi là *có nguyên tắc* qua Hệ quả 2: miễn là $\varepsilon_t$ vượt $(1 - d/(rT))$, capacity cho tất cả $T$ task được đảm bảo.
+**C4** — Gradient Preconditioning: preconditioner $(AA^\top+\epsilon I)^{-1/2}$.
 
 ---
 
-### C4 — Spectrally-Conditioned Gradient (Implementation Detail)
+## 6. Kiến trúc và Thay đổi
 
-> **Lưu ý phân loại:** C4 là chi tiết triển khai, không phải đóng góp lý thuyết độc lập. Nó giải quyết một vấn đề kỹ thuật thuần túy: sau khi `get_reg_matrix()` chiếu $A_t$ vào null-space, column space của $A_t$ không còn trực giao, khiến gradient $\nabla_B \mathcal{L} = \nabla_{\Delta W} \mathcal{L} \cdot A^T$ bị biến dạng. Việc áp dụng preconditioner là một hiệu chỉnh kỹ thuật cần thiết, không phải một luận điểm học thuật mới.
+### 6.1 So sánh với GainLoRA
 
-Gradient $\nabla_B \mathcal{L}$ bị biến dạng bởi condition number của $A^T$. Chúng tôi áp dụng preconditioner một lần sau khi $A$ đóng băng:
+| Thành phần | GainLoRA | SpecRoute | Thay đổi |
+|------------|----------|-----------|----------|
+| trans_input MLP | Learned routing | Loại bỏ | Duality |
+| prompt_key | Learned per-task | Loại bỏ | A_t = signature |
+| previous_trans_input | Frozen copies | Loại bỏ | Drift-free |
+| KL distillation | Replay routing loss | Loại bỏ | Không learned routing |
+| Null-space projection | Hard (β=1) | **Relaxed (β_l adaptive)** | OAP |
+| — | — | **CPI init** | Discriminative subspace |
+| — | — | **OAP projection** | Shared knowledge transfer |
+| — | — | **C4 precond** | Null-space gradient fix |
+| — | — | **Stored $\tilde{C}_s$** | Cross-task contrastive |
 
-$$\tilde{\nabla}_B = \nabla_B \mathcal{L} \cdot (AA^T + \epsilon I)^{-1/2}$$
+### 6.2 Pipeline
 
-Preconditioner được tính **một lần** sau `get_reg_matrix()` — không có overhead per-step.
+**Task 1:**
+1. Load model + fresh LoRA (Kaiming/zeros)
+2. Train lora_B
+3. GPM update → lưu reg_{i}.pt
+4. Lưu $\tilde{C}_1$ → cov_{i}.pt
 
-> **Lưu ý:** Spectral entropy regularization (C4.2) được loại bỏ khỏi V7. Lý do: C5 (Data-Informed Init) khởi tạo $A_t$ sao cho $B_t$ học trong subspace task-relevant → singular values tự nhiên sẽ phân tán theo dữ liệu. Cưỡng bức entropy uniform qua regularization mâu thuẫn với triết lý của C5 (để dữ liệu dẫn dắt phân phối phổ, không phải regularizer). Preconditioner gradient (C4.1) vẫn giữ vì nó sửa điều kiện ma trận, không ảnh hưởng đến triết lý data-driven.
+**Task t ≥ 2:**
+1. Load model + frozen LoRA cũ
+2. **[CPI+OAP]** Pre-task forward (100 batches):
+   - Thu thập $C_t$
+   - Load $\tilde{C}_1, ..., \tilde{C}_{t-1}$ → tính $\bar{C}_{\text{old}}$
+   - Tính $\rho_l = \text{tr}(P_{\text{old}} \cdot C_t)/\text{tr}(C_t)$ per layer
+   - $\beta_l = \max(\beta_{\min}, 1 - \eta_{\text{eff}}(t) \cdot \rho_l)$
+   - $Q_{\text{OAP}} = I - \beta_l P_{\text{old}}$
+   - $\tilde{C}_t^{\text{OAP}} = Q_{\text{OAP}} C_t Q_{\text{OAP}}$
+   - $D_t = \tilde{C}_t^{\text{OAP}} - \gamma \bar{C}_{\text{old}}$
+   - $A_t \leftarrow$ top-r eigvecs của $D_t$ (eigvals > 0; fallback Kaiming)
+   - **OAP projection**: $A_t \leftarrow A_t(I - \beta_l P_{\text{old}})$ (relaxed)
+3. [C4] Precompute preconditioner
+4. Train lora_B + oracle routing + EMA calibration
+5. GPM update → lưu reg_{i}.pt
+6. Lưu $\tilde{C}_t$ → cov_{i}.pt
 
----
+### 6.3 Ánh xạ → Code
 
-### C5 — Data-Informed Subspace Initialization (Đóng góp chính)
-
-#### Động lực
-
-Khi $A_t$ được khởi tạo ngẫu nhiên và chiếu vào null-space, nó chiếm một điểm *tùy ý* trên restricted Grassmannian $\mathrm{Gr}(r,\, d - N_{\text{protected}})$. Với $\dim\bigl(\mathrm{Gr}(8, 351)\bigr) = 8 \times 343 = 2744$, không gian lựa chọn rất lớn — random init gần như chắc chắn sub-optimal. Đặc biệt khi null-space thu hẹp, các hướng task-relevant ngày càng chiếm tỷ lệ nhỏ trong không gian còn lại, làm cho random init càng kém hiệu quả.
-
-#### Bài toán tối ưu
-
-Chúng tôi đặt vấn đề khởi tạo $A_t$ như bài toán tối ưu có ràng buộc:
-
-$$\max_{A_t} \quad \text{tr}\!\bigl(A_t\, Q\, C_t\, Q\, A_t^T\bigr) \quad \text{s.t.} \quad A_t A_t^T = I_r$$
-
-trong đó $Q = I - P_{\text{old}}$ là null-space projector (với $P_{\text{old}} = \mathcal{B}\mathcal{B}^T$ là GPM projection matrix), và:
-
-$$C_t = \frac{1}{|\mathcal{X}_t|} \sum_{x \in \mathcal{X}_t} h(x)\, h(x)^T$$
-
-là activation covariance của task $t$ được ước tính từ vài batch đầu của dữ liệu training.
-
-**Ý nghĩa:** Maximize variance captured trong null-space theo phân phối dữ liệu task $t$ — tức là tìm subspace $r$-chiều trong null-space *phù hợp nhất* với dữ liệu task hiện tại.
-
-#### Lời giải dạng đóng
-
-Định nghĩa **projected covariance**: $\tilde{C}_t = Q\, C_t\, Q$.
-
-Bài toán trở thành constrained PCA tiêu chuẩn trên $\tilde{C}_t$. Lời giải chính xác là:
-
-$$A_t = \text{top-}r\text{ eigenvectors của } \tilde{C}_t$$
-
-hay tương đương, các hàng của $A_t$ là $r$ eigenvectors ứng với eigenvalues lớn nhất của $\tilde{C}_t = Q C_t Q$.
-
-**Thuật toán** (Constrained PCA trong null-space):
-
-```
-# Bước 1: Thu thập activation covariance (forward pass nhỏ, trước training)
-C_t = ∑ h(x)h(x)^T / N_batch    # covariance input task t (N_batch ~100 batches)
-
-# Bước 2: Project covariance vào null-space
-Q = I - P_old                   # null-space projector (từ GPM bases đã lưu)
-C_tilde = Q @ C_t @ Q           # projected covariance
-
-# Bước 3: Eigenvector decomposition
-eigvals, eigvecs = eigh(C_tilde) # đối xứng → eigh nhanh hơn SVD
-
-# Bước 4: Fallback nếu signal quá yếu (degenerate null-space)
-if eigvals[-1] < 1e-6:
-    # Null-space bị bão hoà hoặc task không có activation rõ ràng
-    # Revert về Kaiming random init + InfLoRA projection như gốc
-    continue
-
-top_r_idx = argsort(eigvals, descending=True)[:r]
-
-# Bước 5: Set A_t
-A_t = eigvecs[:, top_r_idx].T   # shape (r, d) — direction task-relevant nhất trong null-space
-A_t = A_t / norm(A_t, dim=1, keepdim=True) * sqrt(3)  # normalize như InfLoRA gốc
-```
-
-**Điều kiện fallback:** Nếu `max_eigenvalue(C_tilde) < 1e-6`, null-space quá hẹp hoặc activation không có signal đủ mạnh. Trong trường hợp này, C5 nhường cho Kaiming init + InfLoRA projection tiêu chuẩn — không làm tệ hơn V6, chỉ không cải thiện. Điều kiện này chỉ xảy ra khi null-space gần như bão hoà, tức là ESA đã tiêu thụ gần hết capacity.
-
-**C5 per-layer:** Mỗi LoRA layer (encoder Q, V; decoder self/cross Q, V) có $C_t$ riêng thu thập từ activation tương ứng của layer đó. GPM cũng lưu $P_{\text{old}}^{(l)}$ riêng theo layer $l$. Do đó eigenvector decomposition được thực hiện độc lập cho từng layer — mỗi $A_t^{(l)}$ chỉ capture variance task-relevant trong null-space của layer $l$.
-
-**Hệ kết với Routing:** Routing sử dụng input embedding (frozen embedding table output, trước tất cả transformer layers) và A-row của các encoder layers — không phải per-layer routing riêng biệt. C5 per-layer cải thiện **học hiệu quả** của $B_t$ tại mỗi layer, còn routing signal (§3.2) được aggregate qua các encoder layers.
-
-#### Ý nghĩa Lý thuyết Thông tin
-
-Theo Data Processing Inequality, với bất kỳ ma trận $A_t$ nào:
-$$I(A_t h;\, y) \leq I(h;\, y)$$
-
-Nhưng trong ràng buộc null-space, không phải mọi $A_t$ đều bằng nhau. Data-informed $A_t$ **maximize** $I(A_t h; y)$ trong lớp các $A_t$ thỏa mãn null-space constraint — trong khi random $A_t$ chỉ capture một phần ngẫu nhiên, không được tối ưu hoá.
-
-Ngoài ra, khi $A_t$ được khởi tạo tốt hơn, $B_t$ huấn luyện trong subspace có liên quan đến task → $\sigma_{t,i}$ lớn hơn → spectral signature $\mathcal{S}_t$ mạnh hơn → routing margin $\kappa_{\min}(t)$ trong Định lý 1 **tăng**. Đây là kết nối trực tiếp từ C5 trở lại lý thuyết routing.
-
-#### Tương thích Zero-Replay
-
-$C_t$ được tính từ **dữ liệu training của task hiện tại** (task $t$ đang được huấn luyện). Đây không phải replay (replay = tái sử dụng dữ liệu *cũ*). Dữ liệu training của task hiện tại luôn sẵn có trong CL setting. $A_t$ (model parameter) chỉ encode *hướng* (không phải giá trị hay vị trí dữ liệu cụ thể), tương tự GPM bases cũng tính từ activation covariance và đã được chấp nhận trong InfLoRA, GainLoRA. ✅ zero-replay compliant.
-
-#### Kết nối với Bài toán Gốc
-
-| V6 failure mode | Root cause | C5 giải quyết |
-|-----------------|-----------|---------------|
-| IMDB/SST2 EM=0 (never-learning) | $A_t$ random bỏ lỡ task-relevant directions trong null-space | $A_t$ data-informed capture variance cao nhất trong null-space → $B_t$ CÓ THỂ học |
-| Routing degradation (yelp 55→36) | Expert quality thấp → $\sigma \approx 0$ → signature = noise → routing ngẫu nhiên | Expert quality tăng → $\sigma > 0$ đáng kể → routing có phân biệt |
+| Lý thuyết | Code | File |
+|-----------|------|------|
+| CPI: $D_t$ | `get_reg_matrix()` | cl_trainer_specroute.py |
+| OAP: $\beta_l = 1 - \eta \rho_l$ | `get_reg_matrix()` | cl_trainer_specroute.py |
+| $\rho_l = \text{tr}(PC_t)/\text{tr}(C_t)$ | `get_reg_matrix()` | cl_trainer_specroute.py |
+| Stored $\tilde{C}_s$ | cov_{i}.pt saved/loaded | cl_trainer_specroute.py |
+| γ, η, β_min | CLI args | run_t5.py |
+| A-row routing | `compute_spectral_routing()` | t5_specroute.py |
 
 ---
 
-## 5. Những gì Loại bỏ từ GainLoRA
-
-| Thành phần | GainLoRA | SpecRoute | Lý do |
-|------------|----------|-----------|-------|
-| MLP `trans_input` | Learned routing projection | ❌ Loại bỏ | Duality: spectral affinity là đủ |
-| `prompt_key` | Learned per-task key | ❌ Loại bỏ | Thay bằng spectral signatures |
-| `previous_trans_input` | Frozen MLP copies | ❌ Loại bỏ | Signatures bất biến theo cấu trúc |
-| KL distillation | Replay-based routing loss | ❌ Loại bỏ | Không learned routing → không cần distill |
-| GPM trên routing params | Subspace cho routing | ❌ Loại bỏ | Không có routing parameters để bảo vệ |
-| **`prepare_inference_routing()`** | **SVD của $B_tA_t$ post-training** | **❌ Loại bỏ (V8)** | **$A_t$ là signature, kh\u00f4ng c\u1ea7n t\u00e1i t\u00ednh SVD; lo\u1ea1i b\u1ecf $O(dr^2)$ overhead** |
-| **SVD $\sigma^2$-weighted inference** | **Rayleigh quotient khác train formula** | **❌ Loại bỏ (V8)** | **Train-inference mismatch; A-row đủ từ Lemma 1 + Định lý 2** |
-
-**Hiệu ứng tổng thể:** Toàn bộ subspace và compute budget mà GainLoRA dành cho routing infrastructure được *thu hồi* cho task learning.
-
----
-
-## 6. Hai Đóng góp Cốt lõi
-
-> **Nguyên tắc cấu trúc:** Hai đóng góp này tạo thành một vòng lặp logic khép kín — phần 1 xây dựng lý thuyết, phần 2 giải quyết rào cản thực tế để lý thuyết đó có thể hoạt động. Không có phần nào có thể đứng độc lập mà không cần phần kia.
-
----
-
-### Đóng góp 1: Khung Định tuyến Phổ Phi tham số
-
-> *Tổng hợp từ C1, C2, C3 — một lập luận thống nhất, không phải ba thủ thuật riêng biệt.*
-
-**Vấn đề trung tâm:** Các phương pháp CL trước đây (GainLoRA, O-LoRA) coi routing và bảo vệ là hai bài toán độc lập, dẫn đến vòng lặp xấu: routing parameter trôi dạt → GPM phải bảo vệ routing → subspace của task learning bị thu hẹp → routing lại yếu hơn.
-
-**Đóng góp:** Chúng tôi hình thức hóa và chứng minh rằng **bảo vệ không gian con trực giao và routing phân biệt là hai biểu hiện kép của cùng một cấu trúc phổ** (Định lý 1). Từ tính đối ngẫu này, chúng tôi dẫn xuất cơ chế routing hoàn toàn phi tham số: mỗi input được định tuyến đến expert có spectral affinity cao nhất với subspace đặc trưng của expert đó — không cần tham số học, không cần replay, không tốn GPM overhead cho routing infrastructure.
-
-**Đảm bảo lý thuyết:**
-- Routing margin $\geq \kappa_{\min}(t^*) - \varepsilon\, \kappa_{\max}$ — tỷ lệ thuận với chất lượng bảo vệ (Định lý 1).
-- Routing weight $w_{t^*} \geq 1-\delta$ với nhiệt độ $\tau \leq m/\ln\!\bigl((T-1)/\delta\bigr)$ (Hệ quả 1).
-- Capacity bound $T_{\max} \leq d/(\bar{k}(1-\varepsilon))$ qua lý thuyết Grassmannian packing (Hệ quả 2), trong đó $\bar{k}$ là GPM effective rank ($\approx 30$–$80$ dims/task), không phải LoRA rank $r=8$.
-- Routing hoàn toàn bất biến qua thời gian: $h$ từ frozen embedding table, $\mathcal{S}_t$ đóng băng sau training (Mệnh đề 1).
-
-**Tại sao không phải đơn giản hoá mà là tiến bộ lý thuyết:** Kết quả này cho thấy các kiến trúc như GainLoRA đang giải quyết một bài toán không tồn tại (routing parameter learning). Chúng tôi chứng minh rằng bảo vệ tốt ↔ routing tốt — hai bài toán hóa ra là *một*.
-
----
-
-### Đóng góp 2: Tối ưu hóa Không gian con Dựa trên Dữ liệu
-
-> *Tổng hợp từ C5 — giải quyết rào cản thực tế làm Đóng góp 1 sụp đổ lúc runtime.*
-
-**Vấn đề trung tâm:** Đóng góp 1 yêu cầu $h \in \mathrm{span}(V_{t^*})$ — tức là expert $t^*$ phải học được các biến đổi có ý nghĩa từ dữ liệu task. Điều này phụ thuộc vào chất lượng của $A_t$. InfLoRA (và GainLoRA) khởi tạo $A_t$ ngẫu nhiên rồi chiếu vào null-space — một điểm *tùy ý* trên Grassmannian $\mathrm{Gr}(r, d - N_{\text{protected}})$ với dimension $r(d - N_{\text{protected}} - r)$ rất lớn. Khi null-space co lại theo tasks, xác suất ngẫu nhiên bắt đúng hướng task-relevant tiệm cận về 0.
-
-**Đóng góp:** Chúng tôi phát biểu khởi tạo $A_t$ như **bài toán Constrained PCA trên Grassmannian bị giới hạn** và cung cấp lời giải dạng đóng:
-
-$$\max_{A_t} \;\text{tr}(A_t\, Q C_t Q\, A_t^T) \quad \text{s.t.} \quad A_t A_t^T = I_r \;\Rightarrow\; A_t = \text{top-}r\text{ eigenvectors của } QC_tQ$$
-
-$A_t$ này đảm bảo capture **variance task-relevant tối đa** trong null-space có sẵn — biến vấn đề ngẫu nhiên thành vấn đề tất định. Tuân thủ zero-replay vì $C_t$ tính từ dữ liệu task *hiện tại* (không phải cũ), cùng logic với GPM bases đã được chấp nhận trong InfLoRA.
-
-**Vòng lặp khép kín với Đóng góp 1:** $A_t$ tốt hơn → $B_t$ học trong subspace task-relevant → $\sigma_{t,i}$ lớn hơn sau training → $\kappa_{\min}(t^*)$ trong Định lý 1 tăng → routing margin tăng → Đóng góp 1 hoạt động như lý thuyết dự đoán.
-
----
-
-> **C4 (gradient preconditioning)** là chi tiết triển khai kỹ thuật cần thiết để sửa điều kiện ma trận sau projection, không phải đóng góp lý thuyết. Xem §4 để biết chi tiết.
-
----
-
-## 7. Pipeline Huấn luyện
-
-### Task 1 (`--run_single True`)
-1. Load pretrained model + fresh LoRA ($A$: Kaiming, $B$: zeros).
-2. Huấn luyện chuẩn (chỉ `lora_B`) — single expert, không routing.
-3. Sau training: cập nhật GPM bases (ESA threshold). **Không cần tính SVD hay `prepare_inference_routing()`** — $A_t$ là signature.
-4. Lưu: LoRA weights, GPM reg files.
-
-### Task $t \geq 2$
-1. Load model + fresh LoRA; load LoRA weights cũ.
-2. **[C5 — MỚI]** Pre-task forward pass (200 batch, no grad):
-   - Thu thập activation covariance $C_t$ của inputs task $t$
-   - Tính projected covariance: $\tilde{C}_t = Q C_t Q$ ($Q = I - P_{\text{old}}$)
-   - Eigenvectors của $\tilde{C}_t$ → khởi tạo $A_t$ (thay thế random Kaiming)
-3. InfLoRA: chuẩn hoá $A_t$ (đã nằm trong null-space từ eigenvector decomposition).
-4. Huấn luyện `lora_B` với **oracle routing** (current task weight=1.0) + gradient preconditioning (C4.1). EMA fit scale cho calibration normalization tự động được thu thập trong quá trình training.
-5. Sau training: cập nhật GPM bases (200 batches). **Không gọi `prepare_inference_routing()`** — $A_t$ đóng băng từ bước 2 là signature đủ dùng.
-6. Lưu tất cả artifacts cho task tiếp theo.
-
----
-
-## 8. Mapping Lý thuyết – Implementation
-
-| Lý thuyết | Implementation | File |
-|-----------|---------------|------|
-| Spectral signature $\mathcal{S}_t = A_t$ | `lora_A` weights (frozen after C5 init) — **không cần SVD** | `t5_specroute.py` |
-| Spectral affinity $\alpha_t(h)$ (inference) | Calibrated A-row fit: `fit / E_fit_ema`, hard Top-1 argmax | `compute_spectral_routing()` |
-| Oracle routing (training) | `weights[:, 0] = 1.0` — current task always selected | `compute_spectral_routing()` |
-| ~~A-row proxy $\alpha_t^{\mathrm{train}}$ + $\beta(n)$~~ | ~~A-row fit + adaptive bias~~ | **❌ Loại bỏ (V9 oracle training)** |
-| ~~Symmetric inference SVD~~ | ~~`prepare_inference_routing()` → SVD của $B_t A_t$~~ | **❌ Loại bỏ hoàn toàn (V8)** |
-| Calibration normalization $\hat{\mu}_t$ | EMA fit scale collected during training, stored in signatures | `compute_spectral_routing()` |
-| Drift-free input $h$ | `inputs_embeds = embed_tokens(input_ids)` → mean-pool | `T5Stack.forward()` |
-| GPM + InfLoRA null-space | `get_reg_matrix()` | `cl_trainer_specroute.py` |
-| Dynamic ESA threshold | `(1−ε₀)·t/T + ε₀` | `cl_trainer_specroute.py` |
-| C4: Preconditioner | `precompute_preconditioners()` → eigendecomposition | `cl_trainer_specroute.py` |
-| **C5: Data-informed init** | **`pre_task_data_collection()` → `eigh(Q@C@Q)` → set `lora_A.data`** | **`cl_trainer_specroute.py`** |
-| C5: Fallback | max eigval < 1e-6 → skip C5, keep Kaiming + InfLoRA projection | `cl_trainer_specroute.py` |
-| **V10a: Learned Routing** | **`Trans_input` + `prompt_key` gating with exact post-step GPM constraints** | **`t5_specroute.py` & `cl_trainer_specroute.py`** |
-| **V10b: Grassmann Routing** | **Geometry-based routing via Grassmannian distance on batch principal subspaces** | **`t5_specroute.py`** |
-
----
-
-## 9. Thiết lập Thí nghiệm
+## 7. Thiết lập Thực nghiệm
 
 | Hạng mục | Giá trị |
 |----------|---------|
-| Mô hình | `google/flan-t5-small` (60M) / `flan-t5-large` (783M) |
-| Benchmarks | SuperNI (15 tasks, 2 orderings), Long (15 tasks, 2 orderings) |
-| Metrics | AP (Average Performance, ↑), FT (Forgetting, ↓) |
-| LoRA | $r = 8$, target=Q+V, InfLoRA (chỉ B trained, A đóng băng) |
-| Routing | Oracle training (current task weight=1.0); Hard Top-1 calibrated A-row (inference) |
-| ESA | $\varepsilon_0 = 0.995$ (dynamic) |
-| C4 | Gradient preconditioning bật (`--use_preconditioning True`), $\epsilon = 10^{-6}$; entropy reg đã loại bỏ V7 |
-| **C5** | **N_batch = 100, `torch.linalg.eigh` trên projected covariance, fallback nếu max_eigval < 1e-6** |
-| GPM repr. | 200 batches (giảm từ 1000 — SVD ổn định sau 200) |
-| **Scalability note** | **C5 per-layer eigdecomp: $O(d^2)$ per layer per task. Với T5-small ($d=512$) tất cả layers: chấp nhận được. Với flan-t5-large ($d=1024$): 4× đắt hơn nhưng vẫn chỉ tuyến tính theo tasks. Với LLaMA-7B ($d=4096$): sử dụng randomized SVD hoặc Lanczos (top-$r$ eigenvecs không cần full decomp) giảm xuống $O(dr)$ per layer.** |
-| Precision | fp32 + gradient_checkpointing (T5 + P100: fp16 có risk NaN overflow với large softmax) |
-| P100 BSZ | BSZ=8, GA=4 (effective 32); T4: BSZ=2, GA=8 |
-| Thời gian (P100 16GB) | SuperNI T5-Small ≈ 2-3h; Long benchmark ≈ 3-4h — thoải mái trong 12h Kaggle |
-| So sánh | Batch size, LR, scheduler khớp chính xác ROOT (GainLoRA) |
+| **Mô hình** | flan-t5-small (60M), flan-t5-large (783M) |
+| **Benchmarks** | SuperNI (15 tasks, 4 orders), Long Sequence (15 tasks, 2 orders) |
+| **Metrics** | AP (↑), FT (↓) |
+| **LoRA** | r=8, Q+V projections |
+| **Routing** | Train: oracle; Inference: hard Top-1 calibrated A-row |
+| **CPI** | γ=0.5 (default), N_batch=100 |
+| **OAP** | η=0.5 (default), β_min=0.3) |
+| **C4** | use_preconditioning True, ε=1e-6 |
+| **ESA** | ε₀=0.995 (dynamic) |
+| **GPM repr.** | 200 batches |
+| **Baselines** | GainLoRA (ROOT), InfLoRA, O-LoRA |
+
+### 7.1 Ablation: Sweep (γ, η) grid
+
+| Cấu hình | γ | η | Ý nghĩa | Kỳ vọng |
+|-----------|---|---|---------|---------|
+| C5 gốc (v10a) | 0 | 0 | Không contrastive, strict null-space | AP thấp (baseline) |
+| CPI only | 0.5 | 0 | Discriminative init, strict null-space | AP tăng nhờ routing tốt hơn |
+| OAP only | 0 | 0.5 | C5 init, relaxed null-space | AP tăng nhờ shared knowledge |
+| CPI+OAP (full) | 0.5 | 0.5 | Discriminative + shared | AP cao nhất (kỳ vọng) |
+| CPI strong | 0.7 | 0.5 | Contrastive mạnh + sharing | Kiểm tra γ cao có gây vấn đề không |
+| OAP strong | 0.5 | 0.8 | Sharing mạnh + discriminative | Kiểm tra η cao có gây forgetting không |
+
+### 7.2 Đo lường bổ sung
+
+- **SSE trước/sau OAP**: Đo $\text{SSE}_t$ và $\text{SSE}_t^{\text{OAP}}$ per layer per task → xác nhận OAP giảm SSE.
+- **Routing accuracy per task**: Đo $p_e(s)$ tại inference → xác nhận CPI cải thiện routing.
+- **$\rho_l$ distribution**: Histogram $\rho_l$ across layers → kiểm tra OAP auto-adapts đúng (cross-domain thấp, same-domain cao).
+- **Eigenvalue spectrum $D_t$**: Số eigenvectors dương vs âm → kiểm tra γ có gây quá nhiều negative không.
 
 ---
 
-## 10. File Map
+## 8. Giới hạn đã biết và Phản biện
 
-| File | Vai trò |
-|------|---------|
-| `src/t5_specroute.py` | T5Stack + spectral routing + thin SVD |
-| `src/t5_gainlora_inflora.py` | LoRALayer, T5Attention, T5Block (shared base) |
-| `src/cl_trainer_specroute.py` | Trainer: GPM, InfLoRA, ESA, C4, C5, training_step |
-| `src/run_t5.py` | Entry: model loading, parameter freezing |
-| `gen_script_*_specroute*.sh` | Experiment scripts |
+### 8.1 Định lý 4 (Forgetting bound) phụ thuộc giả định
+
+Chứng minh Định lý 4 dựa trên giả định xấp xỉ: $(i)$ hard Top-1 routing, $(ii)$ $p_e$ và $\|B_t\|_F$ gần độc lập. Giả định $(i)$ chính xác theo thiết kế. Giả định $(ii)$ là xấp xỉ — trong thực tế, $p_e$ (phụ thuộc CPI/A_t init) và $\|B_t\|_F$ (phụ thuộc training dynamics) có thể tương quan gián tiếp. Tuy nhiên, bound vẫn hữu ích theo nghĩa *qualitative*: forgetting ∝ $p_e \times (1-\beta_l)$, cho thấy **hai đòn bẩy kiểm soát** (routing accuracy + relaxation level). Chứng minh chi tiết hơn (không chỉ sketch) được trình bày tại §4.7.
+
+**Về $\beta_{\min}$**: Đây là một **hard provable floor** trong Định lý 4 — $\text{FT}(s) \leq p_e \cdot (1-\beta_{\min}) \cdot M$ là bound toán học, không phải heuristic. Reviewer conceded điểm này (xem phản biện trong §8.3).
+
+**Về warmup**: Warmup là **empirical safeguard** — không có lý thuyết chứng minh cụ thể tại sao $T_{\text{warmup}}$ tasks. Nó hỗ trợ thực nghiệm nhưng không cần thiết về mặt lý thuyết (vì $\beta_{\min}$ đã là bound cứng).
+
+**Hướng cải thiện**: Có thể tightening bound bằng cách bound $\|B_t\|_F$ theo training loss (Proposition trong Appendix), hoặc dùng PAC-Bayes framework để có bound xác suất không phụ thuộc giả định độc lập.
+
+### 8.2 CPI với γ cao gây eigenvalues âm
+
+Khi $\gamma \to 1$, $D_t = \tilde{C}_t - \gamma\bar{C}_{<t}^{\,\mathrm{w}}$ có thể có phần lớn eigenvalues âm → số eigenvectors dương < $r$ → phải fallback Kaiming cho phần thiếu. Điều này làm giảm hiệu quả CPI.
+
+**Biện pháp**:
+1. **Adaptive fallback** (đã implement): nếu positive eigenvectors < $r$, phần thiếu được bù bằng random vectors trong null-space. Đảm bảo không bao giờ thất bại hoàn toàn.
+2. **Heuristic chọn γ**: $\gamma^* \approx 1 - r/\text{rank}(\tilde{C}_t)$. Với $d=512$, $r=8$: $\gamma^* \approx 0.98$ (generous), nhưng thực tế nên dùng $\gamma \in [0.3, 0.7]$ vì noise amplification.
+3. **Ablation grid**: Sweep γ ∈ {0, 0.3, 0.5, 0.7} trong experiments (§7.1) để xác định vùng ổn định per benchmark.
+
+**Lưu ý**: Tính tổng quát của CPI không bị ảnh hưởng nghiêm trọng vì (a) fallback luôn đảm bảo hoạt động, (b) vùng $\gamma \in [0.3, 0.7]$ rộng và ổn định cho đa số benchmarks.
+
+### 8.3 OAP tăng forgetting khi routing chưa tốt
+
+Nới $\beta_l$ để học tốt hơn nhưng nếu routing kém (tasks đầu, CPI chưa đủ mạnh) → forgetting tăng theo $p_e \cdot (1-\beta_l)$.
+
+**$\beta_{\min}$ là giới hạn hard, không phải heuristic**: Từ Định lý 4, dù $\rho_l = 1$ (maximum overlap), $\beta_l \geq \beta_{\min}$ luôn được đảm bảo theo thiết kế $\beta_l = \max(\beta_{\min}, \ldots)$. Do đó $\text{FT}(s) \leq p_e \cdot (1-\beta_{\min}) \cdot M$ là bound *chứng minh được* cho mọi task, mọi routing history. Reviewer đã concede điểm này: "β_min IS a provable bound". Đây không phải heuristic về mặt toán học.
+
+**Biện pháp bảo vệ** (đã thiết kế, chi tiết §3.4.2):
+1. $\beta_{\min}$: **Hard provable floor** — luôn giữ mức bảo vệ tối thiểu bất kể điều kiện.
+2. **Warmup η theo task index**: $\eta_{\text{eff}}(t) = \eta \cdot \min(1, (t-1)/T_{\text{warmup}})$. Task 2: $\eta_{\text{eff}} \approx 0$. Task 5+: $\eta_{\text{eff}} = \eta$ (full OAP). Đây là **empirical safeguard** — không có bound lý thuyết, nhưng làm giảm rủi ro thực nghiệm ở tasks đầu.
+3. **$\beta_{\min}$ adaptive**: β_min cao (0.7) cho tasks đầu, giảm dần (0.3) khi routing ổn định.
+4. **Auto-detection**: $\rho_l \approx 0$ cho cross-domain → $\beta_l \approx 1$ → OAP tự deactivate.
+
+Kết hợp 4 biện pháp → OAP chỉ nới khi: $(a)$ đã qua giai đoạn warmup, **VÀ** $(b)$ overlap thực sự cao (same-domain), **VÀ** $(c)$ luôn giữ $\beta_{\min}$ safety net (hard bound).
+
+### 8.4 Số lượng hyperparameters tăng
+
+CPI thêm γ, OAP thêm (η, β_min) → tổng cộng 3 hyperparameters mới so với InfLoRA gốc.
+
+**Đánh giá**: Đây là mức tăng chấp nhận được vì:
+1. **Defaults ổn định**: (γ=0.5, η=0.5, β_min=0.3) dự kiến hoạt động tốt cho đa số benchmarks (kiểm chứng qua ablation).
+2. **Fallback an toàn**: (γ=0, η=0) = InfLoRA gốc → không bao giờ tệ hơn baseline.
+3. **Disentangled**: γ chỉ ảnh hưởng init, η chỉ ảnh hưởng projection → dễ tune independently.
+4. **Grid nhỏ**: 4 cấu hình chính (§7.1) đủ để xác định vùng tốt, không cần exhaustive search.
+
+**Nêu rõ trong paper**: Bảng 7.1 trình bày đầy đủ ablation grid, kèm phân tích sensitivity analysis cho từng hyperparameter.
+
+### 8.5 Tính mới của OAP so với TRGP
+
+OAP chia sẻ ý tưởng "nới null-space cho tasks tương quan" với TRGP. Điều này cần được nêu rõ trong Related Work để tránh bị xem là "re-invent".
+
+**Điểm khác biệt cốt lõi** (chi tiết §3.4.1):
+1. **Per-layer automatic**: TRGP dùng task-level similarity heuristic; OAP dùng $\rho_l$ per-layer per-chunk từ spectral analysis.
+2. **Tích hợp routing gate**: TRGP không có routing → relaxation trực tiếp gây forgetting. OAP + hard Top-1 routing → forgetting bị gate bởi $p_e$ (Định lý 4).
+3. **Kết hợp CPI**: TRGP standalone. OAP + CPI tạo **positive feedback loop ở cross-domain regime**: routing accuracy cao → an toàn nới β_l → shared learning tốt → routing tốt hơn. Ở same-domain regime: β_min bound worst-case (không phải unbounded reinforcement).
+4. **LoRA-specific**: TRGP thiết kế cho full model. OAP chỉ tác động $A_t$ (frozen init) → minimal interference.
+
+**Trình bày trong paper**: Phần Related Work nêu TRGP là tiền thân quan trọng, sau đó so sánh chi tiết bảng §3.4.1 để highlight novelty.
+
+### 8.6 Giới hạn cấu trúc khác
+
+**Capacity saturation.** $T_{\max} \leq d/(\bar{k}(1-\varepsilon))$. OAP giảm nhẹ (expanded search space), nhưng không giải hoàn toàn.
+
+**Same-domain routing vẫn khó hơn cross-domain.** CPI + OAP cải thiện đáng kể, nhưng khi $\tilde{C}_t \approx \bar{C}_{\text{old}}$ thì $D_t$ có eigenvalues nhỏ → routing margin thấp hơn cross-domain. Đây là giới hạn cấu trúc không thể vượt qua chỉ bằng spectral methods.
+
+### 8.7 Hidden assumption: "AP gain từ OAP > forgetting cost" chưa được chứng minh lý thuyết
+
+**Giả định ẩn**: Framework CPI+OAP ngầm giả định rằng $\Delta\text{AP}(\text{OAP gain}) \geq \text{FT\_cost}(\text{OAP relaxation})$ ở regime same-domain, tức là net AP dương sau khi tính cả forgetting tăng.
+
+**Điều này chưa được chứng minh về mặt toán học.** Định lý 4 chỉ bound forgetting; Định lý 5 bound AP gain; nhưng không có định lý nào so sánh hai lượng này trực tiếp. Chứng minh tổng quát sẽ yêu cầu bound $\|B_t\|_F$ theo task gradient signal, sau đó so sánh scaling của AP gain (tỉ lệ shared variance recovered) và forgetting cost (tỉ lệ $p_e \times (1-\beta_l)$) — phân tích này phụ thuộc mạnh vào distributional assumptions.
+
+**Argument chính thực tế**:
+1. **Baseline so sánh đúng**: InfLoRA gốc (v10a) đã bị broken hoàn toàn trên same-domain (qqp=11.95, rte=10.11 vs root 76.96, 45.85) — SSE 70-90% phá hủy learning. OAP không cần beat lý thuyết; chỉ cần tốt hơn baseline đã thất bại. Đây là comparison point đúng.
+2. **Empirical verification**: Ablation OAP-only (γ=0, η=0.5) trên Long Order3/SuperNI benchmarks sẽ xác nhận (hoặc bác bỏ) giả định net positive. Đây là observation thực nghiệm, không phải lý thuyết.
+3. **Conservative fallback**: η=0 → InfLoRA gốc. Nếu OAP hurt net AP trên bất kỳ benchmark nào, khuyến nghị giữ η nhỏ cho benchmark đó.
+
+**Semi-formal sufficient condition từ Định lý 4 + 5**: Từ hai bounds:
+- Định lý 4: $\text{FT}(s) \leq p_e \cdot (1-\beta_l) \cdot M$
+- Định lý 5: $\Delta E[\|A_t h\|^2] \geq (1-\beta_l)^2 \cdot \text{tr}(P_{\text{old}} C_t A_t^\top A_t)$
+
+Tỉ lệ AP_gain/FT_cost tỉ lệ với $(1-\beta_l) \cdot \text{SSE} \cdot \text{tr}(C_t) / p_e$. **Điều kiện đủ net-positive**:
+$$\text{SSE}_t \cdot (1-\beta_l) > \frac{p_e \cdot c}{\text{tr}(C_t)}$$
+trong đó $c$ là output scale constant. Với same-domain ($\text{SSE} \approx 0.7$-$0.9$) và CPI đảm bảo $p_e$ nhỏ, điều kiện này được thỏa mãn với biên độ lớn — đây là argument *bán hình thức*, không chỉ là empirical observation. Điều còn thiếu là bound tuyệt đối cho $c$ và $p_e$ theo hyperparameters — đây mới là phần thực sự là future work.
+
+**Khuyến nghị paper**: "Định lý 4 và 5 cung cấp điều kiện đủ bán hình thức cho net-positive AP; ablation empirical verify điều kiện này trên mọi benchmark được kiểm tra."

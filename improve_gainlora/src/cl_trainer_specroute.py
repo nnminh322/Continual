@@ -146,7 +146,9 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                  compute_metrics=None, callbacks=None,
                  lambda_entropy=0.0, use_preconditioning=False,
                  precond_eps=1e-6, entropy_warmup_ratio=0.1,
-                 n_batches_c5=100, previous_lora_path=None):
+                 n_batches_c5=100, previous_lora_path=None,
+                 cpi_gamma=0.0,
+                 oap_eta=0.0, oap_beta_min=0.3, oap_warmup=3):
         self.previous_lora_path = previous_lora_path
         if callbacks is None:
             callbacks = []
@@ -169,6 +171,13 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
         # C5: Data-Informed Subspace Initialization
         self.n_batches_c5 = n_batches_c5
         self._task_covariance = []  # list of {chunk_index: cov_tensor} per layer
+        # CPI: Contrastive Projected Initialization
+        self.cpi_gamma = cpi_gamma
+        self._old_covariances = []  # list of per-task covariance lists loaded from disk
+        # OAP: Overlap-Aware Projection
+        self.oap_eta = oap_eta
+        self.oap_beta_min = oap_beta_min
+        self.oap_warmup = oap_warmup  # T_warmup: tasks before full OAP kicks in
 
     def _save(self, output_dir=None, state_dict=None):
         # T5 shared embeddings are incompatible with safetensors; force pytorch format
@@ -497,12 +506,70 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 break
         return reg_matrix, reg_trans_matrix, eval(local_dir.split('-')[0]) - 1
 
+    def _load_old_covariances(self):
+        """CPI: Load projected covariance cov_{i}.pt from ALL previous tasks.
+        Returns list of per-task covariance dicts [{chunk_idx: tensor}, ...] per layer.
+        Outer list: per task, inner list: per layer."""
+        if self.cpi_gamma <= 0 or self.cur_task_id == 0:
+            self._old_covariances = []
+            return
+
+        log_path = os.path.dirname(self.args.output_dir)
+        local_dir = os.path.basename(self.args.output_dir)
+        self._old_covariances = []
+
+        if hasattr(self, "previous_lora_path") and self.previous_lora_path:
+            previous_lora_list = self.previous_lora_path.split(',')
+            for task_path in previous_lora_list:
+                task_covs = []
+                i = 0
+                for module in self.model.modules():
+                    if hasattr(module, 'get_feature'):
+                        path = os.path.join(task_path, "cov_{}.pt".format(i))
+                        if os.path.exists(path):
+                            cov = torch.load(path, map_location='cpu')
+                            task_covs.append(cov)
+                        else:
+                            task_covs.append(None)
+                        i += 1
+                self._old_covariances.append(task_covs)
+            print(f"[CPI] Loaded covariances from {len(self._old_covariances)} previous tasks (explicit paths)")
+            return
+
+        # Discover previous task dirs by index
+        cur_idx = int(local_dir.split('-')[0])
+        all_dirs = sorted(os.listdir(log_path))
+        for all_dir in all_dirs:
+            dir_path = os.path.join(log_path, all_dir)
+            if not os.path.isdir(dir_path):
+                continue
+            try:
+                dir_idx = int(all_dir.split('-')[0])
+            except (ValueError, IndexError):
+                continue
+            if dir_idx < cur_idx:
+                task_covs = []
+                i = 0
+                for module in self.model.modules():
+                    if hasattr(module, 'get_feature'):
+                        path = os.path.join(dir_path, "cov_{}.pt".format(i))
+                        if os.path.exists(path):
+                            cov = torch.load(path, map_location='cpu')
+                            task_covs.append(cov)
+                        else:
+                            task_covs.append(None)
+                        i += 1
+                self._old_covariances.append(task_covs)
+        print(f"[CPI] Loaded covariances from {len(self._old_covariances)} previous tasks (auto-discovered)")
+
     def get_reg_matrix(self):
         """
         V11: Project current LoRA A into null-space of old tasks' GPM bases.
+        CPI: Use discriminant matrix D_t = C_tilde - gamma * C_bar_old for init.
         Also re-initialize prompt_key for learned routing (ROOT-style SVD).
         """
         self.feature_list, self.feature_trans_list, self._cur_task = self.load_previous_reg_matrix()
+        self._load_old_covariances()
 
         # ================================================================
         # V11: Prompt-key re-initialization (ROOT-style)
@@ -546,61 +613,186 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                     ).to("cuda:0")
                 self.feature_mat.append(feature_mat)
 
-                # C5: Data-Informed Subspace Initialization
-                # Replace random A_t with optimal subspace from Constrained PCA.
-                # Eigenvectors of Q@C_t@Q are in null(P_old) by construction.
+                # CPI+OAP: Contrastive Projected Initialization + Overlap-Aware Projection
+                # D_t = C_tilde - gamma * C_bar_old; A_t = top-r eigvecs of D_t
+                # OAP: Q = I - beta_l * P_old (adaptive relaxation per-layer per-chunk)
+                # gamma=0 → original C5; gamma>0 → contrastive discriminative init
+                # eta=0 → strict InfLoRA; eta>0 → OAP relaxation
+                _oap_betas = {}  # index -> beta_l, used by InfLoRA projection below
+                _diag_layer = {}  # diagnostic data per chunk
                 if self._task_covariance and i < len(self._task_covariance):
                     r = module.lora_q.lora_A.data.shape[0]  # LoRA rank
+                    projected_cov_layer = {}  # store C_tilde per chunk for saving
+
+                    # Compute weighted C_bar_old for this layer (Weighted CPI)
+                    # rho_{s,t} = tr(C̃_s · C_t) / (tr(C̃_s) * tr(C_t)) — domain proximity weight
+                    C_bar_old_layer = {}
+                    C_bar_weights = {}  # idx -> accumulated weight sum
+                    if self.cpi_gamma > 0 and self._old_covariances:
+                        for task_covs in self._old_covariances:
+                            if i < len(task_covs) and task_covs[i] is not None:
+                                for idx, cov_tensor in task_covs[i].items():
+                                    C_s = cov_tensor.float().cuda()
+                                    # Compute domain-proximity weight rho_{s,t}
+                                    if idx in self._task_covariance[i]:
+                                        C_t_for_w = self._task_covariance[i][idx].to(C_s.device).float()
+                                        tr_s = torch.trace(C_s) + 1e-12
+                                        tr_t = torch.trace(C_t_for_w) + 1e-12
+                                        tr_cross = torch.trace(C_s @ C_t_for_w)
+                                        rho_st = max(0.0, (tr_cross / (tr_s * tr_t)).item())
+                                    else:
+                                        rho_st = 1.0  # fallback: equal weight
+                                    if idx not in C_bar_old_layer:
+                                        C_bar_old_layer[idx] = rho_st * C_s
+                                        C_bar_weights[idx] = rho_st
+                                    else:
+                                        C_bar_old_layer[idx] = C_bar_old_layer[idx] + rho_st * C_s
+                                        C_bar_weights[idx] += rho_st
+                        for idx in C_bar_old_layer:
+                            w = C_bar_weights[idx]
+                            if w > 1e-12:
+                                C_bar_old_layer[idx] /= w
+
                     for index in self.feature_list[i].keys():
                         C_t   = self._task_covariance[i][index]       # [step, step]
                         P_old = feature_mat[index]                     # [step, step]
-                        Q     = torch.eye(module.step, device=P_old.device) - P_old
+
+                        # OAP: compute overlap ratio rho_l and adaptive beta_l
+                        if self.oap_eta > 0:
+                            # Warmup: eta_eff = eta * min(1, (t-1)/T_warmup)
+                            t_idx = self.cur_task_id  # 0-indexed
+                            if self.oap_warmup > 0 and t_idx > 0:
+                                warmup_factor = min(1.0, t_idx / self.oap_warmup)
+                            else:
+                                warmup_factor = 1.0
+                            eta_eff = self.oap_eta * warmup_factor
+                            # beta_min higher for early tasks (conservative)
+                            beta_min_eff = self.oap_beta_min if warmup_factor >= 1.0 else max(self.oap_beta_min, 0.7)
+
+                            C_t_f = C_t.to(P_old.device).float()
+                            P_old_f = P_old.float()
+                            tr_overlap = torch.trace(P_old_f @ C_t_f)
+                            tr_total = torch.trace(C_t_f) + 1e-12
+                            rho_l = (tr_overlap / tr_total).item()
+                            beta_l = max(beta_min_eff, 1.0 - eta_eff * rho_l)
+                            _oap_betas[index] = beta_l
+                        else:
+                            beta_l = 1.0
+                            rho_l = 0.0
+                            _oap_betas[index] = 1.0
+
+                        # Diagnostic: SSE before OAP
+                        _ct_on_device = C_t.to(P_old.device).float()
+                        _sse_before = (torch.trace(P_old.float() @ _ct_on_device) / (torch.trace(_ct_on_device) + 1e-12)).item()
+
+                        Q     = torch.eye(module.step, device=P_old.device) - beta_l * P_old
                         C_tilde = Q @ C_t.to(P_old.device) @ Q
+
+                        # Diagnostic: SSE after OAP = (1-beta_l)^2 * SSE_before (theoretical)
+                        _sse_after = (1 - beta_l)**2 * _sse_before
+
+                        # Save projected covariance for future CPI
+                        projected_cov_layer[index] = C_tilde.detach().cpu()
+
+                        # CPI: subtract old mean covariance
+                        if self.cpi_gamma > 0 and index in C_bar_old_layer:
+                            D_t = C_tilde - self.cpi_gamma * C_bar_old_layer[index].to(C_tilde.device)
+                        else:
+                            D_t = C_tilde
+
                         # Enforce symmetry and add tiny jitter for numerical stability
-                        C_tilde = (C_tilde + C_tilde.T) * 0.5
-                        # Guard against NaNs or Infs that might cause linalg.eigh to fail
-                        if torch.isnan(C_tilde).any() or torch.isinf(C_tilde).any():
-                            print(f'[C5] WARNING: Layer {i+1} index {index} contains NaN/Inf in C_tilde. Cleaning.')
-                            C_tilde = torch.nan_to_num(C_tilde, nan=0.0, posinf=0.0, neginf=0.0)
+                        D_t = (D_t + D_t.T) * 0.5
+                        if torch.isnan(D_t).any() or torch.isinf(D_t).any():
+                            print(f'[CPI] WARNING: Layer {i+1} index {index} contains NaN/Inf in D_t. Cleaning.')
+                            D_t = torch.nan_to_num(D_t, nan=0.0, posinf=0.0, neginf=0.0)
                         
-                        # Add tiny diagonal jitter to prevent ill-conditioned matrix errors (error code 641)
-                        # Scaling jitter to mean magnitude of C_tilde
-                        jitter_scale = 1e-10 * (C_tilde.abs().mean() + 1e-12)
-                        C_tilde += jitter_scale * torch.eye(C_tilde.shape[0], device=C_tilde.device)
+                        jitter_scale = 1e-10 * (D_t.abs().mean() + 1e-12)
+                        D_t += jitter_scale * torch.eye(D_t.shape[0], device=D_t.device)
                         
                         try:
-                            # eigh returns ascending eigenvalues; take last r (largest)
-                            eigvals, eigvecs = torch.linalg.eigh(C_tilde.float())
+                            eigvals, eigvecs = torch.linalg.eigh(D_t.float())
                         except torch._C._LinAlgError as e:
-                            print(f'[C5] WARNING: Layer {i+1} index {index} - linalg.eigh failed: {e}. Falling back.')
+                            print(f'[CPI] WARNING: Layer {i+1} index {index} - linalg.eigh failed: {e}. Falling back.')
                             continue
 
-                        # Fallback: if null-space signal is degenerate, keep Kaiming init
-                        if eigvals[-1].item() < 1e-6:
-                            print(f'[C5] Layer {i+1} index {index}: max_eigval={eigvals[-1].item():.2e} < 1e-6, fallback to Kaiming+InfLoRA')
+                        # CPI: only use eigenvectors with POSITIVE eigenvalues
+                        # (negative eigenvalues = directions where old tasks dominate)
+                        pos_mask = eigvals > 1e-6
+                        n_pos = int(pos_mask.sum().item())
+                        n_total = eigvals.shape[0]
+                        lambda_min_pos = eigvals[pos_mask].min().item() if n_pos > 0 else 0.0
+                        lambda_max_pos = eigvals[pos_mask].max().item() if n_pos > 0 else 0.0
+
+                        # Store per-chunk diagnostic
+                        _diag_layer[index] = {
+                            'rho_l': rho_l, 'beta_l': beta_l,
+                            'sse_before': _sse_before, 'sse_after': _sse_after,
+                            'n_pos_eigvals': n_pos, 'n_total_eigvals': n_total,
+                            'lambda_min_pos': lambda_min_pos, 'lambda_max_pos': lambda_max_pos,
+                            'lambda_min_pos_over_r': lambda_min_pos / r,  # Theorem 3 margin
+                        }
+
+                        if pos_mask.sum() == 0:
+                            print(f'[CPI] Layer {i+1} index {index}: no positive eigenvalues, fallback to Kaiming+InfLoRA')
                             continue
-                        top_eigvecs = eigvecs[:, -r:].flip(dims=[1])  # [step, r]
+                        pos_eigvals = eigvals[pos_mask]
+                        pos_eigvecs = eigvecs[:, pos_mask]
+                        # Take top-r from positive eigenvalues (sorted ascending by eigh)
+                        n_take = min(r, pos_eigvals.shape[0])
+                        top_eigvecs = pos_eigvecs[:, -n_take:].flip(dims=[1])  # [step, n_take]
+                        if n_take < r:
+                            # Pad with Kaiming random vectors in null-space
+                            pad = torch.randn(top_eigvecs.shape[0], r - n_take, device=top_eigvecs.device)
+                            top_eigvecs = torch.cat([top_eigvecs, pad], dim=1)
                         A_init = top_eigvecs.T  # [r, step]
                         dtype  = module.lora_q.lora_A.data.dtype
                         sl     = slice(index * module.step, (index + 1) * module.step)
                         module.lora_q.lora_A.data[:, sl].copy_(A_init.to(dtype))
                         module.lora_v.lora_A.data[:, sl].copy_(A_init.to(dtype))
-                    print(f'[C5] Layer {i+1}: A_t initialized via Constrained PCA.')
+                    cpi_label = "CPI" if self.cpi_gamma > 0 else "C5"
+                    oap_info = ""
+                    if self.oap_eta > 0 and _oap_betas:
+                        avg_beta = sum(_oap_betas.values()) / len(_oap_betas)
+                        oap_info = f", OAP avg_beta={avg_beta:.3f}"
+                    # Diagnostic summary for this layer
+                    if _diag_layer:
+                        avg_rho = sum(d['rho_l'] for d in _diag_layer.values()) / len(_diag_layer)
+                        avg_sse_b = sum(d['sse_before'] for d in _diag_layer.values()) / len(_diag_layer)
+                        avg_sse_a = sum(d['sse_after'] for d in _diag_layer.values()) / len(_diag_layer)
+                        avg_lmin = sum(d['lambda_min_pos_over_r'] for d in _diag_layer.values()) / len(_diag_layer)
+                        avg_npos = sum(d['n_pos_eigvals'] for d in _diag_layer.values()) / len(_diag_layer)
+                        print(f'[{cpi_label}] Layer {i+1}: A_t init (gamma={self.cpi_gamma}{oap_info}) '
+                              f'| rho_l={avg_rho:.3f} SSE={avg_sse_b:.3f}->{avg_sse_a:.3f} '
+                              f'lambda_min+/r={avg_lmin:.4f} n_pos={avg_npos:.1f}/{_diag_layer[list(_diag_layer.keys())[0]]["n_total_eigvals"]}')
+                    else:
+                        print(f'[{cpi_label}] Layer {i+1}: A_t initialized (gamma={self.cpi_gamma}{oap_info}).')
+                    # Store projected covariance for saving later
+                    if not hasattr(self, '_projected_covariances'):
+                        self._projected_covariances = []
+                    self._projected_covariances.append(projected_cov_layer)
+                    # Store diagnostics for saving
+                    if not hasattr(self, '_init_diagnostics'):
+                        self._init_diagnostics = []
+                    self._init_diagnostics.append(_diag_layer)
 
-                # InfLoRA null-space projection (near no-op after C5, still applied
-                # for numerical correctness and to enforce InfLoRA invariant exactly)
+                # InfLoRA / OAP projection
+                # OAP: A_t <- A_t(I - beta_l * P_old) instead of A_t <- A_t(I - P_old)
+                # beta_l < 1 allows shared directions to remain (Theorem 4: forgetting
+                # bounded by p_e * (1-beta_l) * M, gated by routing accuracy)
                 for index in self.feature_list[i].keys():
-                    module.lora_q.lora_A.data[:, index*module.step:(index+1)*module.step].copy_(
-                        module.lora_q.lora_A.data[:, index*module.step:(index+1)*module.step]
-                        - torch.mm(
-                            module.lora_q.lora_A.data[:, index*module.step:(index+1)*module.step],
+                    beta_l = _oap_betas.get(index, 1.0)
+                    sl = slice(index * module.step, (index + 1) * module.step)
+                    module.lora_q.lora_A.data[:, sl].copy_(
+                        module.lora_q.lora_A.data[:, sl]
+                        - beta_l * torch.mm(
+                            module.lora_q.lora_A.data[:, sl],
                             feature_mat[index]
                         )
                     )
-                    module.lora_v.lora_A.data[:, index*module.step:(index+1)*module.step].copy_(
-                        module.lora_v.lora_A.data[:, index*module.step:(index+1)*module.step]
-                        - torch.mm(
-                            module.lora_v.lora_A.data[:, index*module.step:(index+1)*module.step],
+                    module.lora_v.lora_A.data[:, sl].copy_(
+                        module.lora_v.lora_A.data[:, sl]
+                        - beta_l * torch.mm(
+                            module.lora_v.lora_A.data[:, sl],
                             feature_mat[index]
                         )
                     )
@@ -774,6 +966,20 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
         # Save LoRA GPM bases
         for i in range(len(self.feature_list)):
             torch.save(self.feature_list[i], os.path.join(self.args.output_dir, 'reg_{}.pt'.format(i)))
+
+        # CPI: Save projected covariance for future tasks' contrastive init
+        _proj_covs = getattr(self, '_projected_covariances', self._task_covariance)
+        if _proj_covs:
+            for i in range(len(_proj_covs)):
+                torch.save(_proj_covs[i], os.path.join(self.args.output_dir, 'cov_{}.pt'.format(i)))
+            print(f'[CPI] Saved {len(_proj_covs)} projected covariance matrices.')
+
+        # Save CPI/OAP diagnostics for post-hoc analysis
+        _diag = getattr(self, '_init_diagnostics', None)
+        if _diag:
+            diag_path = os.path.join(self.args.output_dir, 'init_diagnostics.pt')
+            torch.save(_diag, diag_path)
+            print(f'[DIAG] Saved init diagnostics to {diag_path}')
 
         # Save trans_input GPM bases
         if getattr(self.model.encoder, "routing_mode", "") == "learned" and hasattr(self, "feature_trans_list"):

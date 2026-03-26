@@ -1,0 +1,231 @@
+\documentclass[border=10pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, calc}
+\usepackage{pifont}
+\usepackage{amsmath}
+\usepackage{fontawesome5}
+
+\begin{document}
+\begin{tikzpicture}[
+    >=stealth,
+    font=\sffamily\footnotesize,
+    % === REUSED STYLES FROM GAINLORA ===
+    lm_outer/.style={rectangle, draw=blue!60!black, fill=blue!15, thick, rounded corners=4mm, minimum width=4cm, minimum height=5.5cm, align=center},
+    lm_inner/.style={rectangle, fill=cyan!5, rounded corners=2mm, minimum width=3.4cm, minimum height=4cm},
+    input_box/.style={rectangle, draw=orange!50, fill=orange!20, rounded corners=1mm, text width=5cm, inner sep=4pt, align=left},
+    ans_box/.style={rectangle, draw=orange!50, fill=orange!20, font=\bfseries, inner sep=4pt},
+    q_h_box/.style={rectangle, draw=yellow!80!orange, fill=yellow!30, rounded corners=1.5mm, minimum width=3cm, minimum height=4mm},
+    trap_A_old/.style={trapezium, draw=teal!80!black, fill=green!10, trapezium angle=65, thick, minimum width=1.5cm, minimum height=0.7cm, align=center, shape border rotate=180},
+    trap_B_old/.style={trapezium, draw=teal!80!black, fill=green!10, trapezium angle=65, thick, minimum width=1.5cm, minimum height=0.7cm, align=center},
+    trap_A_new/.style={trapezium, draw=blue!80!black, fill=blue!10, trapezium angle=65, thick, minimum width=1.5cm, minimum height=0.7cm, align=center, shape border rotate=180},
+    trap_B_new/.style={trapezium, draw=blue!80!black, fill=blue!10, trapezium angle=65, thick, minimum width=1.5cm, minimum height=0.7cm, align=center},
+    var_w/.style={rectangle, draw=blue!80!black, fill=cyan!10, minimum size=6mm, inner sep=2pt, align=center},
+    var_a_old/.style={rectangle, draw=teal!80!black, fill=green!15, minimum size=5mm, inner sep=2pt},
+    var_a_new/.style={rectangle, draw=blue!80!black, fill=blue!15, minimum size=5mm, inner sep=2pt},
+    step_box/.style={rectangle, draw=blue!40, fill=blue!10, text width=2.8cm, align=left, inner sep=3pt},
+    plus_op/.style={circle, draw=black, thick, fill=white, inner sep=0pt, minimum size=4.5mm},
+    times_op/.style={circle, draw=black, thick, fill=white, inner sep=0pt, minimum size=4.5mm},
+    % === NEW STYLES FOR SPECROUTE ===
+    spectral_old/.style={rectangle, draw=violet!80!black, thick, fill=violet!8, rounded corners=2mm, minimum width=2cm, minimum height=1.4cm, align=center},
+    spectral_new/.style={rectangle, draw=red!70!black, thick, fill=violet!8, rounded corners=2mm, minimum width=2cm, minimum height=1.4cm, align=center},
+    c5_badge/.style={rectangle, draw=orange!80!black, thick, fill=yellow!40, rounded corners=1.5mm, inner sep=2pt, font=\scriptsize\bfseries},
+    prop_box/.style={rectangle, draw=violet!70!black, fill=violet!8, text width=1.8cm, align=center, minimum height=0.9cm},
+    calib_label/.style={font=\scriptsize, text=orange!70!black, align=center},
+    argmax_badge/.style={rectangle, draw=red!70!black, thick, fill=red!8, rounded corners=2mm, inner sep=4pt, align=center}
+]
+
+% =======================================================
+% PART (a) - SPECROUTE EXPANDABLE LORA ARCHITECTURE
+% =======================================================
+
+% 1. LM Box & Inputs (same structure as GainLoRA)
+\node[input_box] (input_a) at (0, 0) {Someone who had a very bad flight might be given a trip in this to make up for it?\\ \textbf{Option:} (A)first class (B)propitious (C)reputable (D)one (E)sufficient};
+\node[font=\large] at (-3, 0) {$\boldsymbol{x}$};
+
+\node[lm_outer] (lm) at (0, 4.5) {};
+\node[font=\bfseries] at (0, 6.8) {Language Models};
+\node[lm_inner] (lm_in) at (0, 4.2) {};
+
+\node[ans_box] (ans) at (0, 8.2) {Answer: A};
+\draw[->, thick, line width=1.2pt] (0, 7.25) -- (ans.south);
+
+\node[q_h_box] (h) at (0, 2.7) {};
+\node at (-1.8, 2.7) {$\boldsymbol{h}$};
+\node[q_h_box] (q) at (0, 5.7) {};
+\node at (-1.8, 5.7) {$\boldsymbol{q}$};
+
+\node[plus_op] (lm_plus) at (0, 4.2) {$\boldsymbol{+}$};
+\node[rectangle, draw=black, fill=white, align=center, font=\scriptsize, minimum width=1.3cm] (W) at (-1.1, 4.2) {Pre-trained\\Weights\\$\boldsymbol{W}$\\\textcolor{cyan}{\ding{101}}};
+\node[var_w] (wt_small) at (1.2, 4.2) {$w_t$};
+
+\draw[->, thick, line width=1.2pt] (input_a.north) -- (h.south);
+\draw[->, thick, line width=1.2pt] (h.north) -- (lm_plus.south);
+\draw[->, thick, line width=1.2pt] (lm_plus.north) -- (q.south);
+
+% 2. Big Expandable Box
+\draw[black, thick, rounded corners=4mm] (3.5, -0.5) rectangle (16.5, 9);
+
+\draw[dashed, thick] (1.5, 4.5) -- (3.5, 9);
+\draw[dashed, thick] (1.5, 3.9) -- (3.5, -0.5);
+
+% Legend
+\node[plus_op, minimum size=4mm] at (5.5, 8.5) {$\boldsymbol{+}$}; 
+\node at (6.5, 8.5) {Addition};
+\node[times_op, minimum size=4mm] at (8, 8.5) {$\boldsymbol{\times}$}; 
+\node at (9.2, 8.5) {Multiplication};
+\node[text=cyan, font=\large] at (10.8, 8.5) {\ding{101}}; 
+\node at (11.6, 8.5) {: Frozen};
+\node[c5_badge] at (13, 8.5) {C5};
+\node[font=\footnotesize] at (14.5, 8.5) {: Data-Informed};
+
+% Output
+\node[var_w, minimum size=7mm] (wt_big) at (9.5, 7.5) {$w_t$};
+\node[plus_op] (big_plus) at (9.5, 6) {$\boldsymbol{+}$};
+\draw[->, thick, line width=1.5pt] (big_plus.north) -- (wt_big.south);
+
+% Bus line
+\draw[thick, line width=1.5pt] (5.5, 4.8) -- (13.5, 4.8);
+\draw[thick, line width=1.5pt] (9.5, 4.8) -- (big_plus.south);
+
+% Background Old/New
+\fill[green!15, rounded corners=2mm] (4, 0) rectangle (9.2, 4.5);
+\node[font=\bfseries] at (6.6, -0.2) {Old Branches};
+
+\fill[blue!15, rounded corners=2mm] (10.5, 0) rectangle (13.5, 4.5);
+\node[font=\bfseries] at (12, -0.2) {New Branch};
+
+% Branch 1 (X = 5.5) -- CHANGED: alpha_1 instead of a_1
+\node[var_a_old] (a1) at (4.5, 4) {$\alpha_1$};
+\node[times_op] (t1_top) at (5.5, 4) {$\boldsymbol{\times}$};
+\node[trap_A_old] (A1) at (5.5, 2.7) {$\boldsymbol{A_1}$\\ \tiny\textcolor{cyan}{\ding{101}}};
+\node[times_op] (t1_bot) at (5.5, 1.5) {$\boldsymbol{\times}$};
+\node[trap_B_old] (B1) at (5.5, 0.5) {$\boldsymbol{B_1}$\\ \tiny\textcolor{cyan}{\ding{101}}};
+
+\draw[->, thick, line width=1.5pt] (B1.north) -- (t1_bot.south);
+\draw[->, thick, line width=1.5pt] (t1_bot.north) -- (A1.south);
+\draw[->, thick, line width=1.5pt] (A1.north) -- (t1_top.south);
+\draw[->, thick, line width=1.5pt] (t1_top.north) -- (5.5, 4.8);
+\draw[->, thick, line width=1.2pt] (a1.east) -- (t1_top.west);
+
+% Dots
+\node[font=\large] at (7.2, 2.7) {$\boldsymbol{\dots}$};
+\node[font=\large] at (7.2, 0.5) {$\boldsymbol{\dots}$};
+
+% Branch t-1 (X = 8.4) -- CHANGED: alpha_{t-1}
+\node[var_a_old] (atm1) at (7.4, 4) {$\alpha_{t\text{-}1}$};
+\node[times_op] (ttm1_top) at (8.4, 4) {$\boldsymbol{\times}$};
+\node[trap_A_old] (Atm1) at (8.4, 2.7) {$\boldsymbol{A_{t-1}}$\\ \tiny\textcolor{cyan}{\ding{101}}};
+\node[times_op] (ttm1_bot) at (8.4, 1.5) {$\boldsymbol{\times}$};
+\node[trap_B_old] (Btm1) at (8.4, 0.5) {$\boldsymbol{B_{t-1}}$\\ \tiny\textcolor{cyan}{\ding{101}}};
+
+\draw[->, thick, line width=1.5pt] (Btm1.north) -- (ttm1_bot.south);
+\draw[->, thick, line width=1.5pt] (ttm1_bot.north) -- (Atm1.south);
+\draw[->, thick, line width=1.5pt] (Atm1.north) -- (ttm1_top.south);
+\draw[->, thick, line width=1.5pt] (ttm1_top.north) -- (8.4, 4.8);
+\draw[->, thick, line width=1.2pt] (atm1.east) -- (ttm1_top.west);
+
+% Branch t (X = 12.5) -- CHANGED: alpha_t, C5 badge on A_t, A_t now frozen
+\node[var_a_new] (at) at (11.5, 4) {$\alpha_t$};
+\node[times_op] (tt_top) at (12.5, 4) {$\boldsymbol{\times}$};
+\node[trap_A_new] (At) at (12.5, 2.7) {$\boldsymbol{A_t}$\\ \tiny\textcolor{cyan}{\ding{101}}};
+\node[c5_badge] at (13.8, 2.7) {C5};
+\node[times_op] (tt_bot) at (12.5, 1.5) {$\boldsymbol{\times}$};
+\node[trap_B_new] (Bt) at (12.5, 0.5) {$\boldsymbol{B_t}$\\ \tiny\textcolor{red}{\faFire}};
+
+\draw[->, thick, line width=1.5pt] (Bt.north) -- (tt_bot.south);
+\draw[->, thick, line width=1.5pt] (tt_bot.north) -- (At.south);
+\draw[->, thick, line width=1.5pt] (At.north) -- (tt_top.south);
+\draw[->, thick, line width=1.5pt] (tt_top.north) -- (12.5, 4.8);
+\draw[->, thick, line width=1.2pt] (at.east) -- (tt_top.west);
+
+% Step annotations -- CHANGED for SpecRoute
+\node[step_box] (step1) at (15, 7.2) {\textbf{1.} C5 Data-Informed\\Init for $A_t$};
+\draw[->, thick] (step1.west) -- (wt_big.east);
+
+\node[step_box] (step2) at (15, 4.6) {\textbf{2.} Hard Top-1\\Spectral Routing};
+
+\node[step_box] (step3) at (15, 2) {\textbf{3.} Training $B_t$\\for new task};
+
+\node[font=\large\bfseries] at (8, -1.5) {(a) Expandable LoRA Architecture in SpecRoute};
+
+% =======================================================
+% PART (b) - SPECTRAL ROUTING (replaces Gating Modules)
+% =======================================================
+
+\begin{scope}[shift={(21.5, 0)}]
+
+    % Input
+    \node[input_box] (input_b) at (4.5, 0) {Someone who had a very bad flight might be given a trip in this to make up for it?\\ \textbf{Option:} (A)first class (B)propitious (C)reputable (D)one (E)sufficient};
+    \node[font=\large] at (1.5, 0) {$\boldsymbol{x}$};
+
+    % Frozen embedding label
+    \node[font=\scriptsize, text=blue!70!black] at (4.5, 1.3) {$h = \text{embed}(x)$ \textcolor{cyan}{\ding{101}}};
+
+    % Backgrounds for old/new spectral blocks
+    \fill[violet!8, rounded corners=2mm] (0.2, 1.6) rectangle (6, 4.2);
+    \fill[blue!8, rounded corners=2mm] (7.3, 1.6) rectangle (10.7, 4.2);
+
+    % Spectral Affinity Blocks (replacing gating modules g_i)
+    % OLD expert 1 -- ALL FROZEN, no fire icon
+    \node[spectral_old] (s1) at (1.5, 2.8) {$\boldsymbol{A_1}$\;\textcolor{cyan}{\ding{101}}\\[4pt] \scriptsize $\alpha_1(h)\!=\!\frac{\|A_1 h\|^2}{r\|h\|^2}$};
+
+    % Dots
+    \node[font=\large] at (3.2, 2.8) {$\boldsymbol{\dots}$};
+
+    % OLD expert t-1
+    \node[spectral_old] (stm1) at (4.8, 2.8) {$\boldsymbol{A_{t\text{-}1}}$\;\textcolor{cyan}{\ding{101}}\\[4pt] \scriptsize $\alpha_{t\text{-}1}(h)$};
+
+    % NEW expert t -- frozen + C5, NO fire icon (parameter-free routing)
+    \node[spectral_new] (st) at (9, 2.8) {$\boldsymbol{A_t}$\;\textcolor{cyan}{\ding{101}}\\[4pt] \scriptsize $\alpha_t(h)$};
+    % C5 badge on new expert
+    \node[c5_badge] at (10.4, 3.3) {C5};
+
+    % Arrows from input to spectral blocks
+    \draw[->, thick, line width=1.2pt] (4.5, 1) -- (4.5, 1.5) -- (4.8, 1.5) -- (4.8, 2.1);
+    \draw[->, thick, line width=1.2pt] (2.5, 1) -- (2.5, 1.5) -- (1.5, 1.5) -- (1.5, 2.1);
+    \draw[->, thick, line width=1.2pt] (6.5, 1) -- (6.5, 1.5) -- (9, 1.5) -- (9, 2.1);
+
+    % Calibration Normalization layer
+    \node[rectangle, draw=orange!60!black, fill=orange!10, rounded corners=1.5mm, 
+          minimum width=9.5cm, minimum height=0.6cm, align=center] (calib_bar) at (5, 4.7) {
+        \footnotesize Calibration: $\alpha_t^{\text{cal}}(h) = \alpha_t(h)\,/\,\hat{\mu}_t$ \quad\textcolor{gray}{(EMA normalization)}
+    };
+
+    % Arrows from spectral blocks to calibration
+    \draw[->, thick, line width=1.2pt] (1.5, 3.5) -- (1.5, 4.4);
+    \draw[->, thick, line width=1.2pt] (4.8, 3.5) -- (4.8, 4.4);
+    \draw[->, thick, line width=1.2pt] (9, 3.5) -- (9, 4.4);
+
+    % argmax routing box
+    \node[argmax_badge] (argmax) at (5, 5.7) {
+        \footnotesize Hard Top-1: $\;t^* = \arg\max_t\;\alpha_t^{\text{cal}}(h)$
+    };
+    \draw[->, thick, line width=1.2pt] (calib_bar.north) -- (argmax.south);
+
+    % Output routing weights
+    \node[var_a_old] (a1_b) at (1.5, 6.8) {$\alpha_1^{\text{cal}}$};
+    \node[var_a_old] (atm1_b) at (4.8, 6.8) {$\alpha_{t\text{-}1}^{\text{cal}}$};
+    \node[var_a_new] (at_b) at (9, 6.8) {$\alpha_t^{\text{cal}}$};
+
+    \draw[->, thick, line width=1.2pt] (argmax.north) -- ++(0, 0.3) -| (a1_b.south);
+    \draw[->, thick, line width=1.2pt] (argmax.north) -- ++(0, 0.3) -| (atm1_b.south);
+    \draw[->, thick, line width=1.2pt] (argmax.north) -- ++(0, 0.3) -| (at_b.south);
+
+    % Properties boxes (replacing Initialization/Updating/Imposing constraints)
+    \node[prop_box] (p1) at (1.5, 8) {No learnable\\parameters};
+    \node[prop_box] (p2) at (4.8, 8) {Drift-free\\routing};
+    \node[prop_box] (p3) at (9, 8) {C5 Data-\\Informed Init};
+
+    % Dashed box around first two properties (like original constraints box)
+    \draw[dashed, violet!80!black, thick, rounded corners=2mm] 
+        (0, 7.3) -- (6.2, 7.3) -- (6.2, 7.8) -- (7, 8) -- (6.2, 8.2) -- (6.2, 8.8) -- (0, 8.8) -- cycle;
+
+    % Arrow from C5 property to spectral block (like imposing constraints feedback)
+    \draw[->, thick, line width=1.2pt] (p3.east) -- ++(1,0) |- (st.east);
+
+    \node[font=\large\bfseries] at (5, -1.5) {(b) Spectral Routing in SpecRoute};
+
+\end{scope}
+
+\end{tikzpicture}
+\end{document}

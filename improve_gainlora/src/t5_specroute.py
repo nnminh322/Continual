@@ -586,6 +586,13 @@ class T5Stack(T5PreTrainedModel):
                 else:
                     self.all_attn_weights.append(key_attention_weights.squeeze(2).mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy())
 
+                # [DIAG] Log routing decisions for p_e measurement
+                # For hard Top-1, record which task index was selected per sample
+                if not hasattr(self, '_routing_decisions'):
+                    self._routing_decisions = []
+                routed_task_idx = key_attention_weights.squeeze(2).argmax(dim=1)  # (B,)
+                self._routing_decisions.append(routed_task_idx.detach().cpu())
+
             self.key_attention_weights = key_attention_weights
         else:
             # Decoder or run_single: use whatever was passed (from encoder)

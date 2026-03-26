@@ -198,6 +198,22 @@ class ModelArguments:
         default=100,
         metadata={"help": "Number of training batches for C5 activation covariance collection."},
     )
+    cpi_gamma: Optional[float] = field(
+        default=0.0,
+        metadata={"help": "CPI contrastive strength. 0=C5 (no contrastive), >0=CPI. Recommended: 0.5."},
+    )
+    oap_eta: Optional[float] = field(
+        default=0.0,
+        metadata={"help": "OAP relaxation strength. 0=strict InfLoRA, >0=adaptive relaxation. Recommended: 0.5."},
+    )
+    oap_beta_min: Optional[float] = field(
+        default=0.3,
+        metadata={"help": "OAP minimum protection. Lower=more sharing, higher=safer. Range (0,1]."},
+    )
+    oap_warmup: Optional[int] = field(
+        default=3,
+        metadata={"help": "OAP warmup: number of tasks before full OAP. Early tasks use conservative beta_min."},
+    )
 
     run_single: bool = field(
         default=False,
@@ -961,7 +977,11 @@ def main():
             precond_eps=model_args.precond_eps,
             entropy_warmup_ratio=model_args.entropy_warmup_ratio,
             n_batches_c5=model_args.n_batches_c5,
-            previous_lora_path=model_args.previous_lora_path
+            previous_lora_path=model_args.previous_lora_path,
+            cpi_gamma=model_args.cpi_gamma,
+            oap_eta=model_args.oap_eta,
+            oap_beta_min=model_args.oap_beta_min,
+            oap_warmup=model_args.oap_warmup
         )
         if training_args.do_train:
             if not model_args.run_single:  # C5 is only useful for tasks t>=2
@@ -1132,6 +1152,32 @@ def main():
 
             with open(os.path.join("logs_and_outputs", training_args.run_name, "outputs", "task_order.txt"), 'w') as f:
                 f.write(data_args.task_order)
+
+            # [DIAG] Save routing decision stats for p_e analysis
+            if training_args.model_name == 'specroute' and hasattr(trainer.model.encoder, '_routing_decisions'):
+                routing_decisions = trainer.model.encoder._routing_decisions
+                if routing_decisions:
+                    all_decisions = torch.cat(routing_decisions, dim=0)  # (N,)
+                    n_tasks = len(trainer.model.encoder.spectral_signatures) + 1
+                    # Current task is always index 0 in spectral routing
+                    # (signatures are ordered: [current, old_1, old_2, ...])
+                    routed_to_current = (all_decisions == 0).float().mean().item()
+                    diag_msg = (f'[DIAG-ROUTING] Task {cur_task} (id={cur_task_id}): '
+                                f'routed_to_current={routed_to_current:.3f} '
+                                f'({int((all_decisions == 0).sum())}/{len(all_decisions)}) '
+                                f'n_tasks={n_tasks}')
+                    print(diag_msg)
+                    # Distribution across all tasks
+                    for t in range(n_tasks):
+                        frac = (all_decisions == t).float().mean().item()
+                        print(f'  task_idx={t}: {frac:.3f}')
+                    # Save routing decisions tensor
+                    save_path_diag = training_args.output_dir
+                    if not prompt_config["run_single"]:
+                        save_path_diag = training_args.output_dir + "/saved_weights"
+                    torch.save(all_decisions, os.path.join(save_path_diag, 'routing_decisions.pt'))
+                    # Reset for next eval round
+                    trainer.model.encoder._routing_decisions = []
 
     return results
 

@@ -114,6 +114,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --routing_mode learned \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -173,6 +177,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --routing_mode learned \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -232,6 +240,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --routing_mode learned \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -291,6 +303,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --routing_mode learned \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -350,6 +366,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --routing_mode learned \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -409,6 +429,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --routing_mode learned \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -468,6 +492,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --routing_mode learned \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -527,6 +555,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --routing_mode learned \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -586,6 +618,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --routing_mode learned \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -645,6 +681,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --routing_mode learned \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -704,6 +744,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --routing_mode learned \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -763,6 +807,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --routing_mode learned \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -822,6 +870,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --routing_mode learned \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -881,6 +933,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --routing_mode learned \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -940,6 +996,10 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --data_replay_freq -1 \
    --mlp_hidden_dim 100 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --routing_mode learned \
    --threshold 0.995 \
    --transthreshold 0.995 \

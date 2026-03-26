@@ -51,6 +51,10 @@ deepspeed --num_gpus 1 --master_port 49500 src/run_llama.py \
    --data_replay_freq -1 \
    --chunk 4 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --threshold 0.995 
 
 rm -rf logs_and_outputs/gen_script_superni_order2_llama_specroute/outputs/1-task748_glucose_reverse_cause_event_detection/checkpoint*
@@ -101,6 +105,10 @@ deepspeed --num_gpus 1 --master_port 49500 src/run_llama.py \
    --data_replay_freq -1 \
    --chunk 4 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --threshold 0.995 
 
 rm -rf logs_and_outputs/gen_script_superni_order2_llama_specroute/outputs/2-task073_commonsenseqa_answer_generation/checkpoint*
@@ -151,6 +159,10 @@ deepspeed --num_gpus 1 --master_port 49500 src/run_llama.py \
    --data_replay_freq -1 \
    --chunk 4 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --threshold 0.995 
 
 rm -rf logs_and_outputs/gen_script_superni_order2_llama_specroute/outputs/3-task1590_diplomacy_text_generation/checkpoint*
@@ -201,6 +213,10 @@ deepspeed --num_gpus 1 --master_port 49500 src/run_llama.py \
    --data_replay_freq -1 \
    --chunk 4 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --threshold 0.995 
 
 rm -rf logs_and_outputs/gen_script_superni_order2_llama_specroute/outputs/4-task639_multi_woz_user_utterance_generation/checkpoint*
@@ -251,6 +267,10 @@ deepspeed --num_gpus 1 --master_port 49500 src/run_llama.py \
    --data_replay_freq -1 \
    --chunk 4 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --threshold 0.995 
 
 rm -rf logs_and_outputs/gen_script_superni_order2_llama_specroute/outputs/5-task1572_samsum_summary/checkpoint*
@@ -301,6 +321,10 @@ deepspeed --num_gpus 1 --master_port 49500 src/run_llama.py \
    --data_replay_freq -1 \
    --chunk 4 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --threshold 0.995 
 
 rm -rf logs_and_outputs/gen_script_superni_order2_llama_specroute/outputs/6-task1687_sentiment140_classification/checkpoint*
@@ -351,6 +375,10 @@ deepspeed --num_gpus 1 --master_port 49500 src/run_llama.py \
    --data_replay_freq -1 \
    --chunk 4 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --threshold 0.995 
 
 rm -rf logs_and_outputs/gen_script_superni_order2_llama_specroute/outputs/7-task591_sciq_answer_generation/checkpoint*
@@ -401,6 +429,10 @@ deepspeed --num_gpus 1 --master_port 49500 src/run_llama.py \
    --data_replay_freq -1 \
    --chunk 4 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --threshold 0.995 
 
 rm -rf logs_and_outputs/gen_script_superni_order2_llama_specroute/outputs/8-task363_sst2_polarity_classification/checkpoint*
@@ -451,6 +483,10 @@ deepspeed --num_gpus 1 --master_port 49500 src/run_llama.py \
    --data_replay_freq -1 \
    --chunk 4 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --threshold 0.995 
 
 rm -rf logs_and_outputs/gen_script_superni_order2_llama_specroute/outputs/9-task1510_evalution_relation_extraction/checkpoint*
@@ -501,6 +537,10 @@ deepspeed --num_gpus 1 --master_port 49500 src/run_llama.py \
    --data_replay_freq -1 \
    --chunk 4 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --threshold 0.995 
 
 rm -rf logs_and_outputs/gen_script_superni_order2_llama_specroute/outputs/10-task1729_personachat_generate_next/checkpoint*
@@ -551,6 +591,10 @@ deepspeed --num_gpus 1 --master_port 49500 src/run_llama.py \
    --data_replay_freq -1 \
    --chunk 4 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --threshold 0.995 
 
 rm -rf logs_and_outputs/gen_script_superni_order2_llama_specroute/outputs/11-task181_outcome_extraction/checkpoint*
@@ -601,6 +645,10 @@ deepspeed --num_gpus 1 --master_port 49500 src/run_llama.py \
    --data_replay_freq -1 \
    --chunk 4 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --threshold 0.995 
 
 rm -rf logs_and_outputs/gen_script_superni_order2_llama_specroute/outputs/12-task511_reddit_tifu_long_text_summarization/checkpoint*
@@ -651,6 +699,10 @@ deepspeed --num_gpus 1 --master_port 49500 src/run_llama.py \
    --data_replay_freq -1 \
    --chunk 4 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --threshold 0.995 
 
 rm -rf logs_and_outputs/gen_script_superni_order2_llama_specroute/outputs/13-task002_quoref_answer_generation/checkpoint*
@@ -701,6 +753,10 @@ deepspeed --num_gpus 1 --master_port 49500 src/run_llama.py \
    --data_replay_freq -1 \
    --chunk 4 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --threshold 0.995 
 
 rm -rf logs_and_outputs/gen_script_superni_order2_llama_specroute/outputs/14-task1290_xsum_summarization/checkpoint*
@@ -751,6 +807,10 @@ deepspeed --num_gpus 1 --master_port 49500 src/run_llama.py \
    --data_replay_freq -1 \
    --chunk 4 \
    --model_name specroute \
+   --cpi_gamma 0.5 \
+   --oap_eta 0.5 \
+   --oap_beta_min 0.3 \
+   --oap_warmup 3 \
    --threshold 0.995 
 
 rm -rf logs_and_outputs/gen_script_superni_order2_llama_specroute/outputs/15-task875_emotion_classification/checkpoint*
