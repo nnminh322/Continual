@@ -237,6 +237,15 @@ class ModelArguments:
         metadata={"help": "Path to load previous checkpoints"}
     )
 
+    rls_expansion_dim: Optional[int] = field(
+        default=2048,
+        metadata={"help": "RLS router expansion dimension E (V11). Higher = more separable but more memory."},
+    )
+    rls_lambda: Optional[float] = field(
+        default=0.1,
+        metadata={"help": "RLS ridge regularization lambda (V11). Prevents singular R matrix."},
+    )
+
 
 @dataclass(frozen=False)
 class DataTrainingArguments:
@@ -391,6 +400,10 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         default='spectral',
         metadata={"help": "Routing mode for SpecRoute"}
     )
+    routing_temperature: Optional[float] = field(
+        default=0.0,
+        metadata={"help": "Soft routing temperature. 0=hard Top-1 (default), >0=softmax blending"}
+    )
     chunk: Optional[int] = field(
         default=1,
         metadata={"help": "models' name"}
@@ -537,6 +550,7 @@ def main():
         'mlp_hidden_dim': model_args.mlp_hidden_dim,
         'attn_temperature': model_args.attn_temperature,
         'routing_mode': training_args.routing_mode,
+        'routing_temperature': training_args.routing_temperature,
         'previous_lora_path': model_args.previous_lora_path,
         'previous_prompt_key_path': model_args.previous_prompt_key_path,
         'task_id': cur_task_id,
@@ -546,6 +560,8 @@ def main():
         'lora_dropout': model_args.lora_dropout,
         'training_bias': model_args.training_bias,
         'target_routing_alpha': model_args.target_routing_alpha,
+        'rls_expansion_dim': model_args.rls_expansion_dim,
+        'rls_lambda': model_args.rls_lambda,
     }
 
     if training_args.model_name in ['inflora', 'olora']:
@@ -672,6 +688,21 @@ def main():
         del previous_lora_list_sig
         gc.collect()
         print(f"----------Loaded {len(spectral_sigs)} spectral signatures----------")
+
+    # Load RLS router state for SpecRoute V11
+    if training_args.model_name == 'specroute' and getattr(training_args, "routing_mode", "") == "rls" and model_args.previous_lora_path:
+        previous_lora_list_rls = model_args.previous_lora_path.split(',')
+        # RLS state is cumulative — only need the latest task's state
+        last_task_path = previous_lora_list_rls[-1]
+        rls_path = os.path.join(last_task_path, "rls_router_state.pt")
+        if os.path.exists(rls_path):
+            rls_state = torch.load(rls_path, map_location=device)
+            model.encoder.rls_router.load_state(rls_state)
+            print(f"----------Loaded RLS router state (num_tasks={rls_state['num_tasks']}) from {last_task_path}----------")
+        else:
+            print(f"----------RLS router state not found at {rls_path}, starting fresh----------")
+        del previous_lora_list_rls
+        gc.collect()
 
     for name, param in model.named_parameters():
         if  training_args.model_name in ['gainlora_olora', 'olora']:
@@ -1057,6 +1088,13 @@ def main():
             signatures = compute_spectral_signatures(trainer.model, config)
             torch.save(signatures, os.path.join(save_path, 'spectral_signatures.pt'))
             print("----------Saved spectral signatures----------")
+
+            # V11: Update and save RLS router state
+            if getattr(training_args, "routing_mode", "") == "rls":
+                trainer.update_rls_router(cur_task_id)
+                rls_state = trainer.model.encoder.rls_router.get_state()
+                torch.save(rls_state, os.path.join(save_path, 'rls_router_state.pt'))
+                print(f"----------Saved RLS router state (num_tasks={rls_state['num_tasks']})----------")
 
             if getattr(training_args, "routing_mode", "") == "learned":
                 from copy import deepcopy

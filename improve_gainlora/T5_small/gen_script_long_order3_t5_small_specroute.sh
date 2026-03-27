@@ -118,6 +118,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --oap_eta 0.5 \
    --oap_beta_min 0.3 \
    --oap_warmup 3 \
+   --routing_temperature 0.1 \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG
@@ -178,6 +179,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --oap_eta 0.5 \
    --oap_beta_min 0.3 \
    --oap_warmup 3 \
+   --routing_temperature 0.1 \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG
@@ -238,6 +240,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --oap_eta 0.5 \
    --oap_beta_min 0.3 \
    --oap_warmup 3 \
+   --routing_temperature 0.1 \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG
@@ -298,6 +301,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --oap_eta 0.5 \
    --oap_beta_min 0.3 \
    --oap_warmup 3 \
+   --routing_temperature 0.1 \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG
@@ -358,6 +362,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --oap_eta 0.5 \
    --oap_beta_min 0.3 \
    --oap_warmup 3 \
+   --routing_temperature 0.1 \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG
@@ -418,6 +423,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --oap_eta 0.5 \
    --oap_beta_min 0.3 \
    --oap_warmup 3 \
+   --routing_temperature 0.1 \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG
@@ -478,6 +484,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --oap_eta 0.5 \
    --oap_beta_min 0.3 \
    --oap_warmup 3 \
+   --routing_temperature 0.1 \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG
@@ -538,6 +545,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --oap_eta 0.5 \
    --oap_beta_min 0.3 \
    --oap_warmup 3 \
+   --routing_temperature 0.1 \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG
@@ -598,6 +606,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --oap_eta 0.5 \
    --oap_beta_min 0.3 \
    --oap_warmup 3 \
+   --routing_temperature 0.1 \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG
@@ -658,6 +667,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --oap_eta 0.5 \
    --oap_beta_min 0.3 \
    --oap_warmup 3 \
+   --routing_temperature 0.1 \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG
@@ -718,6 +728,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --oap_eta 0.5 \
    --oap_beta_min 0.3 \
    --oap_warmup 3 \
+   --routing_temperature 0.1 \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG
@@ -778,6 +789,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --oap_eta 0.5 \
    --oap_beta_min 0.3 \
    --oap_warmup 3 \
+   --routing_temperature 0.1 \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG
@@ -838,6 +850,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --oap_eta 0.5 \
    --oap_beta_min 0.3 \
    --oap_warmup 3 \
+   --routing_temperature 0.1 \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG
@@ -898,6 +911,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --oap_eta 0.5 \
    --oap_beta_min 0.3 \
    --oap_warmup 3 \
+   --routing_temperature 0.1 \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG
@@ -958,6 +972,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --oap_eta 0.5 \
    --oap_beta_min 0.3 \
    --oap_warmup 3 \
+   --routing_temperature 0.1 \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG

@@ -473,7 +473,7 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                             mat = torch.nan_to_num(mat, nan=0.0)
                         reg_trans_matrix.append(mat)
             
-            print(f"[GPM] Loaded bases from {last_task_path}")
+            print(f"[GPM] Loaded {len(reg_matrix)} GPM bases from {last_task_path}")
             return reg_matrix, reg_trans_matrix, len(previous_lora_list) - 1
 
         all_dirs = os.listdir(log_path)
@@ -481,10 +481,13 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
             if not os.path.isdir(os.path.join(log_path, all_dir)):
                 continue
             if eval(all_dir.split('-')[0]) == eval(local_dir.split('-')[0]) - 1:
+                prev_dir = os.path.join(log_path, all_dir)
+                sw_path = os.path.join(prev_dir, 'saved_weights')
+                base_path = sw_path if os.path.isdir(sw_path) else prev_dir
                 i = 0
                 for module in self.model.modules():
                     if hasattr(module, 'get_feature'):
-                        path = os.path.join(os.path.join(log_path, all_dir), "reg_{}.pt".format(i))
+                        path = os.path.join(base_path, "reg_{}.pt".format(i))
                         mat = torch.load(path, map_location='cpu')
                         if torch.isnan(mat).any() or torch.isinf(mat).any():
                             print(f'[GPM] WARNING: {path} contains NaN/Inf. Cleaning to 0.')
@@ -493,7 +496,7 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                         i += 1
                 if getattr(self.model.encoder, "routing_mode", "") == "learned":
                     for name in ['reg_0.pt', 'reg_1.pt', 'reg_2.pt']:
-                        path = os.path.join(log_path, all_dir, 'trans_input', name)
+                        path = os.path.join(base_path, 'trans_input', name)
                         if os.path.exists(path):
                             mat = torch.load(path, map_location='cpu', weights_only=True)
                             if torch.isnan(mat).any() or torch.isinf(mat).any():
@@ -501,7 +504,7 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                                 mat = torch.nan_to_num(mat, nan=0.0)
                             reg_trans_matrix.append(mat)
 
-                print(os.path.join(log_path, all_dir))
+                print(base_path)
                 print(len(reg_matrix))
                 break
         return reg_matrix, reg_trans_matrix, eval(local_dir.split('-')[0]) - 1
@@ -533,7 +536,10 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                             task_covs.append(None)
                         i += 1
                 self._old_covariances.append(task_covs)
-            print(f"[CPI] Loaded covariances from {len(self._old_covariances)} previous tasks (explicit paths)")
+            _n_loaded = sum(1 for tc in self._old_covariances for c in tc if c is not None)
+            _n_total = sum(len(tc) for tc in self._old_covariances)
+            print(f"[CPI] Loaded covariances from {len(self._old_covariances)} previous tasks "
+                  f"({_n_loaded}/{_n_total} non-None) (explicit paths)")
             return
 
         # Discover previous task dirs by index
@@ -550,9 +556,11 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
             if dir_idx < cur_idx:
                 task_covs = []
                 i = 0
+                sw_path = os.path.join(dir_path, 'saved_weights')
+                base_path = sw_path if os.path.isdir(sw_path) else dir_path
                 for module in self.model.modules():
                     if hasattr(module, 'get_feature'):
-                        path = os.path.join(dir_path, "cov_{}.pt".format(i))
+                        path = os.path.join(base_path, "cov_{}.pt".format(i))
                         if os.path.exists(path):
                             cov = torch.load(path, map_location='cpu')
                             task_covs.append(cov)
@@ -963,32 +971,99 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                 ))
         print('-' * 40)
 
-        # Save LoRA GPM bases
+        # Save LoRA GPM bases to saved_weights/ (matches previous_lora_path convention)
+        _sw_dir = os.path.join(self.args.output_dir, 'saved_weights')
+        os.makedirs(_sw_dir, exist_ok=True)
         for i in range(len(self.feature_list)):
-            torch.save(self.feature_list[i], os.path.join(self.args.output_dir, 'reg_{}.pt'.format(i)))
+            torch.save(self.feature_list[i], os.path.join(_sw_dir, 'reg_{}.pt'.format(i)))
 
         # CPI: Save projected covariance for future tasks' contrastive init
         _proj_covs = getattr(self, '_projected_covariances', self._task_covariance)
         if _proj_covs:
             for i in range(len(_proj_covs)):
-                torch.save(_proj_covs[i], os.path.join(self.args.output_dir, 'cov_{}.pt'.format(i)))
+                torch.save(_proj_covs[i], os.path.join(_sw_dir, 'cov_{}.pt'.format(i)))
             print(f'[CPI] Saved {len(_proj_covs)} projected covariance matrices.')
 
         # Save CPI/OAP diagnostics for post-hoc analysis
         _diag = getattr(self, '_init_diagnostics', None)
         if _diag:
-            diag_path = os.path.join(self.args.output_dir, 'init_diagnostics.pt')
+            diag_path = os.path.join(_sw_dir, 'init_diagnostics.pt')
             torch.save(_diag, diag_path)
             print(f'[DIAG] Saved init diagnostics to {diag_path}')
 
         # Save trans_input GPM bases
         if getattr(self.model.encoder, "routing_mode", "") == "learned" and hasattr(self, "feature_trans_list"):
-            os.makedirs(os.path.join(self.args.output_dir, 'trans_input'), exist_ok=True)
+            os.makedirs(os.path.join(_sw_dir, 'trans_input'), exist_ok=True)
             for i in range(len(self.feature_trans_list)):
-                torch.save(self.feature_trans_list[i], os.path.join(self.args.output_dir, 'trans_input', 'reg_{}.pt'.format(i)))
+                torch.save(self.feature_trans_list[i], os.path.join(_sw_dir, 'trans_input', 'reg_{}.pt'.format(i)))
                 
     # training_step: removed — base Seq2SeqTrainer handles it correctly.
     # SpecRoute has no memory replay or custom training_step logic.
+
+    # ================================================================
+    # V11: RLS Router Update
+    # ================================================================
+
+    def update_rls_router(self, task_id):
+        """Collect encoder input features and update RLS router after training.
+        
+        Called after training task_id. Collects mean-pooled input embeddings
+        (frozen — before encoder), expands via RLS random projection, then
+        performs Woodbury update on R and Q matrices.
+        
+        Args:
+            task_id: 0-indexed task index in the task_order
+        """
+        if getattr(self.model.encoder, "routing_mode", "") != "rls":
+            return
+        
+        rls_router = self.model.encoder.rls_router
+        self.model.eval()
+        
+        all_features = []
+        train_dataloader = self.get_train_dataloader()
+        if isinstance(train_dataloader, DataLoader) and isinstance(
+            train_dataloader.sampler, DistributedSampler
+        ):
+            train_dataloader.sampler.set_epoch(2024)
+        
+        print(f'[RLS] Collecting features for task {task_id}...')
+        with torch.no_grad():
+            for step, inputs in enumerate(train_dataloader):
+                inputs = self._prepare_inputs(inputs)
+                input_ids = inputs.get('input_ids')
+                attention_mask = inputs.get('attention_mask')
+                
+                # Get input embeddings (frozen — same source as routing in forward())
+                inputs_embeds = self.model.encoder.embed_tokens(input_ids)
+                
+                # Mean-pool with attention mask
+                _mask_count = attention_mask.sum(dim=1, keepdim=True).clamp(min=1)  # (B, 1)
+                h = (attention_mask.unsqueeze(-1) * inputs_embeds).sum(dim=1) / _mask_count.unsqueeze(-1).squeeze(-1)  # (B, d_model)
+                
+                # Expand via frozen random projection
+                h_tilde = rls_router.expand(h)  # (B, E)
+                all_features.append(h_tilde.cpu())
+                
+                if step >= 200:  # Cap at 200 batches (~3200 samples for BSZ=16)
+                    break
+        
+        features = torch.cat(all_features, dim=0).cuda()  # (N, E)
+        print(f'[RLS] Collected {features.shape[0]} feature vectors (dim={features.shape[1]})')
+        
+        # Woodbury update
+        rls_router.update(features, task_id)
+        
+        # Verify routing accuracy on collected features
+        with torch.no_grad():
+            logits = features.float() @ rls_router.W_r.float()  # (N, num_tasks)
+            predicted = logits.argmax(dim=-1)
+            accuracy = (predicted == task_id).float().mean().item()
+            print(f'[RLS] Task {task_id} routing accuracy on train: {accuracy:.4f} ({int((predicted == task_id).sum())}/{features.shape[0]})')
+        
+        del features, all_features
+        gc.collect()
+        torch.cuda.empty_cache()
 
     def create_optimizer_and_scheduler(self, num_training_steps: int):
         self.create_optimizer()
