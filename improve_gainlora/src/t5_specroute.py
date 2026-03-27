@@ -724,15 +724,38 @@ class T5Stack(T5PreTrainedModel):
         if not self.is_decoder and not self.prompt_config["run_single"]:
             if self.routing_mode == "rls":
                 # V11: RLS analytical routing
-                if self.rls_router.num_tasks > 0:
-                    # Mean-pool for routing feature
+                # Convention: index 0 = current task, index 1+ = previous tasks
+                # RLS router stores tasks 0..T-1 from previous training runs.
+                # During task T: model has T+1 LoRAs [current, prev_0, ..., prev_{T-1}]
+                # Total experts = 1 (current) + len(spectral_signatures) (previous)
+                n_lora_experts = 1 + len(self.spectral_signatures)
+                
+                if self.rls_router.num_tasks > 0 and not self.training:
+                    # Inference: RLS should have all tasks including current
                     h_pool = avg_inputs_embeds.squeeze(1)  # (B, d_model)
-                    key_attention_weights = self.rls_router.route(h_pool)  # (B, n_tasks, 1)
+                    rls_weights = self.rls_router.route(h_pool)  # (B, num_tasks, 1)
+                    n_reg = rls_weights.shape[1]
+                    if n_reg == n_lora_experts:
+                        # After update_rls_router: all tasks registered
+                        # RLS order: [task_0, task_1, ..., task_T] (chronological)
+                        # Model order: [current(task_T), prev_0(task_{T-1}), prev_1(task_{T-2}), ..., prev_{T-1}(task_0)]
+                        # Previous LoRAs are loaded in REVERSE chronological order (see run_t5.py .reverse())
+                        # So: model[0]=RLS[-1], model[1]=RLS[-2], ..., model[T]=RLS[0]
+                        key_attention_weights = rls_weights.flip(dims=[1])
+                    else:
+                        # Fallback: size mismatch, use uniform
+                        key_attention_weights = torch.ones(
+                            batch_size, n_lora_experts, 1,
+                            device=inputs_embeds.device, dtype=inputs_embeds.dtype
+                        ) / n_lora_experts
                 else:
-                    # First task: single expert
-                    key_attention_weights = torch.ones(
-                        batch_size, 1, 1, device=inputs_embeds.device, dtype=inputs_embeds.dtype
+                    # Training or first task: oracle routing (always current = index 0)
+                    # Just create correct-sized tensor; oracle override below will set it
+                    key_attention_weights = torch.zeros(
+                        batch_size, n_lora_experts, 1,
+                        device=inputs_embeds.device, dtype=inputs_embeds.dtype
                     )
+                    key_attention_weights[:, 0, 0] = 1.0
             elif self.routing_mode == "learned":
                 key_attention_weights = self.compute_learned_routing(avg_inputs_embeds, batch_size)
             else:
