@@ -460,7 +460,12 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                     path = os.path.join(last_task_path, "reg_{}.pt".format(i))
                     if os.path.exists(path):
                         mat = torch.load(path, map_location='cpu')
-                        if torch.isnan(mat).any() or torch.isinf(mat).any():
+                        # Handle both tensor and dict types (dict keys are chunk indices)
+                        if isinstance(mat, dict):
+                            for key in mat:
+                                if torch.isnan(mat[key]).any() or torch.isinf(mat[key]).any():
+                                    mat[key] = torch.nan_to_num(mat[key], nan=0.0)
+                        elif torch.isnan(mat).any() or torch.isinf(mat).any():
                             mat = torch.nan_to_num(mat, nan=0.0)
                         reg_matrix.append(mat)
                     i += 1
@@ -489,7 +494,14 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                     if hasattr(module, 'get_feature'):
                         path = os.path.join(base_path, "reg_{}.pt".format(i))
                         mat = torch.load(path, map_location='cpu')
-                        if torch.isnan(mat).any() or torch.isinf(mat).any():
+                        # Handle both tensor and dict types (dict keys are chunk indices)
+                        if isinstance(mat, dict):
+                            has_nan_inf = any(torch.isnan(mat[key]).any() or torch.isinf(mat[key]).any() for key in mat)
+                            if has_nan_inf:
+                                print(f'[GPM] WARNING: {path} contains NaN/Inf. Cleaning to 0.')
+                                for key in mat:
+                                    mat[key] = torch.nan_to_num(mat[key], nan=0.0, posinf=0.0, neginf=0.0)
+                        elif torch.isnan(mat).any() or torch.isinf(mat).any():
                             print(f'[GPM] WARNING: {path} contains NaN/Inf. Cleaning to 0.')
                             mat = torch.nan_to_num(mat, nan=0.0, posinf=0.0, neginf=0.0)
                         reg_matrix.append(mat)
