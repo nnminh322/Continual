@@ -463,10 +463,13 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                         # Handle both tensor and dict types (dict keys are chunk indices)
                         if isinstance(mat, dict):
                             for key in mat:
+                                mat[key] = mat[key].to('cuda:0')  # Move to GPU
                                 if torch.isnan(mat[key]).any() or torch.isinf(mat[key]).any():
                                     mat[key] = torch.nan_to_num(mat[key], nan=0.0)
-                        elif torch.isnan(mat).any() or torch.isinf(mat).any():
-                            mat = torch.nan_to_num(mat, nan=0.0)
+                        else:
+                            mat = mat.to('cuda:0')  # Move to GPU
+                            if torch.isnan(mat).any() or torch.isinf(mat).any():
+                                mat = torch.nan_to_num(mat, nan=0.0)
                         reg_matrix.append(mat)
                     i += 1
             if getattr(self.model.encoder, "routing_mode", "") == "learned":
@@ -500,10 +503,16 @@ class SpecRoute_Trainer(Seq2SeqTrainer):
                             if has_nan_inf:
                                 print(f'[GPM] WARNING: {path} contains NaN/Inf. Cleaning to 0.')
                                 for key in mat:
+                                    mat[key] = mat[key].to('cuda:0')  # Move to GPU
                                     mat[key] = torch.nan_to_num(mat[key], nan=0.0, posinf=0.0, neginf=0.0)
-                        elif torch.isnan(mat).any() or torch.isinf(mat).any():
-                            print(f'[GPM] WARNING: {path} contains NaN/Inf. Cleaning to 0.')
-                            mat = torch.nan_to_num(mat, nan=0.0, posinf=0.0, neginf=0.0)
+                            else:
+                                for key in mat:
+                                    mat[key] = mat[key].to('cuda:0')  # Move to GPU
+                        else:
+                            mat = mat.to('cuda:0')  # Move to GPU
+                            if torch.isnan(mat).any() or torch.isinf(mat).any():
+                                print(f'[GPM] WARNING: {path} contains NaN/Inf. Cleaning to 0.')
+                                mat = torch.nan_to_num(mat, nan=0.0, posinf=0.0, neginf=0.0)
                         reg_matrix.append(mat)
                         i += 1
                 if getattr(self.model.encoder, "routing_mode", "") == "learned":
