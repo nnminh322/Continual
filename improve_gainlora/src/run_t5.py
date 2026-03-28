@@ -1132,7 +1132,19 @@ def main():
         all_metrics.update(metrics)
 
         if training_args.model_name in ['inflora', 'gainlora_inflora', 'gainlora_olora', 'specroute']:
-            trainer.get_repsentation()
+            try:
+                print("[GPM] Starting get_repsentation()...")
+                sys.stdout.flush()
+                trainer.get_repsentation()
+                print("[GPM] get_repsentation() completed successfully.")
+                sys.stdout.flush()
+            except Exception as _gpm_exc:
+                import traceback
+                print(f"\n[GPM ERROR] get_repsentation() FAILED (task {cur_task_id}, {cur_task}):")
+                print(f"  {type(_gpm_exc).__name__}: {_gpm_exc}")
+                traceback.print_exc(file=sys.stdout)
+                print("[GPM] Continuing to predict block despite GPM error...\n")
+                sys.stdout.flush()
 
     # Evaluation
     results = {}

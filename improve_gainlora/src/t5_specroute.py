@@ -308,8 +308,13 @@ class T5Stack(T5PreTrainedModel):
             
             if self.routing_mode == "rls":
                 # V11: Analytical Ridge Regression Routing
-                rls_expansion_dim = prompt_config.get("rls_expansion_dim", 2048)
+                # expansion_dim scales with d_model to maintain 4x expansion ratio
+                # across all model sizes (T5-small: 512->2048, T5-large: 1024->4096, etc.)
+                _user_expansion_dim = prompt_config.get("rls_expansion_dim", 2048)
+                rls_expansion_dim = max(_user_expansion_dim, 4 * config.d_model)
                 rls_lambda = prompt_config.get("rls_lambda", 0.1)
+                print(f"[RLS] d_model={config.d_model}, expansion_dim={rls_expansion_dim} "
+                      f"(ratio={rls_expansion_dim/config.d_model:.1f}x, user_requested={_user_expansion_dim})")
                 self.rls_router = RLSRouter(
                     d_model=config.d_model,
                     expansion_dim=rls_expansion_dim,
