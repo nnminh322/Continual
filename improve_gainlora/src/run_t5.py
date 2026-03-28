@@ -1116,6 +1116,15 @@ def main():
         )
         metrics["train_samples"] = min(max_train_samples, len(train_dataset))
 
+        # Print training metrics to stdout
+        print("\n[TRAIN METRICS]")
+        for key, value in sorted(metrics.items()):
+            if isinstance(value, float):
+                print(f"  {key}: {value:.6f}")
+            else:
+                print(f"  {key}: {value}")
+        sys.stdout.flush()
+
         trainer.log_metrics("train", metrics)
         trainer.save_metrics("train", metrics)
         trainer.save_state()
@@ -1141,6 +1150,15 @@ def main():
         print("*** Prediction ***")
         logger.info("*** Prediction ***")
         logger.info("*** Loading CheckPoint ***")
+        
+        # [DIAG] Check model device state before prediction
+        try:
+            model_device = next(trainer.model.parameters()).device
+            print(f"[DIAG-DEVICE] Model is on device: {model_device}")
+            logger.info(f"[DIAG-DEVICE] Model is on device: {model_device}")
+            sys.stdout.flush()
+        except Exception as e:
+            print(f"[DIAG-DEVICE] Could not get model device: {e}")
 
         if data_args.max_predict_samples is not None:
             predict_dataset = predict_dataset.select(range(data_args.max_predict_samples))
@@ -1169,19 +1187,46 @@ def main():
                 trainer.model.encoder.is_inference = False
 
         if training_args.do_predict:
-            predict_results = trainer.predict(
-                predict_dataset,
-                metric_key_prefix="predict",
-                max_new_tokens=max_new_tokens,
-                num_beams=num_beams,
-                repetition_penalty=repetition_penalty,
-                pad_token_id=tokenizer.pad_token_id
-            )
-            metrics = predict_results.metrics
+            try:
+                logger.info("Starting prediction on %d samples", len(predict_dataset))
+                print(f"[PREDICT] Starting prediction on {len(predict_dataset)} samples")
+                sys.stdout.flush()
+                
+                predict_results = trainer.predict(
+                    predict_dataset,
+                    metric_key_prefix="predict",
+                    max_new_tokens=max_new_tokens,
+                    num_beams=num_beams,
+                    repetition_penalty=repetition_penalty,
+                    pad_token_id=tokenizer.pad_token_id
+                )
+                logger.info("Prediction completed successfully")
+                print("[PREDICT] Prediction completed successfully")
+                sys.stdout.flush()
+                metrics = predict_results.metrics
+            except Exception as e:
+                logger.error(f"Error during prediction: {e}", exc_info=True)
+                print(f"[ERROR] Prediction failed: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
             max_predict_samples = (
                 data_args.max_predict_samples if data_args.max_predict_samples is not None else len(predict_dataset)
             )
             metrics["predict_samples"] = min(max_predict_samples, len(predict_dataset))
+
+            # Print prediction metrics to stdout
+            print("\n" + "="*80)
+            print(f"TASK {cur_task_id}: {cur_task}")
+            print("="*80)
+            print("[PREDICT METRICS]")
+            for key, value in sorted(metrics.items()):
+                if isinstance(value, float):
+                    print(f"  {key}: {value:.6f}")
+                else:
+                    print(f"  {key}: {value}")
+            print("="*80 + "\n")
+            sys.stdout.flush()
 
             trainer.log(metrics)
             trainer.log_metrics("predict", metrics)
@@ -1216,6 +1261,21 @@ def main():
                     torch.save(all_decisions, os.path.join(save_path_diag, 'routing_decisions.pt'))
                     # Reset for next eval round
                     trainer.model.encoder._routing_decisions = []
+
+    # ===== FINAL METRICS SUMMARY =====
+    print("\n" + "="*80)
+    print("FINAL METRICS SUMMARY")
+    print("="*80)
+    if all_metrics:
+        for key, value in sorted(all_metrics.items()):
+            if isinstance(value, float):
+                print(f"  {key}: {value:.6f}")
+            else:
+                print(f"  {key}: {value}")
+    else:
+        print("  (No metrics available)")
+    print("="*80 + "\n")
+    sys.stdout.flush()
 
     return results
 
