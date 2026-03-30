@@ -93,6 +93,19 @@ python extract_embeddings_llama.py --model meta-llama/Llama-2-13b-hf --token YOU
 python extract_embeddings_llama.py --model meta-llama/Llama-2-7b-hf --pool avg --token YOUR_HF_TOKEN
 ```
 
+### Running on TPU
+
+If you have a TPU runtime (Kaggle: enable Accelerator -> TPU v3-8), use the TPU-ready script:
+
+```bash
+# Example (single-XLA-device mode)
+python extract_embeddings_llama_tpu.py --model meta-llama/Llama-2-7b-hf --device tpu --token YOUR_HF_TOKEN --batch_size 64
+```
+
+- Notes: the script will use `torch-xla` if available and place the model on `xm.xla_device()`.
+- For best throughput increase `--batch_size` (TPUs like larger batches). The script runs single-process on TPU; for full multi-core scaling you can extend it with `xmp.spawn`/distributed dataloaders.
+
+
 ### Options chung
 
 | Flag | Default | Mô tả |
