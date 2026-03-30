@@ -211,8 +211,26 @@ def main():
             print("After installation, restart the runtime and re-run this script with --device tpu.")
             print("If you cannot install torch-xla in this environment, run with --device cpu or --device cuda instead.")
             sys.exit(1)
-        dev = xm.xla_device()
-        print(f"Using XLA device: {dev}")
+        try:
+            # Use newer torch_xla.device() API if available, fallback to xm.xla_device()
+            try:
+                import torch_xla
+                dev = torch_xla.device()
+            except Exception:
+                dev = xm.xla_device()
+            print(f"Using XLA device: {dev}")
+        except RuntimeError as e:
+            if "Device or resource busy" in str(e) or "TPU initialization failed" in str(e):
+                print(f"TPU Error: {e}")
+                print("")
+                print("The TPU device is already in use or in a bad state.")
+                print("Try one of these solutions:")
+                print("  1. Restart the runtime: Runtime → Restart runtime")
+                print("  2. Clear TPU state: Runtime → Disconnect and delete runtime")
+                print("  3. Wait 1-2 minutes and retry (TPU may be busy)")
+                print("  4. Switch to GPU: --device cuda (if available)")
+                sys.exit(1)
+            raise
     else:
         try:
             dev = torch.device(args.device)
