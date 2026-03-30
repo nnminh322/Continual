@@ -1,5 +1,7 @@
-torch>=2.1.0
-transformers>=4.40.0
+# Use the same torch version as your training environment
+# torch==2.5.1 (cu121) or whatever version your training env uses
+torch
+transformers>=4.35.0
 numpy>=1.24.0
 tqdm>=4.65.0
 # Optional: quantization for large LLaMA models

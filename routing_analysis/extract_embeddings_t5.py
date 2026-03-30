@@ -148,38 +148,11 @@ def main():
     model_short = args.model.split("/")[-1]  # e.g. "flan-t5-large"
     print(f"=== Model: {args.model} ({model_short}) on {args.device} ===")
 
-    # Warn if GPU compute capability is low (common cause of kernel-image errors)
-    if args.device.startswith("cuda") and torch.cuda.is_available():
-        try:
-            prop = torch.cuda.get_device_properties(0)
-            if prop.major < 7:
-                print(f"Warning: Found GPU compute capability {prop.major}.{prop.minor}. "
-                      "Installed PyTorch may not support this device (sm_<7).")
-        except Exception:
-            pass
-
-    # Load tokenizer and model with safe fallback to CPU on CUDA/kernel failures
+    # Load tokenizer and model
     print("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     print("Loading encoder model...")
-    try:
-        # Load on CPU first then move to target device; makes retry simpler
-        model = T5EncoderModel.from_pretrained(args.model)
-        model.to(args.device)
-        model.eval()
-    except Exception as e:
-        print(f"Warning: failed to load model on {args.device}: {e}")
-        if args.device.startswith("cuda"):
-            print("Falling back to CPU. To use GPU, install a PyTorch build compatible with your GPU (see README).")
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-            args.device = "cpu"
-            model = T5EncoderModel.from_pretrained(args.model)
-            model.eval()
-        else:
-            raise
+    model = T5EncoderModel.from_pretrained(args.model).to(args.device).eval()
 
     d_model = model.config.d_model
     print(f"d_model = {d_model}")
@@ -215,35 +188,13 @@ def main():
                 texts, labels = loader_fn(str(json_path))
                 task_pbar.write(f"  {task_name}/{split}: {len(texts)} samples")
 
-                try:
-                    embs = extract_embeddings(
-                        model, tokenizer, texts,
-                        batch_size=args.batch_size,
-                        max_length=args.max_length,
-                        device=args.device,
-                        desc=f"{task_name}/{split}",
-                    )
-                except Exception as e:
-                    err = str(e).lower()
-                    # Common indicator of incompatible PyTorch/CUDA build
-                    if args.device.startswith("cuda") and ("kernel image" in err or "no kernel image" in err or "cuda" in err or "acceleratorerror" in err):
-                        task_pbar.write(f"  [WARN] CUDA error during extraction: {e}. Retrying on CPU...")
-                        try:
-                            torch.cuda.empty_cache()
-                        except Exception:
-                            pass
-                        # move model to CPU and retry
-                        model = model.to("cpu")
-                        args.device = "cpu"
-                        embs = extract_embeddings(
-                            model, tokenizer, texts,
-                            batch_size=args.batch_size,
-                            max_length=args.max_length,
-                            device="cpu",
-                            desc=f"{task_name}/{split}",
-                        )
-                    else:
-                        raise
+                embs = extract_embeddings(
+                    model, tokenizer, texts,
+                    batch_size=args.batch_size,
+                    max_length=args.max_length,
+                    device=args.device,
+                    desc=f"{task_name}/{split}",
+                )
 
                 np.savez_compressed(
                     out_path,

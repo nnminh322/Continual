@@ -173,16 +173,6 @@ def main():
     print(f"=== Model: {args.model} ({model_short}) on {args.device} ===")
     print(f"    Pooling: {args.pool}")
 
-    # Warn if GPU compute capability is low (may cause kernel-image errors)
-    if args.device.startswith("cuda") and torch.cuda.is_available():
-        try:
-            prop = torch.cuda.get_device_properties(0)
-            if prop.major < 7:
-                print(f"Warning: Found GPU compute capability {prop.major}.{prop.minor}. "
-                      "Installed PyTorch may not support this device (sm_<7).")
-        except Exception:
-            pass
-
     # Tokenizer
     print("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(
@@ -194,31 +184,12 @@ def main():
 
     # Model — full precision: bfloat16 (LLaMA native dtype, no quantization)
     print("Loading model...")
-    try:
-        model = AutoModelForCausalLM.from_pretrained(
-            args.model,
-            torch_dtype=torch.bfloat16,
-            device_map=args.device,
-            token=args.token,
-        ).eval()
-    except Exception as e:
-        print(f"Warning: failed to load model on {args.device}: {e}")
-        if args.device.startswith("cuda"):
-            print("Falling back to CPU. To use GPU, install a PyTorch build compatible with your GPU (see README).")
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-            args.device = "cpu"
-            # Load on CPU in float32 for compatibility
-            model = AutoModelForCausalLM.from_pretrained(
-                args.model,
-                torch_dtype=torch.float32,
-                device_map="cpu",
-                token=args.token,
-            ).eval()
-        else:
-            raise
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model,
+        torch_dtype=torch.bfloat16,
+        device_map=args.device,
+        token=args.token,
+    ).eval()
 
     d_model = model.config.hidden_size
     print(f"d_model = {d_model}")
@@ -257,8 +228,7 @@ def main():
                 texts, labels = loader_fn(str(json_path))
                 task_pbar.write(f"  {task_name}/{split}: {len(texts)} samples")
 
-                try:
-                    embs = extract_embeddings(
+                embs = extract_embeddings(
                         model, tokenizer, texts,
                         batch_size=args.batch_size,
                         max_length=args.max_length,
@@ -266,26 +236,6 @@ def main():
                         pool=args.pool,
                         desc=f"{task_name}/{split}",
                     )
-                except Exception as e:
-                    err = str(e).lower()
-                    if args.device.startswith("cuda") and ("kernel image" in err or "no kernel image" in err or "cuda" in err or "acceleratorerror" in err):
-                        task_pbar.write(f"  [WARN] CUDA error during extraction: {e}. Retrying on CPU...")
-                        try:
-                            torch.cuda.empty_cache()
-                        except Exception:
-                            pass
-                        model = model.to("cpu")
-                        args.device = "cpu"
-                        embs = extract_embeddings(
-                            model, tokenizer, texts,
-                            batch_size=args.batch_size,
-                            max_length=args.max_length,
-                            device="cpu",
-                            pool=args.pool,
-                            desc=f"{task_name}/{split}",
-                        )
-                    else:
-                        raise
                 np.savez_compressed(
                     out_path,
                     embeddings=embs,
