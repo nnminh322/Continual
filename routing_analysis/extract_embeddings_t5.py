@@ -60,13 +60,33 @@ def load_long_seq(json_path: str):
     """Load Long_Sequence format: Definition + instances."""
     with open(json_path, encoding="utf-8") as f:
         data = json.load(f)
-    definition = data["Definition"][0].strip()
-    template = f"{definition}\n{{0}}\nOutput: "
+    defs = data.get("Definition", [])
+    if isinstance(defs, list) and len(defs) > 0:
+        definition = defs[0].strip()
+    elif isinstance(defs, str):
+        definition = defs.strip()
+    else:
+        definition = ""
+
+    if definition:
+        template = f"{definition}\n{{0}}\nOutput: "
+    else:
+        template = "{0}"
+
     texts, labels = [], []
-    for inst in data["Instances"]:
-        texts.append(template.format(inst["input"]))
-        out = inst["output"]
-        labels.append(out if isinstance(out, str) else out[0])
+    for inst in data.get("Instances", []):
+        if isinstance(inst, dict):
+            inp = inst.get("input", "") or inst.get("text", "")
+            out = inst.get("output", "")
+        else:
+            try:
+                inp = inst[0]
+                out = inst[1]
+            except Exception:
+                inp = str(inst)
+                out = ""
+        texts.append(template.format(inp))
+        labels.append(out if isinstance(out, str) else (out[0] if isinstance(out, (list, tuple)) and out else str(out)))
     return texts, labels
 
 
@@ -74,13 +94,33 @@ def load_superni(json_path: str):
     """Load SuperNI format: Definition + 'Now complete...' + instances."""
     with open(json_path, encoding="utf-8") as f:
         data = json.load(f)
-    definition = data["Definition"][0].strip()
-    template = f"Definition: {definition}\n\nNow complete the following example -\nInput: {{0}}\nOutput: "
+    defs = data.get("Definition", [])
+    if isinstance(defs, list) and len(defs) > 0:
+        definition = defs[0].strip()
+    elif isinstance(defs, str):
+        definition = defs.strip()
+    else:
+        definition = ""
+
+    if definition:
+        template = f"Definition: {definition}\n\nNow complete the following example -\nInput: {{0}}\nOutput: "
+    else:
+        template = "{0}"
+
     texts, labels = [], []
-    for inst in data["Instances"]:
-        texts.append(template.format(inst["input"]))
-        out = inst["output"]
-        labels.append(out if isinstance(out, str) else out[0])
+    for inst in data.get("Instances", []):
+        if isinstance(inst, dict):
+            inp = inst.get("input", "") or inst.get("text", "")
+            out = inst.get("output", "")
+        else:
+            try:
+                inp = inst[0]
+                out = inst[1]
+            except Exception:
+                inp = str(inst)
+                out = ""
+        texts.append(template.format(inp))
+        labels.append(out if isinstance(out, str) else (out[0] if isinstance(out, (list, tuple)) and out else str(out)))
     return texts, labels
 
 
