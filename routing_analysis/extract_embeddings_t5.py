@@ -4,8 +4,12 @@ Models: flan-t5-large, flan-t5-xl
 Benchmarks: Long_Sequence (15 tasks), SuperNI (15 tasks)
 
 Output: embeddings/{model_name}/{benchmark}/{task_name}/{split}.npz
-  - embeddings: (N, d_model) float32  — avg-pooled encoder last hidden state
+  - embeddings: (N, d_model) float32  — avg-pooled representation
   - labels: (N,) object array         — output labels as strings
+
+Layer options:
+  --layer encoder   : encoder last hidden state (after all attention layers) — rich semantic
+  --layer embedding  : word embedding layer output (before attention) — matches CL router input
 
 Usage:
   python extract_embeddings_t5.py --model google/flan-t5-large
@@ -134,11 +138,13 @@ def extract_embeddings(
     batch_size: int = 32,
     max_length: int = 512,
     device: str = "cuda",
+    layer: str = "encoder",
     desc: str = "batches",
 ) -> np.ndarray:
     """
-    Average-pooled encoder last hidden state.
-    Returns (N, d_model) float32 array (full precision, no quantization).
+    Extract embeddings from T5.
+    layer='encoder': avg-pooled encoder last hidden state (after attention).
+    layer='embedding': avg-pooled word embedding output (before attention).
     """
     all_embs = []
     for i in tqdm(range(0, len(texts), batch_size),
@@ -152,8 +158,13 @@ def extract_embeddings(
             return_tensors="pt",
         ).to(device)
 
-        out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"])
-        hidden = out.last_hidden_state  # (B, L, d)
+        if layer == "embedding":
+            # Word embedding layer only — same input the CL router sees
+            hidden = model.encoder.embed_tokens(enc["input_ids"])  # (B, L, d)
+        else:
+            out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"])
+            hidden = out.last_hidden_state  # (B, L, d)
+
         mask = enc["attention_mask"].unsqueeze(-1).float()  # (B, L, 1)
         pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)  # (B, d)
         all_embs.append(pooled.cpu().float().numpy())
@@ -178,6 +189,10 @@ def main():
                         choices=["Long_Sequence", "SuperNI"])
     parser.add_argument("--device", type=str, default=None,
                         help="Device (auto-detect if not set)")
+    parser.add_argument("--layer", type=str, default="encoder",
+                        choices=["encoder", "embedding"],
+                        help="'encoder'=last hidden state (after attention), "
+                             "'embedding'=word embedding layer (before attention, matches CL router)")
     args = parser.parse_args()
 
     # Device
@@ -186,7 +201,10 @@ def main():
 
     # Model name for output dir
     model_short = args.model.split("/")[-1]  # e.g. "flan-t5-large"
+    if args.layer == "embedding":
+        model_short += "_wordemb"  # separate output dir for word embeddings
     print(f"=== Model: {args.model} ({model_short}) on {args.device} ===")
+    print(f"    Layer: {args.layer}")
 
     # Load tokenizer and model
     print("Loading tokenizer...")
@@ -233,6 +251,7 @@ def main():
                     batch_size=args.batch_size,
                     max_length=args.max_length,
                     device=args.device,
+                    layer=args.layer,
                     desc=f"{task_name}/{split}",
                 )
 

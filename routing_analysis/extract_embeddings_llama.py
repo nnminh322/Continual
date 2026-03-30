@@ -139,10 +139,13 @@ def extract_embeddings(
     max_length: int = 512,
     device: str = "cuda",
     pool: str = "last",
+    layer: str = "hidden",
     desc: str = "batches",
 ) -> np.ndarray:
     """
     Extract embeddings from LLaMA (decoder-only).
+    layer='hidden': last hidden state (after all transformer blocks)
+    layer='embedding': word embedding layer (before transformer blocks, matches CL router)
     pool='last': last non-padding token's hidden state
     pool='avg':  average pool over non-padding tokens
     Returns (N, d_model) float32 array (cast from bfloat16, no quantization).
@@ -159,12 +162,17 @@ def extract_embeddings(
             return_tensors="pt",
         ).to(device)
 
-        out = model(
-            input_ids=enc["input_ids"],
-            attention_mask=enc["attention_mask"],
-            output_hidden_states=True,
-        )
-        hidden = out.hidden_states[-1]  # (B, L, d)
+        if layer == "embedding":
+            # Word embedding layer only — same input the CL router sees
+            hidden = model.model.embed_tokens(enc["input_ids"])  # (B, L, d)
+        else:
+            out = model(
+                input_ids=enc["input_ids"],
+                attention_mask=enc["attention_mask"],
+                output_hidden_states=True,
+            )
+            hidden = out.hidden_states[-1]  # (B, L, d)
+
         mask = enc["attention_mask"]  # (B, L)
 
         if pool == "last":
@@ -197,6 +205,9 @@ def main():
     parser.add_argument("--pool", type=str, default="last",
                         choices=["last", "avg"],
                         help="Pooling: 'last' (last token) or 'avg' (mean pool)")
+    parser.add_argument("--layer", type=str, default="hidden",
+                        choices=["hidden", "embedding"],
+                        help="'hidden'=last hidden state (default), 'embedding'=word embedding layer (matches CL router)")
     parser.add_argument("--benchmarks", type=str, nargs="+",
                         default=["Long_Sequence", "SuperNI"],
                         choices=["Long_Sequence", "SuperNI"])
@@ -215,8 +226,10 @@ def main():
 
     model_short = args.model.split("/")[-1]
     pool_suffix = f"_pool{args.pool}" if args.pool != "last" else ""
+    layer_suffix = "_wordemb" if args.layer == "embedding" else ""
     print(f"=== Model: {args.model} ({model_short}) on {args.device} ===")
     print(f"    Pooling: {args.pool}")
+    print(f"    Layer: {args.layer}")
 
     # Tokenizer
     print("Loading tokenizer...")
@@ -255,7 +268,7 @@ def main():
                 continue
 
             out_dir = (
-                Path(args.output_dir) / f"{model_short}{pool_suffix}"
+                Path(args.output_dir) / f"{model_short}{pool_suffix}{layer_suffix}"
                 / bench_name / task_name
             )
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -279,6 +292,7 @@ def main():
                     max_length=args.max_length,
                     device=args.device,
                     pool=args.pool,
+                    layer=args.layer,
                     desc=f"{task_name}/{split}",
                 )
                 np.savez_compressed(

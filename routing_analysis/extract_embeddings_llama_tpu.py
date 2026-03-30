@@ -184,6 +184,7 @@ def extract_embeddings(
     max_length: int = 512,
     device: torch.device | str = "cpu",
     pool: str = "last",
+    layer: str = "hidden",
     desc: str = "batches",
 ) -> np.ndarray:
     all_embs = []
@@ -212,12 +213,17 @@ def extract_embeddings(
         # Move tensors to the resolved device
         enc = {k: v.to(dev) for k, v in enc.items()}
 
-        out = model(
-            input_ids=enc["input_ids"],
-            attention_mask=enc["attention_mask"],
-            output_hidden_states=True,
-        )
-        hidden = out.hidden_states[-1]  # (B, L, d)
+        if layer == "embedding":
+            # Word embedding layer only — same input the CL router sees
+            hidden = model.model.embed_tokens(enc["input_ids"])  # (B, L, d)
+        else:
+            out = model(
+                input_ids=enc["input_ids"],
+                attention_mask=enc["attention_mask"],
+                output_hidden_states=True,
+            )
+            hidden = out.hidden_states[-1]  # (B, L, d)
+
         mask = enc["attention_mask"]  # (B, L)
 
         if pool == "last":
@@ -240,6 +246,8 @@ def main():
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--max_length", type=int, default=512)
     parser.add_argument("--pool", type=str, default="last", choices=["last", "avg"])
+    parser.add_argument("--layer", type=str, default="hidden", choices=["hidden", "embedding"],
+                        help="'hidden'=last hidden state (default), 'embedding'=word embedding layer (matches CL router)")
     parser.add_argument("--benchmarks", type=str, nargs="+", default=["Long_Sequence", "SuperNI"], choices=["Long_Sequence", "SuperNI"])
     parser.add_argument("--device", type=str, default=None, help="cpu|cuda|tpu (or leave None to auto-detect)")
     parser.add_argument("--token", nargs='?', const='', default=None,
@@ -359,7 +367,7 @@ def main():
                 task_pbar.write(f"  [SKIP] {task_name}: not found at {task_dir}")
                 continue
 
-            out_dir = Path(args.output_dir) / model.__class__.__name__ / bench_name / task_name
+            out_dir = Path(args.output_dir) / (model.__class__.__name__ + ("_wordemb" if args.layer == "embedding" else "")) / bench_name / task_name
             out_dir.mkdir(parents=True, exist_ok=True)
 
             for split in ["train", "dev", "test"]:
@@ -385,6 +393,7 @@ def main():
                     max_length=args.max_length,
                     device=dev,
                     pool=args.pool,
+                    layer=args.layer,
                     desc=f"{task_name}/{split}",
                 )
 
