@@ -93,6 +93,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --data_dir CL_Benchmark \
@@ -158,6 +159,7 @@ fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path ${OUTPUT_BASE}/1-yelp/saved_weights \
@@ -215,6 +217,7 @@ sleep 5
 # ============================================================
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path ${OUTPUT_BASE}/1-yelp/saved_weights,${OUTPUT_BASE}/2-amazon/saved_weights \
@@ -272,6 +275,7 @@ sleep 5
 # ============================================================
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path ${OUTPUT_BASE}/1-yelp/saved_weights,${OUTPUT_BASE}/2-amazon/saved_weights,${OUTPUT_BASE}/3-mnli/saved_weights \
@@ -329,6 +333,7 @@ sleep 5
 # ============================================================
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path ${OUTPUT_BASE}/1-yelp/saved_weights,${OUTPUT_BASE}/2-amazon/saved_weights,${OUTPUT_BASE}/3-mnli/saved_weights,${OUTPUT_BASE}/4-cb/saved_weights \
@@ -386,6 +391,7 @@ sleep 5
 # ============================================================
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path ${OUTPUT_BASE}/1-yelp/saved_weights,${OUTPUT_BASE}/2-amazon/saved_weights,${OUTPUT_BASE}/3-mnli/saved_weights,${OUTPUT_BASE}/4-cb/saved_weights,${OUTPUT_BASE}/5-copa/saved_weights \
@@ -443,6 +449,7 @@ sleep 5
 # ============================================================
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path ${OUTPUT_BASE}/1-yelp/saved_weights,${OUTPUT_BASE}/2-amazon/saved_weights,${OUTPUT_BASE}/3-mnli/saved_weights,${OUTPUT_BASE}/4-cb/saved_weights,${OUTPUT_BASE}/5-copa/saved_weights,${OUTPUT_BASE}/6-qqp/saved_weights \
@@ -500,6 +507,7 @@ sleep 5
 # ============================================================
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path ${OUTPUT_BASE}/1-yelp/saved_weights,${OUTPUT_BASE}/2-amazon/saved_weights,${OUTPUT_BASE}/3-mnli/saved_weights,${OUTPUT_BASE}/4-cb/saved_weights,${OUTPUT_BASE}/5-copa/saved_weights,${OUTPUT_BASE}/6-qqp/saved_weights,${OUTPUT_BASE}/7-rte/saved_weights \
@@ -557,6 +565,7 @@ sleep 5
 # ============================================================
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path ${OUTPUT_BASE}/1-yelp/saved_weights,${OUTPUT_BASE}/2-amazon/saved_weights,${OUTPUT_BASE}/3-mnli/saved_weights,${OUTPUT_BASE}/4-cb/saved_weights,${OUTPUT_BASE}/5-copa/saved_weights,${OUTPUT_BASE}/6-qqp/saved_weights,${OUTPUT_BASE}/7-rte/saved_weights,${OUTPUT_BASE}/8-imdb/saved_weights \
@@ -614,6 +623,7 @@ sleep 5
 # ============================================================
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path ${OUTPUT_BASE}/1-yelp/saved_weights,${OUTPUT_BASE}/2-amazon/saved_weights,${OUTPUT_BASE}/3-mnli/saved_weights,${OUTPUT_BASE}/4-cb/saved_weights,${OUTPUT_BASE}/5-copa/saved_weights,${OUTPUT_BASE}/6-qqp/saved_weights,${OUTPUT_BASE}/7-rte/saved_weights,${OUTPUT_BASE}/8-imdb/saved_weights,${OUTPUT_BASE}/9-sst2/saved_weights \
@@ -671,6 +681,7 @@ sleep 5
 # ============================================================
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path ${OUTPUT_BASE}/1-yelp/saved_weights,${OUTPUT_BASE}/2-amazon/saved_weights,${OUTPUT_BASE}/3-mnli/saved_weights,${OUTPUT_BASE}/4-cb/saved_weights,${OUTPUT_BASE}/5-copa/saved_weights,${OUTPUT_BASE}/6-qqp/saved_weights,${OUTPUT_BASE}/7-rte/saved_weights,${OUTPUT_BASE}/8-imdb/saved_weights,${OUTPUT_BASE}/9-sst2/saved_weights,${OUTPUT_BASE}/10-dbpedia/saved_weights \
@@ -728,6 +739,7 @@ sleep 5
 # ============================================================
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path ${OUTPUT_BASE}/1-yelp/saved_weights,${OUTPUT_BASE}/2-amazon/saved_weights,${OUTPUT_BASE}/3-mnli/saved_weights,${OUTPUT_BASE}/4-cb/saved_weights,${OUTPUT_BASE}/5-copa/saved_weights,${OUTPUT_BASE}/6-qqp/saved_weights,${OUTPUT_BASE}/7-rte/saved_weights,${OUTPUT_BASE}/8-imdb/saved_weights,${OUTPUT_BASE}/9-sst2/saved_weights,${OUTPUT_BASE}/10-dbpedia/saved_weights,${OUTPUT_BASE}/11-agnews/saved_weights \
@@ -785,6 +797,7 @@ sleep 5
 # ============================================================
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path ${OUTPUT_BASE}/1-yelp/saved_weights,${OUTPUT_BASE}/2-amazon/saved_weights,${OUTPUT_BASE}/3-mnli/saved_weights,${OUTPUT_BASE}/4-cb/saved_weights,${OUTPUT_BASE}/5-copa/saved_weights,${OUTPUT_BASE}/6-qqp/saved_weights,${OUTPUT_BASE}/7-rte/saved_weights,${OUTPUT_BASE}/8-imdb/saved_weights,${OUTPUT_BASE}/9-sst2/saved_weights,${OUTPUT_BASE}/10-dbpedia/saved_weights,${OUTPUT_BASE}/11-agnews/saved_weights,${OUTPUT_BASE}/12-yahoo/saved_weights \
@@ -842,6 +855,7 @@ sleep 5
 # ============================================================
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path ${OUTPUT_BASE}/1-yelp/saved_weights,${OUTPUT_BASE}/2-amazon/saved_weights,${OUTPUT_BASE}/3-mnli/saved_weights,${OUTPUT_BASE}/4-cb/saved_weights,${OUTPUT_BASE}/5-copa/saved_weights,${OUTPUT_BASE}/6-qqp/saved_weights,${OUTPUT_BASE}/7-rte/saved_weights,${OUTPUT_BASE}/8-imdb/saved_weights,${OUTPUT_BASE}/9-sst2/saved_weights,${OUTPUT_BASE}/10-dbpedia/saved_weights,${OUTPUT_BASE}/11-agnews/saved_weights,${OUTPUT_BASE}/12-yahoo/saved_weights,${OUTPUT_BASE}/13-multirc/saved_weights \
@@ -899,6 +913,7 @@ sleep 5
 # ============================================================
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
+   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --previous_lora_path ${OUTPUT_BASE}/1-yelp/saved_weights,${OUTPUT_BASE}/2-amazon/saved_weights,${OUTPUT_BASE}/3-mnli/saved_weights,${OUTPUT_BASE}/4-cb/saved_weights,${OUTPUT_BASE}/5-copa/saved_weights,${OUTPUT_BASE}/6-qqp/saved_weights,${OUTPUT_BASE}/7-rte/saved_weights,${OUTPUT_BASE}/8-imdb/saved_weights,${OUTPUT_BASE}/9-sst2/saved_weights,${OUTPUT_BASE}/10-dbpedia/saved_weights,${OUTPUT_BASE}/11-agnews/saved_weights,${OUTPUT_BASE}/12-yahoo/saved_weights,${OUTPUT_BASE}/13-multirc/saved_weights,${OUTPUT_BASE}/14-boolq/saved_weights \

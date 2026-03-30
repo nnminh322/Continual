@@ -748,11 +748,17 @@ class T5Stack(T5PreTrainedModel):
                         # So: model[0]=RLS[-1], model[1]=RLS[-2], ..., model[T]=RLS[0]
                         key_attention_weights = rls_weights.flip(dims=[1])
                     else:
-                        # Fallback: size mismatch, use uniform
-                        key_attention_weights = torch.ones(
+                        # Mismatch: RLS fitted for N-1 tasks but model has N experts.
+                        # This occurs during training-time eval (trainer.evaluate calls model.eval())
+                        # before update_rls_router is called for the current task.
+                        # Fall back to oracle current-task routing (index 0) to preserve
+                        # valid eval metrics during training — otherwise uniform 1/N weight
+                        # dilutes current-task signal to near zero as N grows.
+                        key_attention_weights = torch.zeros(
                             batch_size, n_lora_experts, 1,
                             device=inputs_embeds.device, dtype=inputs_embeds.dtype
-                        ) / n_lora_experts
+                        )
+                        key_attention_weights[:, 0, 0] = 1.0
                 else:
                     # Training or first task: oracle routing (always current = index 0)
                     # Just create correct-sized tensor; oracle override below will set it
