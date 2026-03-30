@@ -22,6 +22,8 @@ import argparse
 import json
 import os
 from pathlib import Path
+import time
+import warnings
 import numpy as np
 import torch
 import sys
@@ -35,6 +37,47 @@ try:
 except Exception:
     xm = None
     HAS_XLA = False
+
+
+def get_xla_device():
+    """
+    Acquire a torch-xla device object.
+    Prefer the newer `torch_xla.device()` API; fall back to `xm.xla_device()`.
+    """
+    # Prefer top-level API if available
+    try:
+        import torch_xla
+        if hasattr(torch_xla, "device"):
+            return torch_xla.device()
+    except Exception:
+        pass
+
+    # Fallback to the xla_model shim if present
+    if xm is not None:
+        try:
+            return xm.xla_device()
+        except Exception:
+            pass
+
+    raise RuntimeError("Unable to acquire an XLA device (torch_xla.device / xm.xla_device failed).")
+
+
+def check_transparent_hugepages():
+    """
+    Best-effort check for transparent hugepages; print advice if disabled.
+    Non-fatal and will silently continue if the check isn't possible.
+    """
+    path = "/sys/kernel/mm/transparent_hugepage/enabled"
+    try:
+        if os.path.exists(path):
+            with open(path, "r") as fh:
+                val = fh.read()
+            if "always" not in val:
+                print("Warning: Transparent Hugepages are not enabled. Enabling it can improve TPU startup/shutdown times.")
+                print('If you control the VM image run: sudo sh -c "echo always > /sys/kernel/mm/transparent_hugepage/enabled"')
+    except Exception:
+        # Non-fatal; likely not accessible in managed runtimes.
+        pass
 
 
 # ── Data loaders (robust to minor JSON format differences) ───────────
@@ -137,6 +180,15 @@ def extract_embeddings(
     desc: str = "batches",
 ) -> np.ndarray:
     all_embs = []
+    # Resolve the target device once to avoid calling deprecated APIs repeatedly.
+    if HAS_XLA and isinstance(device, str) and device.lower() in ("tpu", "xla"):
+        try:
+            dev = get_xla_device()
+        except Exception as e:
+            raise RuntimeError(f"Failed to acquire XLA device inside extract_embeddings: {e}")
+    else:
+        dev = torch.device(device)
+
     for i in tqdm(range(0, len(texts), batch_size), desc=f"    {desc}", unit="batch", leave=False, position=1):
         batch_texts = texts[i: i + batch_size]
         enc = tokenizer(
@@ -146,11 +198,7 @@ def extract_embeddings(
             truncation=True,
             return_tensors="pt",
         )
-        # Move tensors to target device (XLA device uses xm.xla_device())
-        if HAS_XLA and isinstance(device, str) and device.lower() in ("tpu", "xla"):
-            dev = xm.xla_device()
-        else:
-            dev = torch.device(device)
+        # Move tensors to the resolved device
         enc = {k: v.to(dev) for k, v in enc.items()}
 
         out = model(
@@ -211,26 +259,38 @@ def main():
             print("After installation, restart the runtime and re-run this script with --device tpu.")
             print("If you cannot install torch-xla in this environment, run with --device cpu or --device cuda instead.")
             sys.exit(1)
-        try:
-            # Use newer torch_xla.device() API if available, fallback to xm.xla_device()
+
+        # Best-effort: warn about transparent hugepages (observed by JAX sometimes)
+        check_transparent_hugepages()
+
+        # Try a few times in case the TPU device is transiently busy in the environment
+        attempts = 3
+        for attempt in range(1, attempts + 1):
             try:
-                import torch_xla
-                dev = torch_xla.device()
-            except Exception:
-                dev = xm.xla_device()
-            print(f"Using XLA device: {dev}")
-        except RuntimeError as e:
-            if "Device or resource busy" in str(e) or "TPU initialization failed" in str(e):
-                print(f"TPU Error: {e}")
-                print("")
-                print("The TPU device is already in use or in a bad state.")
-                print("Try one of these solutions:")
-                print("  1. Restart the runtime: Runtime → Restart runtime")
-                print("  2. Clear TPU state: Runtime → Disconnect and delete runtime")
-                print("  3. Wait 1-2 minutes and retry (TPU may be busy)")
-                print("  4. Switch to GPU: --device cuda (if available)")
-                sys.exit(1)
-            raise
+                dev = get_xla_device()
+                print(f"Using XLA device: {dev}")
+                break
+            except RuntimeError as e:
+                msg = str(e)
+                if any(s in msg for s in ("Device or resource busy", "Couldn't open iommu group", "/dev/vfio")) or "TPU initialization failed" in msg:
+                    print(f"TPU init attempt {attempt}/{attempts} failed: {e}")
+                    if attempt < attempts:
+                        wait = 5 * attempt
+                        print(f"Waiting {wait}s and retrying...")
+                        time.sleep(wait)
+                        continue
+                    else:
+                        print(f"TPU Error: TPU initialization failed: {e}")
+                        print("")
+                        print("The TPU device is already in use or in a bad state.")
+                        print("Try one of these solutions:")
+                        print("  1. Restart the runtime: Runtime → Restart runtime")
+                        print("  2. Clear TPU state: Runtime → Disconnect and delete runtime")
+                        print("  3. Wait 1-2 minutes and retry (TPU may be busy)")
+                        print("  4. Switch to GPU: --device cuda (if available)")
+                        sys.exit(1)
+                else:
+                    raise
     else:
         try:
             dev = torch.device(args.device)
