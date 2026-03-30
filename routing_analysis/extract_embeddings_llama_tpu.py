@@ -24,6 +24,7 @@ import os
 from pathlib import Path
 import numpy as np
 import torch
+import sys
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -192,12 +193,26 @@ def main():
         else:
             args.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    use_xla = args.device.lower() in ("tpu", "xla") and HAS_XLA
-    if use_xla:
+    # If user explicitly asks for TPU/XLA but torch-xla is not installed, fail fast with instructions
+    if args.device.lower() in ("tpu", "xla"):
+        if not HAS_XLA:
+            print("Error: torch_xla (PyTorch XLA) is not available in this runtime but --device tpu was requested.")
+            print("On Google Colab/TPU or TPU VMs install PyTorch/XLA with the official env-setup script:")
+            print("")
+            print("  !curl -s -O https://raw.githubusercontent.com/pytorch/xla/master/contrib/scripts/env-setup.py")
+            print("  !python pytorch-xla-env-setup.py --version nightly --apt-packages libomp5 libopenblas-dev")
+            print("")
+            print("After installation, restart the runtime and re-run this script with --device tpu.")
+            print("If you cannot install torch-xla in this environment, run with --device cpu or --device cuda instead.")
+            sys.exit(1)
         dev = xm.xla_device()
         print(f"Using XLA device: {dev}")
     else:
-        dev = torch.device(args.device)
+        try:
+            dev = torch.device(args.device)
+        except Exception as e:
+            print(f"Error: invalid device '{args.device}': {e}")
+            sys.exit(1)
         print(f"Using device: {dev}")
 
     # Tokenizer
