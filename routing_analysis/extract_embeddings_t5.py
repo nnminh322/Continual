@@ -4,7 +4,7 @@ Models: flan-t5-large, flan-t5-xl
 Benchmarks: Long_Sequence (15 tasks), SuperNI (15 tasks)
 
 Output: embeddings/{model_name}/{benchmark}/{task_name}/{split}.npz
-  - embeddings: (N, d_model) float16  — avg-pooled encoder last hidden state
+  - embeddings: (N, d_model) float32  — avg-pooled encoder last hidden state
   - labels: (N,) object array         — output labels as strings
 
 Usage:
@@ -94,13 +94,15 @@ def extract_embeddings(
     batch_size: int = 32,
     max_length: int = 512,
     device: str = "cuda",
+    desc: str = "batches",
 ) -> np.ndarray:
     """
     Average-pooled encoder last hidden state.
-    Returns (N, d_model) float16 array.
+    Returns (N, d_model) float32 array (full precision, no quantization).
     """
     all_embs = []
-    for i in tqdm(range(0, len(texts), batch_size), desc="  batches", leave=False):
+    for i in tqdm(range(0, len(texts), batch_size),
+                  desc=f"    {desc}", unit="batch", leave=False, position=1):
         batch_texts = texts[i : i + batch_size]
         enc = tokenizer(
             batch_texts,
@@ -114,7 +116,7 @@ def extract_embeddings(
         hidden = out.last_hidden_state  # (B, L, d)
         mask = enc["attention_mask"].unsqueeze(-1).float()  # (B, L, 1)
         pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)  # (B, d)
-        all_embs.append(pooled.cpu().half().numpy())
+        all_embs.append(pooled.cpu().float().numpy())
 
     return np.concatenate(all_embs, axis=0)
 
@@ -125,7 +127,7 @@ def main():
     parser = argparse.ArgumentParser(description="Extract T5 encoder embeddings")
     parser.add_argument("--model", type=str, default="google/flan-t5-large",
                         help="HF model name: google/flan-t5-{small,large,xl}")
-    parser.add_argument("--data_root", type=str, default="CL_Benchmark",
+    parser.add_argument("--data_root", type=str, default="../CL_Benchmark",
                         help="Path to CL_Benchmark/ directory")
     parser.add_argument("--output_dir", type=str, default="embeddings",
                         help="Output root directory")
@@ -150,9 +152,8 @@ def main():
     print("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     print("Loading encoder model...")
-    model = T5EncoderModel.from_pretrained(
-        args.model, torch_dtype=torch.float16
-    ).to(args.device).eval()
+    # Full precision: float32 (T5 native dtype, no quantization)
+    model = T5EncoderModel.from_pretrained(args.model).to(args.device).eval()
 
     d_model = model.config.d_model
     print(f"d_model = {d_model}")
@@ -164,10 +165,12 @@ def main():
 
         loader_fn = load_long_seq if bench_name == "Long_Sequence" else load_superni
 
-        for task_name in tasks:
+        task_pbar = tqdm(tasks, total=len(tasks), unit="task", position=0, leave=True)
+        for task_name in task_pbar:
+            task_pbar.set_description(f"[{bench_name}] {task_name:40s}")
             task_dir = Path(args.data_root) / bench_name / task_name
             if not task_dir.exists():
-                print(f"  [SKIP] {task_name}: directory not found at {task_dir}")
+                task_pbar.write(f"  [SKIP] {task_name}: not found at {task_dir}")
                 continue
 
             out_dir = Path(args.output_dir) / model_short / bench_name / task_name
@@ -180,25 +183,25 @@ def main():
 
                 out_path = out_dir / f"{split}.npz"
                 if out_path.exists():
-                    print(f"  [EXISTS] {task_name}/{split} — skip")
+                    task_pbar.write(f"  [EXISTS] {task_name}/{split} — skip")
                     continue
 
-                print(f"  {task_name}/{split}...", end=" ", flush=True)
                 texts, labels = loader_fn(str(json_path))
-                print(f"({len(texts)} samples)", end=" ", flush=True)
+                task_pbar.write(f"  {task_name}/{split}: {len(texts)} samples")
 
                 embs = extract_embeddings(
                     model, tokenizer, texts,
                     batch_size=args.batch_size,
                     max_length=args.max_length,
                     device=args.device,
+                    desc=f"{task_name}/{split}",
                 )
                 np.savez_compressed(
                     out_path,
-                    embeddings=embs,                      # (N, d_model) float16
+                    embeddings=embs,                      # (N, d_model) float32
                     labels=np.array(labels, dtype=object), # (N,) strings
                 )
-                print(f"-> {out_path} [{embs.shape}]")
+                task_pbar.write(f"  -> saved {out_path} {embs.shape}")
 
     print("\nDone.")
 

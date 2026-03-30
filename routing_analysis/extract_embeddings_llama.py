@@ -8,7 +8,7 @@ left-padded → rightmost real token carries the most context).
 Alternative: average pool all non-padding tokens (set --pool avg).
 
 Output: embeddings/{model_name}/{benchmark}/{task_name}/{split}.npz
-  - embeddings: (N, d_model) float16
+  - embeddings: (N, d_model) float32
   - labels: (N,) object array
 
 Usage:
@@ -16,7 +16,7 @@ Usage:
   python extract_embeddings_llama.py --model meta-llama/Llama-2-7b-chat-hf
   python extract_embeddings_llama.py --model meta-llama/Llama-2-13b-hf
   python extract_embeddings_llama.py --model meta-llama/Llama-3.1-8B
-  python extract_embeddings_llama.py --model meta-llama/Llama-3.1-8B --pool avg
+  python extract_embeddings_llama.py --model meta-llama/Llama-2-7b-hf --pool avg
 """
 
 import argparse
@@ -99,14 +99,17 @@ def extract_embeddings(
     max_length: int = 512,
     device: str = "cuda",
     pool: str = "last",
+    desc: str = "batches",
 ) -> np.ndarray:
     """
     Extract embeddings from LLaMA (decoder-only).
     pool='last': last non-padding token's hidden state
     pool='avg':  average pool over non-padding tokens
+    Returns (N, d_model) float32 array (cast from bfloat16, no quantization).
     """
     all_embs = []
-    for i in tqdm(range(0, len(texts), batch_size), desc="  batches", leave=False):
+    for i in tqdm(range(0, len(texts), batch_size),
+                  desc=f"    {desc}", unit="batch", leave=False, position=1):
         batch_texts = texts[i : i + batch_size]
         enc = tokenizer(
             batch_texts,
@@ -134,7 +137,7 @@ def extract_embeddings(
         else:
             raise ValueError(f"Unknown pool={pool}")
 
-        all_embs.append(pooled.cpu().half().numpy())
+        all_embs.append(pooled.cpu().float().numpy())
 
     return np.concatenate(all_embs, axis=0)
 
@@ -145,7 +148,7 @@ def main():
     parser = argparse.ArgumentParser(description="Extract LLaMA embeddings")
     parser.add_argument("--model", type=str, default="meta-llama/Llama-2-7b-hf",
                         help="HF model name")
-    parser.add_argument("--data_root", type=str, default="CL_Benchmark",
+    parser.add_argument("--data_root", type=str, default="../CL_Benchmark",
                         help="Path to CL_Benchmark/ directory")
     parser.add_argument("--output_dir", type=str, default="embeddings",
                         help="Output root directory")
@@ -158,10 +161,6 @@ def main():
                         default=["Long_Sequence", "SuperNI"],
                         choices=["Long_Sequence", "SuperNI"])
     parser.add_argument("--device", type=str, default=None)
-    parser.add_argument("--load_in_8bit", action="store_true",
-                        help="Load in 8-bit quantization (saves VRAM)")
-    parser.add_argument("--load_in_4bit", action="store_true",
-                        help="Load in 4-bit quantization (saves more VRAM)")
     parser.add_argument("--token", type=str, default=None,
                         help="HuggingFace access token for gated models")
     args = parser.parse_args()
@@ -183,19 +182,14 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"  # LLaMA convention
 
-    # Model
+    # Model — full precision: bfloat16 (LLaMA native dtype, no quantization)
     print("Loading model...")
-    load_kwargs = {"torch_dtype": torch.float16, "token": args.token}
-    if args.load_in_8bit:
-        load_kwargs["load_in_8bit"] = True
-        load_kwargs["device_map"] = "auto"
-    elif args.load_in_4bit:
-        load_kwargs["load_in_4bit"] = True
-        load_kwargs["device_map"] = "auto"
-    else:
-        load_kwargs["device_map"] = args.device
-
-    model = AutoModelForCausalLM.from_pretrained(args.model, **load_kwargs).eval()
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model,
+        torch_dtype=torch.bfloat16,
+        device_map=args.device,
+        token=args.token,
+    ).eval()
 
     d_model = model.config.hidden_size
     print(f"d_model = {d_model}")
@@ -207,10 +201,12 @@ def main():
 
         loader_fn = load_long_seq if bench_name == "Long_Sequence" else load_superni
 
-        for task_name in tasks:
+        task_pbar = tqdm(tasks, total=len(tasks), unit="task", position=0, leave=True)
+        for task_name in task_pbar:
+            task_pbar.set_description(f"[{bench_name}] {task_name:50s}")
             task_dir = Path(args.data_root) / bench_name / task_name
             if not task_dir.exists():
-                print(f"  [SKIP] {task_name}: directory not found at {task_dir}")
+                task_pbar.write(f"  [SKIP] {task_name}: not found at {task_dir}")
                 continue
 
             out_dir = (
@@ -226,12 +222,11 @@ def main():
 
                 out_path = out_dir / f"{split}.npz"
                 if out_path.exists():
-                    print(f"  [EXISTS] {task_name}/{split} — skip")
+                    task_pbar.write(f"  [EXISTS] {task_name}/{split} — skip")
                     continue
 
-                print(f"  {task_name}/{split}...", end=" ", flush=True)
                 texts, labels = loader_fn(str(json_path))
-                print(f"({len(texts)} samples)", end=" ", flush=True)
+                task_pbar.write(f"  {task_name}/{split}: {len(texts)} samples")
 
                 embs = extract_embeddings(
                     model, tokenizer, texts,
@@ -239,13 +234,14 @@ def main():
                     max_length=args.max_length,
                     device=args.device,
                     pool=args.pool,
+                    desc=f"{task_name}/{split}",
                 )
                 np.savez_compressed(
                     out_path,
                     embeddings=embs,
                     labels=np.array(labels, dtype=object),
                 )
-                print(f"-> {out_path} [{embs.shape}]")
+                task_pbar.write(f"  -> saved {out_path} {embs.shape}")
 
     print("\nDone.")
 
