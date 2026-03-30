@@ -229,13 +229,13 @@ def main():
                 task_pbar.write(f"  {task_name}/{split}: {len(texts)} samples")
 
                 embs = extract_embeddings(
-                        model, tokenizer, texts,
-                        batch_size=args.batch_size,
-                        max_length=args.max_length,
-                        device=args.device,
-                        pool=args.pool,
-                        desc=f"{task_name}/{split}",
-                    )
+                    model, tokenizer, texts,
+                    batch_size=args.batch_size,
+                    max_length=args.max_length,
+                    device=args.device,
+                    pool=args.pool,
+                    desc=f"{task_name}/{split}",
+                )
                 np.savez_compressed(
                     out_path,
                     embeddings=embs,

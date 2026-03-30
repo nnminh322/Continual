@@ -1,15 +1,10 @@
-# Use the same torch version as your training environment
-# torch==2.5.1 (cu121) or whatever version your training env uses
-torch
-transformers>=4.35.0
-numpy>=1.24.0
-tqdm>=4.65.0
-# Optional: quantization for large LLaMA models
-bitsandbytes>=0.41.0
-# Optional: faster loading
-accelerate>=0.27.0
-# Optional: analysis
-scikit-learn>=1.3.0
-matplotlib>=3.7.0
-seaborn>=0.13.0
-scipy>=1.11.0
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+torch==2.5.1
+transformers==4.40.2
+numpy==1.26.4
+tqdm==4.67.1
+sentencepiece==0.2.0
+accelerate==0.34.2
+scipy==1.14.1
+scikit-learn==1.6.1
