@@ -127,7 +127,7 @@ def main():
     parser = argparse.ArgumentParser(description="Extract T5 encoder embeddings")
     parser.add_argument("--model", type=str, default="google/flan-t5-large",
                         help="HF model name: google/flan-t5-{small,large,xl}")
-    parser.add_argument("--data_root", type=str, default="../CL_Benchmark",
+    parser.add_argument("--data_root", type=str, default="CL_Benchmark",
                         help="Path to CL_Benchmark/ directory")
     parser.add_argument("--output_dir", type=str, default="embeddings",
                         help="Output root directory")

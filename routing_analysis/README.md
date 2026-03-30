@@ -72,9 +72,6 @@ python extract_embeddings_t5.py --model google/flan-t5-large
 
 # flan-t5-xl (d=2048, 12 GB VRAM)
 python extract_embeddings_t5.py --model google/flan-t5-xl
-
-# Single benchmark only
-python extract_embeddings_t5.py --model google/flan-t5-large --benchmarks Long_Sequence
 ```
 
 ### LLaMA Family

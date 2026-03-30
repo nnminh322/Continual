@@ -148,7 +148,7 @@ def main():
     parser = argparse.ArgumentParser(description="Extract LLaMA embeddings")
     parser.add_argument("--model", type=str, default="meta-llama/Llama-2-7b-hf",
                         help="HF model name")
-    parser.add_argument("--data_root", type=str, default="../CL_Benchmark",
+    parser.add_argument("--data_root", type=str, default="CL_Benchmark",
                         help="Path to CL_Benchmark/ directory")
     parser.add_argument("--output_dir", type=str, default="embeddings",
                         help="Output root directory")
