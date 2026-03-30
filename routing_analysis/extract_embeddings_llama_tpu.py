@@ -44,22 +44,29 @@ def get_xla_device():
     Acquire a torch-xla device object.
     Prefer the newer `torch_xla.device()` API; fall back to `xm.xla_device()`.
     """
-    # Prefer top-level API if available
+    errors = []
+
+    # Try top-level torch_xla.device(), capture any exception for diagnostics
     try:
         import torch_xla
         if hasattr(torch_xla, "device"):
-            return torch_xla.device()
-    except Exception:
-        pass
+            try:
+                return torch_xla.device()
+            except Exception as e:
+                errors.append(("torch_xla.device()", e))
+    except Exception as e:
+        errors.append(("import torch_xla", e))
 
     # Fallback to the xla_model shim if present
     if xm is not None:
         try:
             return xm.xla_device()
-        except Exception:
-            pass
+        except Exception as e:
+            errors.append(("xm.xla_device()", e))
 
-    raise RuntimeError("Unable to acquire an XLA device (torch_xla.device / xm.xla_device failed).")
+    # Build a helpful error message containing the attempts made
+    details = "; ".join([f"{k}: {type(v).__name__}: {v}" for k, v in errors])
+    raise RuntimeError("Unable to acquire an XLA device (torch_xla.device / xm.xla_device failed). Details: " + details)
 
 
 def check_transparent_hugepages():
@@ -181,13 +188,17 @@ def extract_embeddings(
 ) -> np.ndarray:
     all_embs = []
     # Resolve the target device once to avoid calling deprecated APIs repeatedly.
-    if HAS_XLA and isinstance(device, str) and device.lower() in ("tpu", "xla"):
-        try:
-            dev = get_xla_device()
-        except Exception as e:
-            raise RuntimeError(f"Failed to acquire XLA device inside extract_embeddings: {e}")
+    if isinstance(device, str):
+        if HAS_XLA and device.lower() in ("tpu", "xla"):
+            try:
+                dev = get_xla_device()
+            except Exception as e:
+                raise RuntimeError(f"Failed to acquire XLA device inside extract_embeddings: {e}")
+        else:
+            dev = torch.device(device)
     else:
-        dev = torch.device(device)
+        # Already a device-like object (torch.device or XLA device)
+        dev = device
 
     for i in tqdm(range(0, len(texts), batch_size), desc=f"    {desc}", unit="batch", leave=False, position=1):
         batch_texts = texts[i: i + batch_size]
@@ -233,6 +244,8 @@ def main():
     parser.add_argument("--device", type=str, default=None, help="cpu|cuda|tpu (or leave None to auto-detect)")
     parser.add_argument("--token", nargs='?', const='', default=None,
                         help="HuggingFace token if required (omit to use HF_TOKEN env var)")
+    parser.add_argument("--allow-fallback", action="store_true", default=False,
+                        help="If set, fall back to GPU (cuda) when TPU init fails")
     args = parser.parse_args()
 
     # Token fallback: if user omitted --token or gave it without a value,
@@ -265,6 +278,7 @@ def main():
 
         # Try a few times in case the TPU device is transiently busy in the environment
         attempts = 3
+        dev = None
         for attempt in range(1, attempts + 1):
             try:
                 dev = get_xla_device()
@@ -272,25 +286,35 @@ def main():
                 break
             except RuntimeError as e:
                 msg = str(e)
-                if any(s in msg for s in ("Device or resource busy", "Couldn't open iommu group", "/dev/vfio")) or "TPU initialization failed" in msg:
-                    print(f"TPU init attempt {attempt}/{attempts} failed: {e}")
-                    if attempt < attempts:
-                        wait = 5 * attempt
-                        print(f"Waiting {wait}s and retrying...")
-                        time.sleep(wait)
-                        continue
-                    else:
-                        print(f"TPU Error: TPU initialization failed: {e}")
-                        print("")
-                        print("The TPU device is already in use or in a bad state.")
-                        print("Try one of these solutions:")
-                        print("  1. Restart the runtime: Runtime → Restart runtime")
-                        print("  2. Clear TPU state: Runtime → Disconnect and delete runtime")
-                        print("  3. Wait 1-2 minutes and retry (TPU may be busy)")
-                        print("  4. Switch to GPU: --device cuda (if available)")
-                        sys.exit(1)
-                else:
-                    raise
+                print(f"TPU init attempt {attempt}/{attempts} failed: {msg}")
+                if attempt < attempts:
+                    wait = 5 * attempt
+                    print(f"Waiting {wait}s and retrying...")
+                    time.sleep(wait)
+                    continue
+
+                # Last attempt failed — provide diagnostics and possible recovery steps
+                print("")
+                print("TPU initialization failed. Details:")
+                print(msg)
+                print("")
+                print("Possible causes:")
+                print(" - This runtime is not actually a TPU runtime (ensure TPU accelerator is enabled).")
+                print(" - torch-xla is not installed or the installed build doesn't match this runtime.")
+                print(" - The TPU device is already in use or in a bad state.")
+                print("")
+                print("Suggested actions:")
+                print("  1. Restart the runtime or terminate existing TPU sessions.")
+                print("  2. Ensure TPU accelerator is enabled for the runtime.")
+                print("  3. Install torch-xla (see script's non-TPU instructions) or use a matching PyTorch/XLA build.")
+                print("  4. Re-run with --device cuda to use GPU (if available).")
+                if args.allow_fallback and torch.cuda.is_available():
+                    print("")
+                    print("Auto-fallback enabled: switching to CUDA device.")
+                    dev = torch.device("cuda")
+                    break
+
+                sys.exit(1)
     else:
         try:
             dev = torch.device(args.device)
@@ -359,7 +383,7 @@ def main():
                     model, tokenizer, texts,
                     batch_size=args.batch_size,
                     max_length=args.max_length,
-                    device=args.device,
+                    device=dev,
                     pool=args.pool,
                     desc=f"{task_name}/{split}",
                 )
