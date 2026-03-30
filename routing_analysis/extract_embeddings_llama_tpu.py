@@ -183,8 +183,14 @@ def main():
     parser.add_argument("--pool", type=str, default="last", choices=["last", "avg"])
     parser.add_argument("--benchmarks", type=str, nargs="+", default=["Long_Sequence", "SuperNI"], choices=["Long_Sequence", "SuperNI"])
     parser.add_argument("--device", type=str, default=None, help="cpu|cuda|tpu (or leave None to auto-detect)")
-    parser.add_argument("--token", type=str, default=None, help="HuggingFace token if required")
+    parser.add_argument("--token", nargs='?', const='', default=None,
+                        help="HuggingFace token if required (omit to use HF_TOKEN env var)")
     args = parser.parse_args()
+
+    # Token fallback: if user omitted --token or gave it without a value,
+    # fall back to the HF_TOKEN environment variable (if present).
+    if args.token in (None, ''):
+        args.token = os.environ.get('HF_TOKEN')
 
     # Device selection
     if args.device is None:

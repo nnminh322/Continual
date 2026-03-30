@@ -201,9 +201,14 @@ def main():
                         default=["Long_Sequence", "SuperNI"],
                         choices=["Long_Sequence", "SuperNI"])
     parser.add_argument("--device", type=str, default=None)
-    parser.add_argument("--token", type=str, default=None,
-                        help="HuggingFace access token for gated models")
+    parser.add_argument("--token", nargs='?', const='', default=None,
+                        help="HuggingFace access token for gated models (omit to use HF_TOKEN env var)")
     args = parser.parse_args()
+
+    # Token fallback: if user omitted --token or gave it without a value,
+    # fall back to the HF_TOKEN environment variable (if present).
+    if args.token in (None, ''):
+        args.token = os.environ.get('HF_TOKEN')
 
     if args.device is None:
         args.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -216,7 +221,7 @@ def main():
     # Tokenizer
     print("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(
-        args.model, token=args.token, trust_remote_code=True
+        args.model, use_auth_token=args.token, trust_remote_code=True
     )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -228,7 +233,7 @@ def main():
         args.model,
         torch_dtype=torch.bfloat16,
         device_map=args.device,
-        token=args.token,
+        use_auth_token=args.token,
     ).eval()
 
     d_model = model.config.hidden_size
