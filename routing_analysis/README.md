@@ -24,7 +24,9 @@ routing_analysis/
 ```
 
 Mỗi `.npz` chứa:
-- `embeddings`: `(N, d_model)` float16 — avg-pooled encoder hidden state (T5) hoặc last/avg token (LLaMA)
+- `embeddings`: `(N, d_model)` **float32** — avg-pooled encoder hidden state (T5) hoặc last/avg token (LLaMA)
+  - T5: full float32 precision (no quantization)
+  - LLaMA: bfloat16 native → cast to float32 for consistency
 - `labels`: `(N,)` object array — output label strings
 
 ---
@@ -62,35 +64,35 @@ Các order này được định nghĩa trong codebase: `../configs/gen_script_l
 ### T5 Family
 
 ```bash
-# flan-t5-large (d=1024), cần ~3GB VRAM
-python extract_embeddings_t5.py --model google/flan-t5-large
-
-# flan-t5-xl (d=2048), cần ~8GB VRAM
-python extract_embeddings_t5.py --model google/flan-t5-xl
-
-# flan-t5-small (d=512) — debug nhanh
+# flan-t5-small (d=512, 1 GB VRAM) — quick test
 python extract_embeddings_t5.py --model google/flan-t5-small
 
-# Chỉ 1 benchmark
+# flan-t5-large (d=1024, 4 GB VRAM)
+python extract_embeddings_t5.py --model google/flan-t5-large
+
+# flan-t5-xl (d=2048, 12 GB VRAM)
+python extract_embeddings_t5.py --model google/flan-t5-xl
+
+# Single benchmark only
 python extract_embeddings_t5.py --model google/flan-t5-large --benchmarks Long_Sequence
 ```
 
 ### LLaMA Family
 
 ```bash
-# Llama-2-7b (d=4096), cần ~14GB VRAM fp16
+# Llama-2-7b (d=4096, bfloat16 native, 16 GB VRAM)
 python extract_embeddings_llama.py --model meta-llama/Llama-2-7b-hf --token YOUR_HF_TOKEN
 
 # Llama-2-7b-chat
 python extract_embeddings_llama.py --model meta-llama/Llama-2-7b-chat-hf --token YOUR_HF_TOKEN
 
-# Llama-2-13b với 8-bit quantization (cần ~10GB VRAM)
-python extract_embeddings_llama.py --model meta-llama/Llama-2-13b-hf --load_in_8bit --token YOUR_HF_TOKEN
-
-# Llama-3.1-8B (d=4096)
+# Llama-3.1-8B (d=4096, 20 GB VRAM)
 python extract_embeddings_llama.py --model meta-llama/Llama-3.1-8B --token YOUR_HF_TOKEN
 
-# Pooling: avg pool thay vì last token
+# Llama-2-13b (d=5120, 32 GB VRAM) — requires >= H100 or multi-GPU
+python extract_embeddings_llama.py --model meta-llama/Llama-2-13b-hf --token YOUR_HF_TOKEN
+
+# Alternative pooling (last token default, --pool avg for mean)
 python extract_embeddings_llama.py --model meta-llama/Llama-2-7b-hf --pool avg --token YOUR_HF_TOKEN
 ```
 
@@ -98,7 +100,7 @@ python extract_embeddings_llama.py --model meta-llama/Llama-2-7b-hf --pool avg -
 
 | Flag | Default | Mô tả |
 |------|---------|-------|
-| `--data_root` | `../CL_Benchmark` | Đường dẫn tới CL_Benchmark/ |
+| `--data_root` | `CL_Benchmark` (local folder) | Đường dẫn tới CL_Benchmark/ |
 | `--output_dir` | `embeddings` | Thư mục output |
 | `--batch_size` | 32 (T5), 4 (LLaMA) | Batch size |
 | `--max_length` | 512 | Max token length |
@@ -114,6 +116,56 @@ import numpy as np
 data = np.load("embeddings/flan-t5-large/Long_Sequence/yelp/train.npz", allow_pickle=True)
 embeddings = data["embeddings"].astype("float32")  # (N, 1024)
 labels     = data["labels"]                         # (N,) strings
+```
+
+---
+
+---
+
+## GPU Compatibility
+
+| GPU | CUDA Capability | PyTorch Support | Status |
+|-----|-----------------|-----------------|--------|
+| **Tesla P100** | 6.0 | ✅ PyTorch 1.12 LTS | ⚠️ New PyTorch (2.1+) NOT supported; need **pytorch/pytorch:1.13-cuda11.8**  |
+| **Tesla V100** | 7.0 | ✅ PyTorch 2.1+ | ✅ OK |
+| **A100** | 8.0 | ✅ PyTorch 2.1+ | ✅ OK |
+| **H100** | 9.0 | ✅ PyTorch 2.1+ | ✅ OK (preferred for 13B+) |
+| **RTX 3090** | 8.6 | ✅ PyTorch 2.1+ | ✅ OK |
+| **L40** | 8.9 | ✅ PyTorch 2.1+ | ✅ OK |
+
+**For P100 users:**
+```bash
+# Install PyTorch 1.13 (last version supporting sm_60):
+pip install torch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 --index-url https://download.pytorch.org/whl/cu118
+
+# Then run script normally:
+python extract_embeddings_t5.py --model google/flan-t5-small  # Start small
+```
+
+---
+
+## Troubleshooting
+
+### Issue: "not found at CL_Benchmark/..."
+
+**Cause**: CL_Benchmark folder is not in the same directory as the script.
+
+**Solution**: Copy CL_Benchmark into routing_analysis/:
+```bash
+cd routing_analysis
+# If CL_Benchmark is in parent:
+cp -r ../CL_Benchmark .
+# Or symlink:
+ln -s ../CL_Benchmark CL_Benchmark
+```
+
+After that, scripts will find it automatically with default `--data_root CL_Benchmark`.
+
+### Issue: "CUDA capability sm_60 is not compatible"
+
+Your GPU is P100. Install PyTorch 1.13 or use CPU (very slow):
+```bash
+python extract_embeddings_t5.py --model google/flan-t5-small --device cpu
 ```
 
 ---
