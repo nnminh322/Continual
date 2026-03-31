@@ -274,10 +274,14 @@ def multimodality_test(embs: np.ndarray, max_components=5):
     for k in range(1, max_components + 1):
         if n < k * (n_pcs + 1):
             break
-        gmm = GaussianMixture(n_components=k, covariance_type="diag",
-                               random_state=42, max_iter=100)
-        gmm.fit(X_pca)
-        bics[k] = float(gmm.bic(X_pca))
+        try:
+            gmm = GaussianMixture(n_components=k, covariance_type="diag",
+                                   reg_covar=1e-4, random_state=42, max_iter=100)
+            gmm.fit(X_pca)
+            bics[k] = float(gmm.bic(X_pca))
+        except ValueError:
+            # ill-defined covariance (small/collapsed samples) — skip this k
+            break
     best_k = min(bics, key=bics.get) if bics else 1
     return {"bic_per_k": bics, "best_k": best_k,
             "multi_modal": best_k > 1, "n_pcs_used": n_pcs}
