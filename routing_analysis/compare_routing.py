@@ -25,19 +25,29 @@ except ImportError:
 
 
 def _resolve_device(device_str: str) -> str:
-    """Resolve 'auto' → 'cuda' if GPU available, else 'cpu'."""
+    """Resolve 'auto' → 'cuda' if GPU available, else 'cpu'.
+
+    Executes a tiny kernel to catch arch-mismatch errors
+    (cudaErrorNoKernelImageForDevice) before committing to CUDA.
+    Falls back to CPU on any failure.
+    """
     if device_str == "auto":
         if HAS_TORCH and torch.cuda.is_available():
-            gpu_name = torch.cuda.get_device_name(0)
-            vram_gb  = torch.cuda.get_device_properties(0).total_memory / 1e9
-            print(f"[GPU] {gpu_name}  {vram_gb:.1f} GB VRAM — using CUDA")
-            return "cuda"
+            try:
+                _t = torch.zeros(8, device="cuda") + 1
+                del _t
+                torch.cuda.synchronize()
+                gpu_name = torch.cuda.get_device_name(0)
+                vram_gb  = torch.cuda.get_device_properties(0).total_memory / 1e9
+                print(f"[GPU] {gpu_name}  {vram_gb:.1f} GB VRAM — using CUDA")
+                return "cuda"
+            except Exception as e:
+                print(f"[GPU] CUDA reported available but kernel launch failed "
+                      f"({type(e).__name__}: {e}) — falling back to CPU")
+                return "cpu"
         print("[GPU] No CUDA device found — using CPU")
         return "cpu"
     return device_str
-
-
-# ═══ Global whitening ═══
 
 def compute_whitening(task_embs: dict[str, np.ndarray], device: str = "cpu"):
     """ZCA whitening.  Uses GPU (torch) when device='cuda*', else numpy."""
