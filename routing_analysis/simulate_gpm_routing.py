@@ -330,6 +330,8 @@ class GPMRouter:
     def add_task(self, task_embs, task_idx, total_tasks=15):
         """Learn routing for a new task and apply GPM protection.
 
+        All computation stays on GPU — task embeddings are loaded once.
+
         Args:
             task_embs: np.ndarray (N, d) — training embeddings for this task
             task_idx:  0-indexed task number
@@ -338,7 +340,10 @@ class GPMRouter:
         d = self.d_model
         h = self.mlp_hidden_dim
         threshold = self._adaptive_threshold(task_idx, total_tasks)
-        _chunk = 2048  # process embeddings in chunks to limit VRAM
+
+        # Load task embeddings to GPU once (e.g. 5000×4096×4 ≈ 80 MB — fine)
+        X_gpu = torch.from_numpy(task_embs).float().to(self.device)
+        N = X_gpu.shape[0]
 
         # ── Step 1: Initialize trans_input MLP ──
         mlp = TransInputMLP(d, h).to(self.device)
@@ -360,45 +365,30 @@ class GPMRouter:
                     mlp.linear2.weight.data -= P @ mlp.linear2.weight.data
                     del P
 
-                if 'cuda' in self.device:
-                    torch.cuda.empty_cache()
-
         # ── Step 2: Initialize prompt_key ──
-        # Compute output covariance from MLP applied to task embeddings (chunked)
-        N = task_embs.shape[0]
-        out_parts = []
+        # Compute output covariance on GPU: X_out.T @ X_out / N
         with torch.no_grad():
-            for s in range(0, N, _chunk):
-                X_c = torch.from_numpy(task_embs[s:s+_chunk]).float().to(self.device)
-                out_parts.append(mlp(X_c).cpu())
-                del X_c
-        out_features = torch.cat(out_parts, dim=0).numpy()  # (N, d)
-        del out_parts
-        out_cov = out_features.T @ out_features / max(N, 1)
+            out_feat = mlp(X_gpu)                                 # (N, d) on GPU
+            out_cov = (out_feat.T @ out_feat).div_(max(N, 1))    # (d, d) on GPU
+        out_cov_np = out_cov.cpu().numpy()
+        del out_feat, out_cov
 
-        pk_np = init_prompt_key_from_cov(out_cov, d, self.gpm_bases_output)
+        pk_np = init_prompt_key_from_cov(out_cov_np, d, self.gpm_bases_output)
         prompt_key = nn.Parameter(torch.from_numpy(pk_np).float().to(self.device))
 
         # ── Step 3: Train trans_input + prompt_key via routing proxy loss ──
         if task_idx > 0:
-            self._train_routing(mlp, prompt_key, task_embs, task_idx)
+            self._train_routing(mlp, prompt_key, X_gpu, task_idx)
 
-        # ── Step 4: Collect covariance and update GPM (chunked) ──
-        med_parts, out_parts2 = [], []
+        # ── Step 4: Collect covariance on GPU and update GPM ──
         with torch.no_grad():
-            for s in range(0, N, _chunk):
-                X_c = torch.from_numpy(task_embs[s:s+_chunk]).float().to(self.device)
-                med_parts.append(mlp.act(mlp.linear1(X_c)).cpu())
-                out_parts2.append(mlp(X_c).cpu())
-                del X_c
-        medium = torch.cat(med_parts, dim=0).numpy()
-        output = torch.cat(out_parts2, dim=0).numpy()
-        del med_parts, out_parts2
-        inp = task_embs
+            medium = mlp.act(mlp.linear1(X_gpu))   # (N, h) on GPU
+            output = mlp(X_gpu)                     # (N, d) on GPU
 
-        cov_input = inp.T @ inp / max(N, 1)
-        cov_medium = medium.T @ medium / max(N, 1)
-        cov_output = output.T @ output / max(N, 1)
+            cov_input  = (X_gpu.T  @ X_gpu ).div_(max(N, 1)).cpu().numpy()
+            cov_medium = (medium.T @ medium).div_(max(N, 1)).cpu().numpy()
+            cov_output = (output.T @ output).div_(max(N, 1)).cpu().numpy()
+        del medium, output
 
         self.gpm_bases_input = gpm_update_bases(
             self.gpm_bases_input, cov_input, threshold)
@@ -413,18 +403,17 @@ class GPMRouter:
         self.frozen_W_out.append(mlp.linear2.weight.detach().cpu().numpy())  # (d, h)
 
         # Free GPU memory
-        del mlp, prompt_key
+        del mlp, prompt_key, X_gpu
         if 'cuda' in self.device:
             torch.cuda.empty_cache()
 
-    def _train_routing(self, mlp, prompt_key, task_embs, task_idx):
+    def _train_routing(self, mlp, prompt_key, X_gpu, task_idx):
         """Train current trans_input + prompt_key to correctly route.
 
         Proxy objective: cross-entropy over [current_task, prev_tasks].
-        Uses gradient accumulation with micro-batches to limit VRAM.
+        X_gpu is already on device — no CPU↔GPU transfers in the loop.
         """
         n_prev = len(self.prompt_keys)
-        n_total = n_prev + 1
 
         frozen_pks = torch.tensor(
             np.stack(self.prompt_keys), dtype=torch.float32, device=self.device
@@ -439,20 +428,14 @@ class GPMRouter:
             list(mlp.parameters()) + [prompt_key], lr=self.lr
         )
 
-        # Keep training data on CPU, load micro-batches on the fly
-        N = task_embs.shape[0]
-        # Adaptive micro-batch: smaller for large d to fit 16 GB
-        micro_bs = min(self.batch_size, max(64, 4096 * 128 // self.d_model))
-        accum_steps = max(1, self.batch_size // micro_bs)
+        N = X_gpu.shape[0]
+        bs = self.batch_size
 
         for epoch in range(self.epochs):
-            perm = np.random.permutation(N)
-            total_loss = 0.0
-            optimizer.zero_grad()
-            step_count = 0
-            for start in range(0, N, micro_bs):
-                idx = perm[start:start + micro_bs]
-                x_batch = torch.from_numpy(task_embs[idx]).float().to(self.device)
+            perm = torch.randperm(N, device=self.device)
+            for start in range(0, N, bs):
+                idx = perm[start:start + bs]
+                x_batch = X_gpu[idx]
 
                 x_cur = mlp(x_batch)
 
@@ -466,22 +449,11 @@ class GPMRouter:
                 weights = cal_attention(all_pk, all_x)
                 target = torch.zeros(x_batch.shape[0], dtype=torch.long,
                                      device=self.device)
-                loss = F.cross_entropy(weights * 10, target) / accum_steps
+                loss = F.cross_entropy(weights * 10, target)
 
-                loss.backward()
-                total_loss += loss.item() * accum_steps
-                step_count += 1
-
-                if step_count % accum_steps == 0:
-                    optimizer.step()
-                    optimizer.zero_grad()
-
-                del x_batch, x_cur, x_prev, all_x, all_pk, weights, loss
-
-            # Final accumulated step
-            if step_count % accum_steps != 0:
-                optimizer.step()
                 optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
         del frozen_trans, frozen_pks
         if 'cuda' in self.device:
@@ -513,8 +485,9 @@ class GPMRouter:
         ).to(self.device)
         frozen_trans.eval()
 
-        # Adaptive chunk: smaller for large d to fit 16 GB VRAM
-        chunk_size = max(64, min(1024, 4096 * 512 // max(self.d_model, 1)))
+        # FrozenTransInput uses per-task loop (no broadcast explosion)
+        # so we can use large chunks safely
+        chunk_size = 2048 if 'cuda' in self.device else 256
         all_preds = []
         with torch.no_grad():
             for i in range(0, X.shape[0], chunk_size):
@@ -522,7 +495,6 @@ class GPMRouter:
                 all_x = frozen_trans(X_chunk)
                 weights = cal_attention(all_pk, all_x)
                 all_preds.append(weights.argmax(dim=1).cpu())
-                del X_chunk, all_x, weights
 
         del frozen_trans, all_pk, X
         if 'cuda' in self.device:
