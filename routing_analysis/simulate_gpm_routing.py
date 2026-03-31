@@ -464,11 +464,17 @@ class GPMRouter:
         ).to(self.device)
         frozen_trans.eval()
 
+        # Process in chunks to avoid OOM on large test sets
+        chunk_size = 256
+        all_preds = []
         with torch.no_grad():
-            all_x = frozen_trans(X)  # (B, T, d)
-            weights = cal_attention(all_pk, all_x)  # (B, T)
+            for i in range(0, X.shape[0], chunk_size):
+                X_chunk = X[i : i + chunk_size]
+                all_x = frozen_trans(X_chunk)          # (chunk, T, d)
+                weights = cal_attention(all_pk, all_x)  # (chunk, T)
+                all_preds.append(weights.argmax(dim=1).cpu())
 
-        return weights.argmax(dim=1).cpu().numpy()
+        return torch.cat(all_preds).numpy()
 
 
 # ═══════════════════════════════════════════════════════════════════════
