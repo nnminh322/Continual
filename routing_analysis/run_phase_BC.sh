@@ -19,9 +19,10 @@ SUBSPACE_K=8
 WHITEN=false
 SKIP_SKLEARN=false
 LAYER=""
+DEVICE="auto"
 
 usage() {
-  echo "Usage: $0 --benchmark <Long_Sequence|SuperNI> --backbone <backbone_dir_name> [--k INT] [--whiten] [--skip_sklearn] [--layer embedding]"
+  echo "Usage: $0 --benchmark <Long_Sequence|SuperNI> --backbone <backbone_dir_name> [--k INT] [--whiten] [--skip_sklearn] [--layer embedding] [--device auto|cpu|cuda]"
   echo ""
   echo "  --benchmark    Long_Sequence or SuperNI"
   echo "  --backbone     Name of backbone subdirectory under embeddings/"
@@ -29,6 +30,7 @@ usage() {
   echo "  --whiten       Apply ZCA whitening"
   echo "  --skip_sklearn Skip Phase C (sklearn classifiers). Useful for quick distance sweep."
   echo "  --layer        embedding = use _wordemb extraction dir"
+  echo "  --device       cpu | cuda | auto (default: auto)"
   exit 1
 }
 
@@ -40,6 +42,7 @@ while [[ $# -gt 0 ]]; do
     --whiten)      WHITEN=true; shift ;;
     --skip_sklearn) SKIP_SKLEARN=true; shift ;;
     --layer)       LAYER="$2"; shift 2 ;;
+    --device)      DEVICE="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) echo "Unknown flag: $1"; usage ;;
   esac
@@ -67,7 +70,8 @@ echo "========================================================"
 CMD="python compare_routing.py \
   --emb_dir    ${EMB_DIR} \
   --benchmark  ${BENCHMARK} \
-  --subspace_k ${SUBSPACE_K}"
+  --subspace_k ${SUBSPACE_K} \
+  --device     ${DEVICE}"
 
 [[ "$WHITEN"       == "true" ]] && CMD+=" --whiten"
 [[ "$SKIP_SKLEARN" == "true" ]] && CMD+=" --skip_sklearn"

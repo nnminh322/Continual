@@ -18,9 +18,10 @@ SUBSPACE_K=8
 WHITEN=false
 COMPARE_BACKBONES=false
 LAYER=""
+DEVICE="auto"
 
 usage() {
-  echo "Usage: $0 --benchmark <Long_Sequence|SuperNI> --backbone <backbone_dir_name> [--k INT] [--whiten] [--compare_backbones] [--layer embedding]"
+  echo "Usage: $0 --benchmark <Long_Sequence|SuperNI> --backbone <backbone_dir_name> [--k INT] [--whiten] [--compare_backbones] [--layer embedding] [--device auto|cpu|cuda]"
   echo ""
   echo "  --benchmark         Long_Sequence or SuperNI"
   echo "  --backbone          Name of backbone subdirectory under embeddings/"
@@ -28,6 +29,7 @@ usage() {
   echo "  --whiten            Apply ZCA whitening"
   echo "  --compare_backbones Pass embeddings/ (parent dir) and compare all backbone subdirs"
   echo "  --layer             embedding = use _wordemb extraction dir"
+  echo "  --device            cpu | cuda | auto (default: auto)"
   exit 1
 }
 
@@ -39,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     --whiten)            WHITEN=true; shift ;;
     --compare_backbones) COMPARE_BACKBONES=true; shift ;;
     --layer)             LAYER="$2"; shift 2 ;;
+    --device)            DEVICE="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) echo "Unknown flag: $1"; usage ;;
   esac
@@ -71,7 +74,8 @@ echo "========================================================"
 CMD="python ablation_psr.py \
   --emb_dir    ${EMB_DIR} \
   --benchmark  ${BENCHMARK} \
-  --subspace_k ${SUBSPACE_K}"
+  --subspace_k ${SUBSPACE_K} \
+  --device     ${DEVICE}"
 
 [[ "$WHITEN"            == "true" ]] && CMD+=" --whiten"
 [[ "$COMPARE_BACKBONES" == "true" ]] && CMD+=" --compare_backbones"

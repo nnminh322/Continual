@@ -59,7 +59,7 @@ done
 [[ -z "$BENCHMARK" || -z "$BACKBONE" ]] && usage
 
 SCRIPT_DIR="$(dirname "$0")"
-COMMON="--benchmark ${BENCHMARK} --backbone ${BACKBONE} --k ${SUBSPACE_K}"
+COMMON="--benchmark ${BENCHMARK} --backbone ${BACKBONE} --k ${SUBSPACE_K} --device ${DEVICE}"
 [[ "$WHITEN" == "true" ]] && COMMON+=" --whiten"
 [[ -n "$LAYER" ]] && COMMON+=" --layer ${LAYER}"
 

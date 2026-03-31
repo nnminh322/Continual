@@ -21,8 +21,38 @@ from collections import OrderedDict
 import numpy as np
 from numpy.linalg import norm, eigh
 
+try:
+    import torch
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
 
-def compute_whitening(task_embs):
+
+def _resolve_device(device_str: str) -> str:
+    """Resolve 'auto' → 'cuda' if GPU available, else 'cpu'."""
+    if device_str == "auto":
+        if HAS_TORCH and torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            vram_gb  = torch.cuda.get_device_properties(0).total_memory / 1e9
+            print(f"[GPU] {gpu_name}  {vram_gb:.1f} GB VRAM — using CUDA")
+            return "cuda"
+        print("[GPU] No CUDA device found — using CPU")
+        return "cpu"
+    return device_str
+
+
+def compute_whitening(task_embs, device: str = "cpu"):
+    if "cuda" in device and HAS_TORCH:
+        dev = torch.device(device)
+        chunks = [torch.tensor(v, dtype=torch.float32, device=dev) for v in task_embs.values()]
+        all_t  = torch.cat(chunks, dim=0)
+        mu_t   = all_t.mean(0)
+        Xc     = all_t - mu_t
+        cov_t  = (Xc.T @ Xc) / (all_t.shape[0] - 1)
+        ev_t, evec_t = torch.linalg.eigh(cov_t)
+        ev_t = torch.clamp(ev_t, min=1e-8)
+        W_t = evec_t @ torch.diag(1.0 / torch.sqrt(ev_t)) @ evec_t.T
+        return mu_t.cpu().numpy(), W_t.cpu().numpy()
     all_embs = np.vstack(list(task_embs.values()))
     mu = all_embs.mean(0)
     cov = np.cov(all_embs, rowvar=False)
@@ -149,11 +179,80 @@ def route_accuracy(sigs, test_embs, tasks, route_fn):
     return correct / max(total, 1), per_task
 
 
+def route_accuracy_vec(sigs, test_embs, tasks, device='cpu',
+                       use_mean=True, use_subspace=True, use_penalty=True):
+    """Vectorized PSR routing accuracy.  ~100-500x faster than route_accuracy.
+
+    Processes all tasks simultaneously via matrix operations (GPU or CPU).
+    """
+    task_list = [t for t in tasks if t in sigs and t in test_embs]
+    if not task_list:
+        return 0.0, {}
+    T = len(task_list)
+    d = sigs[task_list[0]].d
+    k = sigs[task_list[0]].k
+
+    C   = np.stack([sigs[t].mu  for t in task_list]).astype(np.float32)  # (T, d)
+    V   = np.stack([sigs[t].V   for t in task_list]).astype(np.float32)  # (T, d, k)
+    lam = np.stack([sigs[t].lam for t in task_list]).astype(np.float32)  # (T, k)
+    s2  = np.array([sigs[t].sigma2 for t in task_list], dtype=np.float32)# (T,)
+    W_psr = lam / (s2[:, None] * (lam + s2[:, None]))                    # (T, k)
+    pen   = (np.sum(np.log(lam + s2[:, None]), axis=1)
+             + (d - k) * np.log(s2))                                     # (T,)
+
+    use_gpu = "cuda" in device and HAS_TORCH
+    if use_gpu:
+        dev   = torch.device(device)
+        C_t   = torch.tensor(C,     device=dev)
+        V_t   = torch.tensor(V,     device=dev)
+        W_t   = torch.tensor(W_psr, device=dev)
+        pen_t = torch.tensor(pen,   device=dev)
+        s2_t  = torch.tensor(s2,    device=dev)
+
+    correct, total = 0, 0
+    per_task = {}
+    for i, t_true in enumerate(task_list):
+        H_np = test_embs[t_true].astype(np.float32)  # (N, d)
+        N    = H_np.shape[0]
+        if use_gpu:
+            H = torch.tensor(H_np, device=dev)                     # (N, d)
+            if use_mean:
+                Hd = H.unsqueeze(1) - C_t.unsqueeze(0)             # (N, T, d)
+            else:
+                Hd = H.unsqueeze(1).expand(N, T, d).clone()        # (N, T, d)
+            iso   = Hd.pow(2).sum(-1) / (s2_t.unsqueeze(0) + 1e-12)  # (N, T)
+            dists = iso.clone()
+            if use_subspace:
+                dp = torch.einsum('ntd,tdk->ntk', Hd, V_t)
+                dists = dists + (W_t.unsqueeze(0) * dp.pow(2)).sum(-1)
+            if use_penalty:
+                dists = dists + pen_t.unsqueeze(0)
+            preds = dists.argmin(dim=1).cpu().numpy()
+            del H, Hd, iso, dists
+        else:
+            H  = H_np.astype(np.float64)
+            Hd = (H[:, None, :] - C[None, :, :]) if use_mean else np.broadcast_to(
+                H[:, None, :], (N, T, d)).copy()                   # (N, T, d)
+            iso   = np.sum(Hd**2, axis=-1) / (s2[None, :] + 1e-12)  # (N, T)
+            dists = iso.copy()
+            if use_subspace:
+                dp = np.einsum('ntd,tdk->ntk', Hd, V)
+                dists += np.sum(W_psr[None, :, :] * dp**2, axis=-1)
+            if use_penalty:
+                dists += pen[None, :]
+            preds = np.argmin(dists, axis=1)
+        c = int((preds == i).sum())
+        per_task[t_true] = c / max(N, 1)
+        correct += c
+        total   += N
+    return correct / max(total, 1), per_task
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # D1 — PSR Component Ablation
 # ═══════════════════════════════════════════════════════════════════════
 
-def ablation_components(train_embs, test_embs, tasks, k=8):
+def ablation_components(train_embs, test_embs, tasks, k=8, device='cpu'):
     """Test PSR with each component enabled/disabled."""
     sigs = {t: PPCASig(e, k) for t, e in train_embs.items()}
     configs = {
@@ -165,8 +264,7 @@ def ablation_components(train_embs, test_embs, tasks, k=8):
     }
     results = {}
     for name, kw in configs.items():
-        fn = lambda h, _kw=kw: min(sigs, key=lambda t: psr_dist(h, sigs[t], **_kw))
-        acc, pt = route_accuracy(sigs, test_embs, tasks, fn)
+        acc, pt = route_accuracy_vec(sigs, test_embs, tasks, device=device, **kw)
         results[name] = {"accuracy": acc, "per_task": pt}
     return results
 
@@ -175,12 +273,11 @@ def ablation_components(train_embs, test_embs, tasks, k=8):
 # D2 — Rank sensitivity
 # ═══════════════════════════════════════════════════════════════════════
 
-def rank_sweep(train_embs, test_embs, tasks, ks=(2, 4, 8, 16, 32, 64)):
+def rank_sweep(train_embs, test_embs, tasks, ks=(2, 4, 8, 16, 32, 64), device='cpu'):
     results = {}
     for k in ks:
         sigs = {t: PPCASig(e, k) for t, e in train_embs.items()}
-        fn = lambda h: min(sigs, key=lambda t: psr_dist(h, sigs[t]))
-        acc, pt = route_accuracy(sigs, test_embs, tasks, fn)
+        acc, pt = route_accuracy_vec(sigs, test_embs, tasks, device=device)
         mem_per_task = next(iter(sigs.values())).d * k * 4 + k * 4 + next(iter(sigs.values())).d * 4 + 4  # bytes
         results[k] = {"accuracy": acc, "memory_bytes_per_task": mem_per_task}
     return results
@@ -210,7 +307,7 @@ def domain_analysis(per_task_acc, benchmark):
 # D6 — Incremental simulation
 # ═══════════════════════════════════════════════════════════════════════
 
-def incremental_simulation(train_embs, test_embs, tasks, k=8):
+def incremental_simulation(train_embs, test_embs, tasks, k=8, device='cpu'):
     """Simulate adding tasks one by one. At step t, only tasks[0:t+1] are available.
     Compares PSR (incremental) vs RLS (incremental Woodbury) vs RLS (batch=upper bound)."""
     from sklearn.linear_model import RidgeClassifier
@@ -236,8 +333,7 @@ def incremental_simulation(train_embs, test_embs, tasks, k=8):
         # ── PSR (incremental — independent, no drift) ──
         sigs = {t: PPCASig(train_embs[t], k) for t in available}
         test_avail = OrderedDict((t, test_embs[t]) for t in available if t in test_embs)
-        fn_psr = lambda h: min(sigs, key=lambda t: psr_dist(h, sigs[t]))
-        acc_psr, _ = route_accuracy(sigs, test_avail, available, fn_psr)
+        acc_psr, _ = route_accuracy_vec(sigs, test_avail, available, device=device)
         psr_results[t_idx] = {"n_tasks": n_cls, "accuracy": acc_psr}
 
         # ── RLS batch (sklearn Ridge — upper bound, sees all data) ──
@@ -328,7 +424,10 @@ def main():
                         help="Apply global ZCA whitening")
     parser.add_argument("--compare_backbones", action="store_true",
                         help="If --emb_dir points to parent, compare all backbone subdirs")
+    parser.add_argument("--device", default="auto",
+                        help="Device: cpu | cuda | cuda:0 | auto (default: auto)")
     args = parser.parse_args()
+    args.device = _resolve_device(args.device)
 
     tasks = BENCHMARKS[args.benchmark]
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
@@ -377,7 +476,7 @@ def main():
     test_embs  = OrderedDict((t, test_embs[t])  for t in found)
 
     if args.whiten:
-        mu_g, W = compute_whitening(train_embs)
+        mu_g, W = compute_whitening(train_embs, device=args.device)
         train_embs = apply_whitening(train_embs, mu_g, W)
         test_embs  = apply_whitening(test_embs, mu_g, W)
         print("Applied ZCA whitening\n")
@@ -387,14 +486,14 @@ def main():
 
     # ── D1: Component ablation ──
     print("─── D1: Component Ablation ───")
-    abl = ablation_components(train_embs, test_embs, found, args.subspace_k)
+    abl = ablation_components(train_embs, test_embs, found, args.subspace_k, device=args.device)
     for name, r in sorted(abl.items(), key=lambda x: -x[1]["accuracy"]):
         print(f"  {name:20s}  {r['accuracy']*100:.2f}%")
     report["D1_ablation"] = {n: {"accuracy": r["accuracy"]} for n, r in abl.items()}
 
     # ── D2: Rank sweep ──
     print("\n─── D2: Rank sensitivity ───")
-    rs = rank_sweep(train_embs, test_embs, found)
+    rs = rank_sweep(train_embs, test_embs, found, device=args.device)
     for k_val, r in sorted(rs.items()):
         print(f"  k={k_val:3d}  acc={r['accuracy']*100:.2f}%  mem={r['memory_bytes_per_task']/1024:.1f}KB/task")
     report["D2_rank_sweep"] = {str(k): r for k, r in rs.items()}
@@ -409,7 +508,7 @@ def main():
 
     # ── D6: Incremental simulation (PSR vs RLS-incremental vs RLS-batch) ──
     print("\n─── D6: Incremental simulation ───")
-    inc = incremental_simulation(train_embs, test_embs, found, args.subspace_k)
+    inc = incremental_simulation(train_embs, test_embs, found, args.subspace_k, device=args.device)
     print(f"  {'Step':>5s}  {'#Tasks':>6s}  {'PSR':>8s}  {'RLS_inc':>8s}  {'RLS_bat':>8s}")
     for step in sorted(inc["PSR"].keys(), key=int):
         psr_a = inc["PSR"].get(step, {}).get("accuracy", 0)

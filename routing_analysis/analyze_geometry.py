@@ -20,13 +20,44 @@ from collections import OrderedDict
 import numpy as np
 from numpy.linalg import eigh, svd, norm
 
+try:
+    import torch
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
+
+
+def _resolve_device(device_str: str) -> str:
+    """Resolve 'auto' → 'cuda' if GPU available, else 'cpu'."""
+    if device_str == "auto":
+        if HAS_TORCH and torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            vram_gb  = torch.cuda.get_device_properties(0).total_memory / 1e9
+            print(f"[GPU] {gpu_name}  {vram_gb:.1f} GB VRAM — using CUDA")
+            return "cuda"
+        print("[GPU] No CUDA device found — using CPU")
+        return "cpu"
+    return device_str
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Global whitening (addresses anisotropy concern from review)
 # ═══════════════════════════════════════════════════════════════════════
 
-def compute_whitening(task_embs: dict[str, np.ndarray]):
-    """Compute global mean and ZCA whitening matrix from all task embeddings."""
+def compute_whitening(task_embs: dict[str, np.ndarray], device: str = "cpu"):
+    """Compute global mean and ZCA whitening matrix.  Uses GPU when device='cuda*'."""
+    if "cuda" in device and HAS_TORCH:
+        dev = torch.device(device)
+        chunks = [torch.tensor(v, dtype=torch.float32, device=dev) for v in task_embs.values()]
+        all_t  = torch.cat(chunks, dim=0)
+        mu_t   = all_t.mean(0)
+        Xc     = all_t - mu_t
+        cov_t  = (Xc.T @ Xc) / (all_t.shape[0] - 1)
+        ev_t, evec_t = torch.linalg.eigh(cov_t)
+        ev_t   = torch.clamp(ev_t, min=1e-8)
+        W_t    = evec_t @ torch.diag(1.0 / torch.sqrt(ev_t)) @ evec_t.T
+        return mu_t.cpu().numpy(), W_t.cpu().numpy()
+    # --- CPU path ---
     all_embs = np.vstack(list(task_embs.values()))
     mu_global = all_embs.mean(0)
     cov_global = np.cov(all_embs, rowvar=False)
@@ -299,7 +330,10 @@ def main():
     parser.add_argument("--whiten", action="store_true",
                         help="Apply global ZCA whitening before analysis (addresses anisotropy)")
     parser.add_argument("--out_dir", default="results")
+    parser.add_argument("--device", default="auto",
+                        help="Device: cpu | cuda | cuda:0 | auto (default: auto)")
     args = parser.parse_args()
+    args.device = _resolve_device(args.device)
 
     tasks = BENCHMARKS[args.benchmark]
     out_dir = Path(args.out_dir)
@@ -324,7 +358,7 @@ def main():
 
     # Optional global whitening
     if args.whiten:
-        mu_g, W = compute_whitening(task_embs)
+        mu_g, W = compute_whitening(task_embs, device=args.device)
         task_embs = apply_whitening(task_embs, mu_g, W)
         print("Applied ZCA whitening to remove global anisotropy\n")
 

@@ -17,10 +17,44 @@ import numpy as np
 from numpy.linalg import eigh, svd, norm
 # scipy.linalg.sqrtm removed — BW distance dropped per review
 
+try:
+    import torch
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
+
+
+def _resolve_device(device_str: str) -> str:
+    """Resolve 'auto' → 'cuda' if GPU available, else 'cpu'."""
+    if device_str == "auto":
+        if HAS_TORCH and torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            vram_gb  = torch.cuda.get_device_properties(0).total_memory / 1e9
+            print(f"[GPU] {gpu_name}  {vram_gb:.1f} GB VRAM — using CUDA")
+            return "cuda"
+        print("[GPU] No CUDA device found — using CPU")
+        return "cpu"
+    return device_str
+
 
 # ═══ Global whitening ═══
 
-def compute_whitening(task_embs: dict[str, np.ndarray]):
+def compute_whitening(task_embs: dict[str, np.ndarray], device: str = "cpu"):
+    """ZCA whitening.  Uses GPU (torch) when device='cuda*', else numpy."""
+    if "cuda" in device and HAS_TORCH:
+        dev = torch.device(device)
+        chunks = [torch.tensor(v, dtype=torch.float32, device=dev)
+                  for v in task_embs.values()]
+        all_t = torch.cat(chunks, dim=0)          # (N_total, d)
+        mu_t  = all_t.mean(0)                     # (d,)
+        Xc    = all_t - mu_t                      # centred
+        N     = all_t.shape[0]
+        cov_t = (Xc.T @ Xc) / (N - 1)            # (d, d)
+        eigvals_t, eigvecs_t = torch.linalg.eigh(cov_t)   # ascending
+        eigvals_t = torch.clamp(eigvals_t, min=1e-8)
+        W_t = eigvecs_t @ torch.diag(1.0 / torch.sqrt(eigvals_t)) @ eigvecs_t.T
+        return mu_t.cpu().numpy(), W_t.cpu().numpy()
+    # --- CPU path (numpy) ---
     all_embs = np.vstack(list(task_embs.values()))
     mu_global = all_embs.mean(0)
     cov_global = np.cov(all_embs, rowvar=False)
@@ -233,14 +267,17 @@ def train_sklearn_classifiers(X_train, y_train, tasks):
 
     models = {}
     models["LDA"] = LinearDiscriminantAnalysis()
-    models["QDA"] = QuadraticDiscriminantAnalysis(reg_param=1e-2)
+    models["QDA"] = QuadraticDiscriminantAnalysis(reg_param=0.1)
     models["LinearSVM"] = LinearSVC(max_iter=5000, dual="auto")
     models["RidgeClassifier"] = RidgeClassifier(alpha=1.0)
 
     trained = {}
     for name, clf in models.items():
         try:
-            clf.fit(X_train, y_train)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=UserWarning)
+                warnings.filterwarnings("ignore", message=".*not full rank.*")
+                clf.fit(X_train, y_train)
             trained[name] = clf
         except Exception as e:
             print(f"  WARN: {name} failed to fit: {e}")
@@ -251,43 +288,158 @@ def train_sklearn_classifiers(X_train, y_train, tasks):
 # Evaluation
 # ═══════════════════════════════════════════════════════════════════════
 
-def evaluate_distance_methods(sigs, task_embs_test, tasks, inv_pool=None):
-    """Route each test sample using distance-based methods. Returns accuracy dict."""
-    methods = {
-        "L2":               lambda h: route_l2(h, sigs),
-        "Cosine":           lambda h: route_cosine(h, sigs),
-        "NormL2":           lambda h: route_norm_l2(h, sigs),
-        "SpectralAffinity": lambda h: route_spectral_affinity(h, sigs),
-        "SubspaceResidual": lambda h: route_subspace_residual(h, sigs),
-        "WeightedSpectral": lambda h: route_weighted_spectral(h, sigs),
-        "PSR_full":         lambda h: route_psr_full(h, sigs),
-        "PSR_no_mean":      lambda h: route_psr_no_mean(h, sigs),
-        "PSR_no_subspace":  lambda h: route_psr_no_subspace(h, sigs),
-        "PSR_no_penalty":   lambda h: route_psr_no_penalty(h, sigs),
-    }
-    if inv_pool is not None:
-        methods["Mahalanobis"] = lambda h: route_mahalanobis_pooled(h, sigs, inv_pool)
+def evaluate_distance_methods(sigs, task_embs_test, tasks, device="cpu", inv_pool=None):
+    """Vectorized batch evaluation of all distance-based routing methods.
 
-    results = {m: {"correct": 0, "total": 0, "per_task": {}} for m in methods}
-    confusion = {m: np.zeros((len(tasks), len(tasks)), dtype=np.int64) for m in methods}
+    All 10+ distance metrics are computed simultaneously via matrix operations
+    (GPU or CPU).  ~100-1000x faster than the original per-sample loop.
+    """
+    tasks_found = [t for t in tasks if t in task_embs_test and t in sigs]
+    if not tasks_found:
+        return {}, {}
     task2idx = {t: i for i, t in enumerate(tasks)}
 
-    for true_task in tasks:
-        if true_task not in task_embs_test:
-            continue
-        embs = task_embs_test[true_task]
+    T  = len(tasks_found)
+    d  = sigs[tasks_found[0]].d
+    k  = sigs[tasks_found[0]].k
+
+    # ── Pre-compute stacked signature arrays (CPU numpy) ──
+    C      = np.stack([sigs[t].mu       for t in tasks_found]).astype(np.float32)  # (T, d)
+    V      = np.stack([sigs[t].V        for t in tasks_found]).astype(np.float32)  # (T, d, k)
+    lam    = np.stack([sigs[t].lam      for t in tasks_found]).astype(np.float32)  # (T, k)
+    s2     = np.array([sigs[t].sigma2   for t in tasks_found], dtype=np.float32)  # (T,)
+
+    C_norm   = C / (np.linalg.norm(C, axis=1, keepdims=True) + 1e-12)         # (T, d)
+    C_sq     = np.sum(C**2, axis=1)                                             # (T,)
+    W_psr    = lam / (s2[:, None] * (lam + s2[:, None]))                       # (T, k)
+    pen      = (np.sum(np.log(lam + s2[:, None]), axis=1)
+                + (d - k) * np.log(s2))                                        # (T,)
+    lam_sum  = lam.sum(axis=1)                                                  # (T,)
+
+    use_gpu = "cuda" in device and HAS_TORCH
+
+    METHOD_NAMES = [
+        "L2", "Cosine", "NormL2", "SpectralAffinity", "SubspaceResidual",
+        "WeightedSpectral", "PSR_full", "PSR_no_mean", "PSR_no_subspace", "PSR_no_penalty",
+    ]
+    if inv_pool is not None:
+        METHOD_NAMES.append("Mahalanobis")
+
+    results  = {m: {"correct": 0, "total": 0, "per_task": {}} for m in METHOD_NAMES}
+    confusion = {m: np.zeros((len(tasks), len(tasks)), dtype=np.int64) for m in METHOD_NAMES}
+
+    if use_gpu:
+        dev       = torch.device(device)
+        C_t       = torch.tensor(C,      device=dev)     # (T, d)
+        V_t       = torch.tensor(V,      device=dev)     # (T, d, k)
+        W_t       = torch.tensor(W_psr,  device=dev)     # (T, k)
+        pen_t     = torch.tensor(pen,    device=dev)     # (T,)
+        s2_t      = torch.tensor(s2,     device=dev)     # (T,)
+        C_norm_t  = torch.tensor(C_norm, device=dev)     # (T, d)
+        C_sq_t    = torch.tensor(C_sq,   device=dev)     # (T,)
+        lam_sum_t = torch.tensor(lam_sum, device=dev)    # (T,)
+        lam_t     = torch.tensor(lam,    device=dev)     # (T, k)
+        inv_pool_t = (torch.tensor(inv_pool.astype(np.float32), device=dev)
+                      if inv_pool is not None else None)
+
+    for true_task in tasks_found:
+        H_np    = task_embs_test[true_task].astype(np.float32)  # (N, d)
+        N       = H_np.shape[0]
         true_idx = task2idx[true_task]
-        for m_name, route_fn in methods.items():
-            correct = 0
-            for i in range(embs.shape[0]):
-                pred_task = route_fn(embs[i])
-                pred_idx = task2idx[pred_task]
-                confusion[m_name][true_idx, pred_idx] += 1
-                if pred_task == true_task:
-                    correct += 1
-            results[m_name]["per_task"][true_task] = correct / max(embs.shape[0], 1)
-            results[m_name]["correct"] += correct
-            results[m_name]["total"]   += embs.shape[0]
+
+        if use_gpu:
+            H      = torch.tensor(H_np, device=dev)                          # (N, d)
+            H_sq   = (H**2).sum(dim=1, keepdim=True)                          # (N, 1)
+            H_norm = H / (H.norm(dim=1, keepdim=True) + 1e-12)               # (N, d)
+            HC     = H @ C_t.T                                                # (N, T)
+            l2_sq  = H_sq + C_sq_t.unsqueeze(0) - 2 * HC                     # (N, T)
+            cos_d  = 1.0 - H_norm @ C_norm_t.T                               # (N, T)
+            norm_l2 = (H_norm.unsqueeze(1) - C_norm_t.unsqueeze(0)).pow(2).sum(-1)  # (N, T)
+            # Subspace projections: H_proj[n,t,j] = V_t[:,j] · H[n]
+            H_proj  = torch.einsum('nd,tdk->ntk', H, V_t)                    # (N, T, k)
+            spec    = H_proj.pow(2).sum(-1) / (H_sq + 1e-12)                 # (N, T) ↑
+            sub_res = H_sq - H_proj.pow(2).sum(-1)                           # (N, T) ↓
+            w_spec  = (lam_t.unsqueeze(0) * H_proj.pow(2)).sum(-1) / (lam_sum_t + 1e-12)  # (N, T) ↑
+            # PSR: delta = h - mu
+            HminusC = H.unsqueeze(1) - C_t.unsqueeze(0)                      # (N, T, d)
+            d_proj  = torch.einsum('ntd,tdk->ntk', HminusC, V_t)             # (N, T, k)
+            iso     = HminusC.pow(2).sum(-1) / (s2_t.unsqueeze(0) + 1e-12)  # (N, T)
+            sub_psr = (W_t.unsqueeze(0) * d_proj.pow(2)).sum(-1)             # (N, T)
+            psr_full    = sub_psr + iso + pen_t.unsqueeze(0)
+            psr_no_mean = ((W_t.unsqueeze(0) * H_proj.pow(2)).sum(-1)
+                           + H_sq / (s2_t.unsqueeze(0) + 1e-12)
+                           + pen_t.unsqueeze(0))
+            psr_no_sub  = iso + pen_t.unsqueeze(0)
+            psr_no_pen  = sub_psr + iso
+            pred_dict = {
+                "L2":               l2_sq.argmin(dim=1),
+                "Cosine":           cos_d.argmin(dim=1),
+                "NormL2":           norm_l2.argmin(dim=1),
+                "SpectralAffinity": spec.argmax(dim=1),
+                "SubspaceResidual": sub_res.argmin(dim=1),
+                "WeightedSpectral": w_spec.argmax(dim=1),
+                "PSR_full":         psr_full.argmin(dim=1),
+                "PSR_no_mean":      psr_no_mean.argmin(dim=1),
+                "PSR_no_subspace":  psr_no_sub.argmin(dim=1),
+                "PSR_no_penalty":   psr_no_pen.argmin(dim=1),
+            }
+            if inv_pool_t is not None:
+                maha = torch.einsum('ntd,de,nte->nt', HminusC, inv_pool_t, HminusC)
+                pred_dict["Mahalanobis"] = maha.argmin(dim=1)
+            # Move to CPU numpy
+            preds_np = {m: p.cpu().numpy() for m, p in pred_dict.items()}
+            # Free GPU tensors
+            del H, H_sq, H_norm, HC, l2_sq, cos_d, norm_l2, H_proj
+            del spec, sub_res, w_spec, HminusC, d_proj, iso, sub_psr
+            del psr_full, psr_no_mean, psr_no_sub, psr_no_pen
+        else:
+            H      = H_np.astype(np.float64)
+            H_sq   = np.sum(H**2, axis=1, keepdims=True)                      # (N, 1)
+            H_norm = H / (np.linalg.norm(H, axis=1, keepdims=True) + 1e-12)   # (N, d)
+            HC     = H @ C.T                                                   # (N, T)
+            l2_sq  = H_sq + C_sq[None, :] - 2 * HC                            # (N, T)
+            cos_d  = 1.0 - H_norm @ C_norm.T                                  # (N, T)
+            norm_l2 = np.sum((H_norm[:, None, :] - C_norm[None, :, :])**2, axis=-1)  # (N, T)
+            H_proj  = np.einsum('nd,tdk->ntk', H, V)                          # (N, T, k)
+            spec    = np.sum(H_proj**2, axis=-1) / (H_sq + 1e-12)             # (N, T) ↑
+            sub_res = H_sq - np.sum(H_proj**2, axis=-1)                       # (N, T) ↓
+            w_spec  = (np.sum(lam[None, :, :] * H_proj**2, axis=-1)
+                       / (lam_sum[None, :] + 1e-12))                          # (N, T) ↑
+            HminusC = H[:, None, :] - C[None, :, :]                           # (N, T, d)
+            d_proj  = np.einsum('ntd,tdk->ntk', HminusC, V)                   # (N, T, k)
+            iso     = np.sum(HminusC**2, axis=-1) / (s2[None, :] + 1e-12)     # (N, T)
+            sub_psr = np.sum(W_psr[None, :, :] * d_proj**2, axis=-1)          # (N, T)
+            psr_full    = sub_psr + iso + pen[None, :]
+            psr_no_mean = (np.sum(W_psr[None, :, :] * H_proj**2, axis=-1)
+                           + H_sq / (s2[None, :] + 1e-12) + pen[None, :])
+            psr_no_sub  = iso + pen[None, :]
+            psr_no_pen  = sub_psr + iso
+            preds_np = {
+                "L2":               np.argmin(l2_sq,    axis=1),
+                "Cosine":           np.argmin(cos_d,    axis=1),
+                "NormL2":           np.argmin(norm_l2,  axis=1),
+                "SpectralAffinity": np.argmax(spec,     axis=1),
+                "SubspaceResidual": np.argmin(sub_res,  axis=1),
+                "WeightedSpectral": np.argmax(w_spec,   axis=1),
+                "PSR_full":         np.argmin(psr_full, axis=1),
+                "PSR_no_mean":      np.argmin(psr_no_mean, axis=1),
+                "PSR_no_subspace":  np.argmin(psr_no_sub,  axis=1),
+                "PSR_no_penalty":   np.argmin(psr_no_pen,  axis=1),
+            }
+            if inv_pool is not None:
+                maha = np.einsum('ntd,de,nte->nt', HminusC, inv_pool, HminusC)
+                preds_np["Mahalanobis"] = np.argmin(maha, axis=1)
+
+        # ── Accumulate results ──
+        for m, pred_indices in preds_np.items():
+            # pred_indices are indices into tasks_found; map to tasks for confusion matrix
+            task_found_indices = np.array([task2idx[tasks_found[p]] for p in pred_indices])
+            correct = int((pred_indices == tasks_found.index(true_task)).sum())
+            results[m]["correct"] += correct
+            results[m]["total"]   += N
+            results[m]["per_task"][true_task] = correct / max(N, 1)
+            for n_i in range(N):
+                confusion[m][true_idx, task_found_indices[n_i]] += 1
 
     for m in results:
         results[m]["accuracy"] = results[m]["correct"] / max(results[m]["total"], 1)
@@ -379,7 +531,10 @@ def main():
                         help="Apply global ZCA whitening before routing")
     parser.add_argument("--skip_sklearn", action="store_true",
                         help="Skip sklearn classifiers (Phase C)")
+    parser.add_argument("--device", default="auto",
+                        help="Device: cpu | cuda | cuda:0 | auto (default: auto)")
     args = parser.parse_args()
+    args.device = _resolve_device(args.device)
 
     tasks = BENCHMARKS[args.benchmark]
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
@@ -402,7 +557,7 @@ def main():
 
     # Optional whitening (fit on train, apply to both)
     if args.whiten:
-        mu_g, W = compute_whitening(train_embs)
+        mu_g, W = compute_whitening(train_embs, device=args.device)
         train_embs = apply_whitening(train_embs, mu_g, W)
         test_embs  = apply_whitening(test_embs, mu_g, W)
         print("Applied ZCA whitening\n")
@@ -432,7 +587,7 @@ def main():
     # ── Phase B: Distance methods ──
     print("\n─── Phase B: Distance-based routing ───")
     dist_results, dist_confusion = evaluate_distance_methods(
-        sigs, test_embs, found, inv_pool)
+        sigs, test_embs, found, device=args.device, inv_pool=inv_pool)
 
     print(f"\n{'Method':25s} {'Accuracy':>10s}")
     print("-" * 37)

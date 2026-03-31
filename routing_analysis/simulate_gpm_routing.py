@@ -42,6 +42,19 @@ except ImportError:
     HAS_TORCH = False
 
 
+def _resolve_device(device_str: str) -> str:
+    """Resolve 'auto' → 'cuda' if GPU available, else 'cpu'."""
+    if device_str == "auto":
+        if HAS_TORCH and torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+            print(f"[GPU] {gpu_name}  {vram_gb:.1f} GB VRAM — using CUDA")
+            return "cuda"
+        print("[GPU] No CUDA device found — using CPU")
+        return "cpu"
+    return device_str
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Benchmark definitions (shared across experiment scripts)
 # ═══════════════════════════════════════════════════════════════════════
@@ -465,7 +478,8 @@ class GPMRouter:
         frozen_trans.eval()
 
         # Process in chunks to avoid OOM on large test sets
-        chunk_size = 256
+        # Larger chunks on GPU: 1024 uses ~1 GB for d=2048, T=15 — safe for 16 GB VRAM
+        chunk_size = 1024 if "cuda" in self.device else 256
         all_preds = []
         with torch.no_grad():
             for i in range(0, X.shape[0], chunk_size):
@@ -722,8 +736,8 @@ def main():
                      help="Proxy training epochs per task")
     gpm.add_argument("--batch_size", type=int, default=256,
                      help="Training batch size")
-    gpm.add_argument("--device", default="cpu",
-                     help="Device for GPM training (cpu/cuda)")
+    gpm.add_argument("--device", default="auto",
+                     help="Device for GPM training: cpu | cuda | cuda:0 | auto (default: auto)")
 
     # RLS parameters
     rls = parser.add_argument_group("RLS routing parameters")
@@ -733,6 +747,7 @@ def main():
                      help="Ridge regularization (SpecRoute default: 0.1)")
 
     args = parser.parse_args()
+    args.device = _resolve_device(args.device)
 
     tasks = BENCHMARKS[args.benchmark]
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)

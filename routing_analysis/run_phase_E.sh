@@ -18,15 +18,17 @@ BACKBONE=""
 SUBSPACE_K=8
 WHITEN=false
 LAYER=""
+DEVICE="auto"
 
 usage() {
-  echo "Usage: $0 --benchmark <Long_Sequence|SuperNI> --backbone <backbone_dir_name> [--k INT] [--whiten] [--layer embedding]"
+  echo "Usage: $0 --benchmark <Long_Sequence|SuperNI> --backbone <backbone_dir_name> [--k INT] [--whiten] [--layer embedding] [--device auto|cpu|cuda]"
   echo ""
   echo "  --benchmark  Long_Sequence or SuperNI"
   echo "  --backbone   Name of backbone subdirectory under embeddings/"
   echo "  --k          Subspace rank (default: 8)"
   echo "  --whiten     Apply ZCA whitening"
   echo "  --layer      embedding = use _wordemb extraction dir"
+  echo "  --device     cpu | cuda | auto (default: auto)"
   exit 1
 }
 
@@ -37,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --k)         SUBSPACE_K="$2"; shift 2 ;;
     --whiten)    WHITEN=true; shift ;;
     --layer)     LAYER="$2"; shift 2 ;;
+    --device)    DEVICE="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) echo "Unknown flag: $1"; usage ;;
   esac
@@ -63,7 +66,8 @@ echo "========================================================"
 CMD="python validate_theory.py \
   --emb_dir    ${EMB_DIR} \
   --benchmark  ${BENCHMARK} \
-  --subspace_k ${SUBSPACE_K}"
+  --subspace_k ${SUBSPACE_K} \
+  --device     ${DEVICE}"
 
 [[ "$WHITEN" == "true" ]] && CMD+=" --whiten"
 

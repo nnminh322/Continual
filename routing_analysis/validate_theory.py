@@ -18,8 +18,38 @@ from collections import OrderedDict
 import numpy as np
 from numpy.linalg import eigh, norm
 
+try:
+    import torch
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
 
-def compute_whitening(task_embs):
+
+def _resolve_device(device_str: str) -> str:
+    """Resolve 'auto' → 'cuda' if GPU available, else 'cpu'."""
+    if device_str == "auto":
+        if HAS_TORCH and torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            vram_gb  = torch.cuda.get_device_properties(0).total_memory / 1e9
+            print(f"[GPU] {gpu_name}  {vram_gb:.1f} GB VRAM — using CUDA")
+            return "cuda"
+        print("[GPU] No CUDA device found — using CPU")
+        return "cpu"
+    return device_str
+
+
+def compute_whitening(task_embs, device: str = "cpu"):
+    if "cuda" in device and HAS_TORCH:
+        dev = torch.device(device)
+        chunks = [torch.tensor(v, dtype=torch.float32, device=dev) for v in task_embs.values()]
+        all_t  = torch.cat(chunks, dim=0)
+        mu_t   = all_t.mean(0)
+        Xc     = all_t - mu_t
+        cov_t  = (Xc.T @ Xc) / (all_t.shape[0] - 1)
+        ev_t, evec_t = torch.linalg.eigh(cov_t)
+        ev_t   = torch.clamp(ev_t, min=1e-8)
+        W_t    = evec_t @ torch.diag(1.0 / torch.sqrt(ev_t)) @ evec_t.T
+        return mu_t.cpu().numpy(), W_t.cpu().numpy()
     all_embs = np.vstack(list(task_embs.values()))
     mu = all_embs.mean(0)
     cov = np.cov(all_embs, rowvar=False)
@@ -120,22 +150,55 @@ def compute_kl_ppca(sig_t: PPCASig, sig_s: PPCASig):
             "D_sigma": float(D_sigma)}
 
 
-def compute_confusion_matrix(sigs, test_embs, tasks):
-    """Empirical routing confusion using PSR."""
+def compute_confusion_matrix(sigs, test_embs, tasks, device='cpu'):
+    """Empirical routing confusion using PSR (vectorized batch version)."""
+    T = len(tasks)
     task2idx = {t: i for i, t in enumerate(tasks)}
-    n = len(tasks)
-    cm = np.zeros((n, n))  # cm[i,j] = fraction of task_i routed to task_j
-    for i, t in enumerate(tasks):
-        if t not in test_embs:
-            continue
+    task_list = [t for t in tasks if t in sigs and t in test_embs]
+
+    # Pre-compute stacked signatures
+    d  = sigs[task_list[0]].d
+    k  = sigs[task_list[0]].k
+    C  = np.stack([sigs[t].mu  for t in task_list]).astype(np.float32)   # (T, d)
+    V  = np.stack([sigs[t].V   for t in task_list]).astype(np.float32)   # (T, d, k)
+    lam= np.stack([sigs[t].lam for t in task_list]).astype(np.float32)   # (T, k)
+    s2 = np.array([sigs[t].sigma2 for t in task_list], dtype=np.float32) # (T,)
+    W_psr = lam / (s2[:, None] * (lam + s2[:, None]))                    # (T, k)
+    pen   = np.sum(np.log(lam + s2[:, None]), axis=1) + (d - k) * np.log(s2)  # (T,)
+
+    use_gpu = "cuda" in device and HAS_TORCH
+    if use_gpu:
+        dev   = torch.device(device)
+        C_t   = torch.tensor(C,     device=dev)
+        V_t   = torch.tensor(V,     device=dev)
+        W_t   = torch.tensor(W_psr, device=dev)
+        pen_t = torch.tensor(pen,   device=dev)
+        s2_t  = torch.tensor(s2,    device=dev)
+
+    cm = np.zeros((T, T))
+    for i, t in enumerate(task_list):
         embs = test_embs[t]
-        counts = np.zeros(n)
-        for x in range(embs.shape[0]):
-            h = embs[x]
-            dists = {s: _psr_dist(h, sigs[s]) for s in tasks}
-            pred = min(dists, key=dists.get)
-            counts[task2idx[pred]] += 1
-        cm[i] = counts / max(embs.shape[0], 1)
+        H_np = embs.astype(np.float32)
+        N    = H_np.shape[0]
+        if use_gpu:
+            H    = torch.tensor(H_np, device=dev)
+            Hd   = H.unsqueeze(1) - C_t.unsqueeze(0)               # (N, T, d)
+            iso  = Hd.pow(2).sum(-1) / (s2_t.unsqueeze(0) + 1e-12) # (N, T)
+            dp   = torch.einsum('ntd,tdk->ntk', Hd, V_t)
+            dists = iso + (W_t.unsqueeze(0) * dp.pow(2)).sum(-1) + pen_t.unsqueeze(0)
+            preds = dists.argmin(dim=1).cpu().numpy()
+            del H, Hd, iso, dp, dists
+        else:
+            H   = H_np.astype(np.float64)
+            Hd  = H[:, None, :] - C[None, :, :]                    # (N, T, d)
+            iso = np.sum(Hd**2, axis=-1) / (s2[None, :] + 1e-12)
+            dp  = np.einsum('ntd,tdk->ntk', Hd, V)
+            dists = iso + np.sum(W_psr[None, :, :] * dp**2, axis=-1) + pen[None, :]
+            preds = np.argmin(dists, axis=1)
+        counts = np.zeros(T)
+        for p in preds:
+            counts[p] += 1
+        cm[i] = counts / max(N, 1)
     return cm
 
 
@@ -151,7 +214,7 @@ def _psr_dist(h, sig):
     return dist
 
 
-def e1_kl_vs_confusion(train_embs, test_embs, tasks, k):
+def e1_kl_vs_confusion(train_embs, test_embs, tasks, k, device='cpu'):
     """E1: correlate pairwise KL with empirical confusion rates."""
     sigs = {t: PPCASig(e, k) for t, e in train_embs.items()}
 
@@ -170,7 +233,7 @@ def e1_kl_vs_confusion(train_embs, test_embs, tasks, k):
             dsig_mat[i, j] = kl["D_sigma"]
 
     # Confusion matrix
-    cm = compute_confusion_matrix(sigs, test_embs, tasks)
+    cm = compute_confusion_matrix(sigs, test_embs, tasks, device=device)
 
     # Correlation: off-diagonal KL vs confusion rate
     pairs_kl, pairs_conf = [], []
@@ -312,7 +375,7 @@ def e3_rmt_analysis(train_embs, tasks, k):
     return results
 
 
-def e3_shrinkage_routing(train_embs, test_embs, tasks, k):
+def e3_shrinkage_routing(train_embs, test_embs, tasks, k, device='cpu'):
     """Compare routing accuracy with/without LW shrinkage on covariance."""
     # Raw PSR
     sigs_raw = {t: PPCASig(e, k) for t, e in train_embs.items()}
@@ -344,18 +407,59 @@ def e3_shrinkage_routing(train_embs, test_embs, tasks, k):
         sig.sigma2 = float(max(sig.eigvals[sig.k:].mean(), 1e-12))
         sigs_shrunk[t] = sig
 
-    fn_raw = lambda h: min(sigs_raw, key=lambda t: _psr_dist(h, sigs_raw[t]))
+    fn_raw = lambda h: min(sigs_raw,    key=lambda t: _psr_dist(h, sigs_raw[t]))
     fn_shr = lambda h: min(sigs_shrunk, key=lambda t: _psr_dist(h, sigs_shrunk[t]))
 
-    accs_raw, accs_shr = {}, {}
-    for t in tasks:
-        if t not in test_embs:
-            continue
-        embs = test_embs[t]
-        c_raw = sum(1 for i in range(embs.shape[0]) if fn_raw(embs[i]) == t)
-        c_shr = sum(1 for i in range(embs.shape[0]) if fn_shr(embs[i]) == t)
-        accs_raw[t] = c_raw / max(embs.shape[0], 1)
-        accs_shr[t] = c_shr / max(embs.shape[0], 1)
+    # Vectorized evaluation using compute_confusion_matrix logic
+    # We reuse the batch PSR infrastructure from compare_routing
+    # Build per-task accuracy faster via vectorized PSR
+    task_list = [t for t in tasks if t in test_embs and t in sigs_raw]
+
+    def _vec_acc(sigs_dict, tl, te, dev):
+        """Inline vectorized PSR accuracy for a given sigs dict."""
+        from collections import OrderedDict
+        _te = OrderedDict((t, te[t]) for t in tl if t in te)
+        _tr_dummy = {}  # not needed here
+        d  = sigs_dict[tl[0]].d
+        k_ = sigs_dict[tl[0]].k
+        C  = np.stack([sigs_dict[t].mu  for t in tl]).astype(np.float32)
+        V  = np.stack([sigs_dict[t].V   for t in tl]).astype(np.float32)
+        lam= np.stack([sigs_dict[t].lam for t in tl]).astype(np.float32)
+        s2 = np.array([sigs_dict[t].sigma2 for t in tl], dtype=np.float32)
+        W_ = lam / (s2[:, None] * (lam + s2[:, None]))
+        pen= np.sum(np.log(lam + s2[:, None]), axis=1) + (d - k_) * np.log(s2)
+        use_gpu = "cuda" in dev and HAS_TORCH
+        if use_gpu:
+            _dev = torch.device(dev)
+            C_t = torch.tensor(C, device=_dev); V_t = torch.tensor(V, device=_dev)
+            W_t = torch.tensor(W_, device=_dev); pen_t = torch.tensor(pen, device=_dev)
+            s2_t= torch.tensor(s2, device=_dev)
+        per_task = {}
+        for i, t in enumerate(tl):
+            if t not in te:
+                continue
+            H_np = te[t].astype(np.float32)
+            N = H_np.shape[0]
+            if use_gpu:
+                H_ = torch.tensor(H_np, device=_dev)
+                Hd = H_.unsqueeze(1) - C_t.unsqueeze(0)
+                iso= Hd.pow(2).sum(-1) / (s2_t.unsqueeze(0) + 1e-12)
+                dp = torch.einsum('ntd,tdk->ntk', Hd, V_t)
+                dists_ = iso + (W_t.unsqueeze(0) * dp.pow(2)).sum(-1) + pen_t.unsqueeze(0)
+                preds_ = dists_.argmin(dim=1).cpu().numpy()
+                del H_, Hd, iso, dp, dists_
+            else:
+                H_ = H_np.astype(np.float64)
+                Hd = H_[:, None, :] - C[None, :, :]
+                iso= np.sum(Hd**2, axis=-1) / (s2[None, :] + 1e-12)
+                dp = np.einsum('ntd,tdk->ntk', Hd, V)
+                dists_ = iso + np.sum(W_[None, :, :] * dp**2, axis=-1) + pen[None, :]
+                preds_ = np.argmin(dists_, axis=1)
+            per_task[t] = float((preds_ == i).sum()) / max(N, 1)
+        return per_task
+
+    accs_raw = _vec_acc(sigs_raw,    task_list, test_embs, device)
+    accs_shr = _vec_acc(sigs_shrunk, task_list, test_embs, device)
 
     return {
         "raw_mean_acc": float(np.mean(list(accs_raw.values()))),
@@ -378,7 +482,10 @@ def main():
     parser.add_argument("--out_dir", default="results")
     parser.add_argument("--whiten", action="store_true",
                         help="Apply global ZCA whitening")
+    parser.add_argument("--device", default="auto",
+                        help="Device: cpu | cuda | cuda:0 | auto (default: auto)")
     args = parser.parse_args()
+    args.device = _resolve_device(args.device)
 
     tasks = BENCHMARKS[args.benchmark]
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
@@ -396,7 +503,7 @@ def main():
     test_embs  = OrderedDict((t, test_embs[t])  for t in found)
 
     if args.whiten:
-        mu_g, W = compute_whitening(train_embs)
+        mu_g, W = compute_whitening(train_embs, device=args.device)
         train_embs = apply_whitening(train_embs, mu_g, W)
         test_embs  = apply_whitening(test_embs, mu_g, W)
         print("Applied ZCA whitening\n")
@@ -406,7 +513,7 @@ def main():
 
     # ── E1: KL vs Confusion ──
     print("─── E1: KL Decomposition vs Routing Confusion ───")
-    e1 = e1_kl_vs_confusion(train_embs, test_embs, found, args.subspace_k)
+    e1 = e1_kl_vs_confusion(train_embs, test_embs, found, args.subspace_k, device=args.device)
     report["E1_kl_confusion"] = {
         "spearman": e1["spearman_kl_vs_confusion"],
         "PSR_accuracy": e1["PSR_accuracy"],
@@ -444,7 +551,7 @@ def main():
 
     # Shrinkage routing comparison
     print(f"\n─── E3b: Shrinkage vs Raw routing ───")
-    shr = e3_shrinkage_routing(train_embs, test_embs, found, args.subspace_k)
+    shr = e3_shrinkage_routing(train_embs, test_embs, found, args.subspace_k, device=args.device)
     print(f"  Raw PSR mean acc:      {shr['raw_mean_acc']:.2%}")
     print(f"  Shrinkage PSR mean acc:{shr['shrinkage_mean_acc']:.2%}")
     print(f"  Improvement:           {shr['improvement']:+.2%}")
