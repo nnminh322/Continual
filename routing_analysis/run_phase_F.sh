@@ -16,6 +16,9 @@
 
 set -euo pipefail
 
+# Reduce CUDA memory fragmentation (helps Llama d=4096 on 16 GB GPUs)
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 BENCHMARK=""
 BACKBONE=""
 SUBSPACE_K=8
@@ -29,6 +32,7 @@ LR=1e-3
 EPOCHS=30
 BATCH_SIZE=256
 DEVICE="auto"   # auto = cuda if available, else cpu
+FORCE=false
 
 # RLS parameters
 RLS_EXPANSION=2048
@@ -68,6 +72,7 @@ while [[ $# -gt 0 ]]; do
     --lr)              LR="$2"; shift 2 ;;
     --epochs)          EPOCHS="$2"; shift 2 ;;
     --device)          DEVICE="$2"; shift 2 ;;
+    --force)           FORCE=true; shift ;;
     --rls_expansion)   RLS_EXPANSION="$2"; shift 2 ;;
     --rls_lambda)      RLS_LAMBDA="$2"; shift 2 ;;
     -h|--help) usage ;;
@@ -114,6 +119,7 @@ CMD="python simulate_gpm_routing.py \
   --rls_lambda      ${RLS_LAMBDA}"
 
 [[ "$WHITEN" == "true" ]] && CMD+=" --whiten"
+[[ "$FORCE"  == "true" ]] && CMD+=" --force"
 
 echo "CMD: $CMD"
 echo ""

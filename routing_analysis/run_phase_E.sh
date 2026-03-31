@@ -19,6 +19,7 @@ SUBSPACE_K=8
 WHITEN=false
 LAYER=""
 DEVICE="auto"
+FORCE=false
 
 usage() {
   echo "Usage: $0 --benchmark <Long_Sequence|SuperNI> --backbone <backbone_dir_name> [--k INT] [--whiten] [--layer embedding] [--device auto|cpu|cuda]"
@@ -40,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     --whiten)    WHITEN=true; shift ;;
     --layer)     LAYER="$2"; shift 2 ;;
     --device)    DEVICE="$2"; shift 2 ;;
+    --force)     FORCE=true; shift ;;
     -h|--help) usage ;;
     *) echo "Unknown flag: $1"; usage ;;
   esac
@@ -70,6 +72,7 @@ CMD="python validate_theory.py \
   --device     ${DEVICE}"
 
 [[ "$WHITEN" == "true" ]] && CMD+=" --whiten"
+[[ "$FORCE"  == "true" ]] && CMD+=" --force"
 
 echo "CMD: $CMD"
 echo ""

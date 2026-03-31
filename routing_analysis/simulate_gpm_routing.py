@@ -137,7 +137,8 @@ class TransInputMLP(nn.Module):
 class FrozenTransInput(nn.Module):
     """Multi-task frozen trans_input — stores (n_tasks, h, d) and (n_tasks, d, h) weights.
 
-    Matches ROOT's `Trans_input` class with batched matmul.
+    Matches ROOT's `Trans_input` class.  Uses a per-task loop instead of
+    broadcast matmul to keep GPU peak memory low (critical for d≥4096).
     """
     def __init__(self, input_weights, output_weights):
         """
@@ -151,14 +152,14 @@ class FrozenTransInput(nn.Module):
         self.act = nn.SiLU()
 
     def forward(self, x):
-        """x: (B, d) → (B, T, d)"""
-        # x: (B, d) → (B, 1, 1, d)
-        x = x.unsqueeze(1).unsqueeze(2)           # (B, 1, 1, d)
-        mid = torch.matmul(x, self.W_in.permute(0, 2, 1))  # (B, T, 1, h)
-        mid = self.act(mid)
-        out = torch.matmul(mid, self.W_out.permute(0, 2, 1))  # (B, T, 1, d)
-        out = self.act(out)
-        return out.squeeze(2)  # (B, T, d)
+        """x: (B, d) → (B, T, d).  Per-task loop avoids broadcast OOM."""
+        T = self.W_in.shape[0]
+        results = []
+        for t in range(T):
+            mid = self.act(x @ self.W_in[t].T)    # (B, d)@(d, h) → (B, h)
+            out = self.act(mid @ self.W_out[t].T)  # (B, h)@(h, d) → (B, d)
+            results.append(out)
+        return torch.stack(results, dim=1)          # (B, T, d)
 
 
 def cal_attention(prompt_keys, x_features):
@@ -337,6 +338,7 @@ class GPMRouter:
         d = self.d_model
         h = self.mlp_hidden_dim
         threshold = self._adaptive_threshold(task_idx, total_tasks)
+        _chunk = 2048  # process embeddings in chunks to limit VRAM
 
         # ── Step 1: Initialize trans_input MLP ──
         mlp = TransInputMLP(d, h).to(self.device)
@@ -348,23 +350,31 @@ class GPMRouter:
                     P = torch.from_numpy(
                         self.gpm_bases_input @ self.gpm_bases_input.T
                     ).float().to(self.device)
-                    # Project linear1 weight rows into null-space
                     mlp.linear1.weight.data -= mlp.linear1.weight.data @ P
+                    del P
 
                 if self.gpm_bases_output is not None:
                     P = torch.from_numpy(
                         self.gpm_bases_output @ self.gpm_bases_output.T
                     ).float().to(self.device)
-                    # linear2.weight has shape (d, h); P is (d, d)
-                    # We must project the OUTPUT dimension: P @ W (d,d) @ (d,h) -> (d,h)
                     mlp.linear2.weight.data -= P @ mlp.linear2.weight.data
+                    del P
+
+                if 'cuda' in self.device:
+                    torch.cuda.empty_cache()
 
         # ── Step 2: Initialize prompt_key ──
-        # Compute output covariance from MLP applied to task embeddings
-        X_t = torch.from_numpy(task_embs).float().to(self.device)
+        # Compute output covariance from MLP applied to task embeddings (chunked)
+        N = task_embs.shape[0]
+        out_parts = []
         with torch.no_grad():
-            out_features = mlp(X_t).cpu().numpy()
-        out_cov = out_features.T @ out_features / max(out_features.shape[0], 1)
+            for s in range(0, N, _chunk):
+                X_c = torch.from_numpy(task_embs[s:s+_chunk]).float().to(self.device)
+                out_parts.append(mlp(X_c).cpu())
+                del X_c
+        out_features = torch.cat(out_parts, dim=0).numpy()  # (N, d)
+        del out_parts
+        out_cov = out_features.T @ out_features / max(N, 1)
 
         pk_np = init_prompt_key_from_cov(out_cov, d, self.gpm_bases_output)
         prompt_key = nn.Parameter(torch.from_numpy(pk_np).float().to(self.device))
@@ -373,17 +383,22 @@ class GPMRouter:
         if task_idx > 0:
             self._train_routing(mlp, prompt_key, task_embs, task_idx)
 
-        # ── Step 4: Collect covariance and update GPM ──
-        X_t = torch.from_numpy(task_embs).float().to(self.device)
+        # ── Step 4: Collect covariance and update GPM (chunked) ──
+        med_parts, out_parts2 = [], []
         with torch.no_grad():
-            medium = mlp.act(mlp.linear1(X_t)).cpu().numpy()   # (N, h)
-            output = mlp(X_t).cpu().numpy()                    # (N, d)
-            inp = task_embs                                     # (N, d)
+            for s in range(0, N, _chunk):
+                X_c = torch.from_numpy(task_embs[s:s+_chunk]).float().to(self.device)
+                med_parts.append(mlp.act(mlp.linear1(X_c)).cpu())
+                out_parts2.append(mlp(X_c).cpu())
+                del X_c
+        medium = torch.cat(med_parts, dim=0).numpy()
+        output = torch.cat(out_parts2, dim=0).numpy()
+        del med_parts, out_parts2
+        inp = task_embs
 
-        # Covariance matrices
-        cov_input = inp.T @ inp / max(inp.shape[0], 1)
-        cov_medium = medium.T @ medium / max(medium.shape[0], 1)
-        cov_output = output.T @ output / max(output.shape[0], 1)
+        cov_input = inp.T @ inp / max(N, 1)
+        cov_medium = medium.T @ medium / max(N, 1)
+        cov_output = output.T @ output / max(N, 1)
 
         self.gpm_bases_input = gpm_update_bases(
             self.gpm_bases_input, cov_input, threshold)
@@ -397,20 +412,23 @@ class GPMRouter:
         self.frozen_W_in.append(mlp.linear1.weight.detach().cpu().numpy())   # (h, d)
         self.frozen_W_out.append(mlp.linear2.weight.detach().cpu().numpy())  # (d, h)
 
+        # Free GPU memory
+        del mlp, prompt_key
+        if 'cuda' in self.device:
+            torch.cuda.empty_cache()
+
     def _train_routing(self, mlp, prompt_key, task_embs, task_idx):
         """Train current trans_input + prompt_key to correctly route.
 
         Proxy objective: cross-entropy over [current_task, prev_tasks].
-        Current task's features come from trainable mlp + prompt_key.
-        Previous tasks' features come from frozen snapshots.
+        Uses gradient accumulation with micro-batches to limit VRAM.
         """
         n_prev = len(self.prompt_keys)
-        n_total = n_prev + 1  # current is index 0
+        n_total = n_prev + 1
 
-        # Build frozen components
         frozen_pks = torch.tensor(
             np.stack(self.prompt_keys), dtype=torch.float32, device=self.device
-        )  # (n_prev, d)
+        )
         frozen_trans = FrozenTransInput(
             [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_in],
             [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_out],
@@ -421,42 +439,53 @@ class GPMRouter:
             list(mlp.parameters()) + [prompt_key], lr=self.lr
         )
 
-        X = torch.from_numpy(task_embs).float().to(self.device)
-        N = X.shape[0]
-        # Target: current task = index 0 (highest weight)
-        target = torch.zeros(N, dtype=torch.long, device=self.device)
+        # Keep training data on CPU, load micro-batches on the fly
+        N = task_embs.shape[0]
+        # Adaptive micro-batch: smaller for large d to fit 16 GB
+        micro_bs = min(self.batch_size, max(64, 4096 * 128 // self.d_model))
+        accum_steps = max(1, self.batch_size // micro_bs)
 
         for epoch in range(self.epochs):
-            perm = torch.randperm(N, device=self.device)
+            perm = np.random.permutation(N)
             total_loss = 0.0
-            for start in range(0, N, self.batch_size):
-                idx = perm[start:start + self.batch_size]
-                x_batch = X[idx]
+            optimizer.zero_grad()
+            step_count = 0
+            for start in range(0, N, micro_bs):
+                idx = perm[start:start + micro_bs]
+                x_batch = torch.from_numpy(task_embs[idx]).float().to(self.device)
 
-                # Current task features
-                x_cur = mlp(x_batch)  # (B, d)
+                x_cur = mlp(x_batch)
 
-                # Previous tasks' features
                 with torch.no_grad():
-                    x_prev = frozen_trans(x_batch)  # (B, n_prev, d)
+                    x_prev = frozen_trans(x_batch)
 
-                # Stack: (B, n_total, d) — current first, then previous
                 all_x = torch.cat([x_cur.unsqueeze(1), x_prev], dim=1)
-
-                # Stack prompt keys: current first
                 all_pk = torch.cat([prompt_key.unsqueeze(0), frozen_pks], dim=0)
                 all_pk = all_pk.unsqueeze(0).expand(x_batch.shape[0], -1, -1)
 
-                # Compute routing weights via cal_attention
-                weights = cal_attention(all_pk, all_x)  # (B, n_total)
+                weights = cal_attention(all_pk, all_x)
+                target = torch.zeros(x_batch.shape[0], dtype=torch.long,
+                                     device=self.device)
+                loss = F.cross_entropy(weights * 10, target) / accum_steps
 
-                # Cross-entropy loss: want index 0 to be max
-                loss = F.cross_entropy(weights * 10, target[idx[:x_batch.shape[0]]])
-
-                optimizer.zero_grad()
                 loss.backward()
+                total_loss += loss.item() * accum_steps
+                step_count += 1
+
+                if step_count % accum_steps == 0:
+                    optimizer.step()
+                    optimizer.zero_grad()
+
+                del x_batch, x_cur, x_prev, all_x, all_pk, weights, loss
+
+            # Final accumulated step
+            if step_count % accum_steps != 0:
                 optimizer.step()
-                total_loss += loss.item()
+                optimizer.zero_grad()
+
+        del frozen_trans, frozen_pks
+        if 'cuda' in self.device:
+            torch.cuda.empty_cache()
 
     def route(self, h_batch):
         """Route a batch of embeddings to task indices.
@@ -474,28 +503,30 @@ class GPMRouter:
 
         X = torch.from_numpy(h_batch).float().to(self.device)
 
-        # Build all prompt keys
         all_pk = torch.tensor(
             np.stack(self.prompt_keys), dtype=torch.float32, device=self.device
-        )  # (T, d)
+        )
 
-        # Build all trans_input features
         frozen_trans = FrozenTransInput(
             [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_in],
             [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_out],
         ).to(self.device)
         frozen_trans.eval()
 
-        # Process in chunks to avoid OOM on large test sets
-        # Larger chunks on GPU: 1024 uses ~1 GB for d=2048, T=15 — safe for 16 GB VRAM
-        chunk_size = 1024 if "cuda" in self.device else 256
+        # Adaptive chunk: smaller for large d to fit 16 GB VRAM
+        chunk_size = max(64, min(1024, 4096 * 512 // max(self.d_model, 1)))
         all_preds = []
         with torch.no_grad():
             for i in range(0, X.shape[0], chunk_size):
                 X_chunk = X[i : i + chunk_size]
-                all_x = frozen_trans(X_chunk)          # (chunk, T, d)
-                weights = cal_attention(all_pk, all_x)  # (chunk, T)
+                all_x = frozen_trans(X_chunk)
+                weights = cal_attention(all_pk, all_x)
                 all_preds.append(weights.argmax(dim=1).cpu())
+                del X_chunk, all_x, weights
+
+        del frozen_trans, all_pk, X
+        if 'cuda' in self.device:
+            torch.cuda.empty_cache()
 
         return torch.cat(all_preds).numpy()
 
@@ -617,22 +648,27 @@ class PSRRouter:
         sigma2 = max(eigvals[k:].mean() if k < d else 1e-12, 1e-12)
         self.sigs.append((mu, V, lam, sigma2, d))
 
-    def _psr_dist(self, h, sig):
-        mu, V, lam, s2, d = sig
-        delta = h - mu
-        proj = V.T @ delta
-        weights = lam / (s2 * (lam + s2))
-        dist = np.sum(weights * proj**2)
-        dist += np.sum(delta**2) / s2
-        dist += np.sum(np.log(lam + s2)) + (d - len(lam)) * np.log(s2)
-        return dist
-
     def route(self, h_batch):
-        preds = []
-        for h in h_batch:
-            dists = [self._psr_dist(h, sig) for sig in self.sigs]
-            preds.append(np.argmin(dists))
-        return np.array(preds, dtype=np.int64)
+        """Vectorized PSR routing — all tasks evaluated simultaneously."""
+        T = len(self.sigs)
+        if T == 0:
+            return np.zeros(h_batch.shape[0], dtype=np.int64)
+        if T == 1:
+            return np.zeros(h_batch.shape[0], dtype=np.int64)
+        d = self.sigs[0][4]
+        k = min(self.k, d)
+        C   = np.stack([s[0] for s in self.sigs]).astype(np.float32)  # (T, d)
+        V   = np.stack([s[1] for s in self.sigs]).astype(np.float32)  # (T, d, k)
+        lam = np.stack([s[2] for s in self.sigs]).astype(np.float32)  # (T, k)
+        s2  = np.array([s[3] for s in self.sigs], dtype=np.float32)   # (T,)
+        W_psr = lam / (s2[:, None] * (lam + s2[:, None]))             # (T, k)
+        pen = np.sum(np.log(lam + s2[:, None]), axis=1) + (d - k) * np.log(s2)  # (T,)
+        H = h_batch.astype(np.float32)
+        Hd = H[:, None, :] - C[None, :, :]                           # (N, T, d)
+        iso = np.sum(Hd**2, axis=-1) / (s2[None, :] + 1e-12)        # (N, T)
+        dp  = np.einsum('ntd,tdk->ntk', Hd, V)                       # (N, T, k)
+        dists = iso + np.sum(W_psr[None, :, :] * dp**2, axis=-1) + pen[None, :]
+        return np.argmin(dists, axis=1).astype(np.int64)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -747,6 +783,8 @@ def main():
                      help="Training batch size")
     gpm.add_argument("--device", default="auto",
                      help="Device for GPM training: cpu | cuda | cuda:0 | auto (default: auto)")
+    gpm.add_argument("--force", action="store_true",
+                     help="Force re-run even if output already exists")
 
     # RLS parameters
     rls = parser.add_argument_group("RLS routing parameters")
@@ -762,6 +800,12 @@ def main():
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     backbone = Path(args.emb_dir).name
     tag = f"{backbone}_{args.benchmark}" + ("_whitened" if args.whiten else "")
+
+    # ── Skip if already done ──
+    out_path = out_dir / f"learned_routing_{tag}.json"
+    if out_path.exists() and not args.force:
+        print(f"[SKIP] Phase F: {out_path} already exists. Use --force to re-run.")
+        return
 
     print(f"=== Phase F: Learned Routing Comparison  [{tag}] ===")
     print(f"    GPM: mlp_hidden={args.mlp_hidden_dim}, transthreshold={args.transthreshold}, "

@@ -137,22 +137,40 @@ def load_all_tasks(emb_dir, benchmark, tasks, split="train"):
 
 class TaskSignature:
     """PPCA signature for one task:  (mu, V, Lambda, sigma2)."""
-    def __init__(self, embs: np.ndarray, k: int):
+    def __init__(self, embs: np.ndarray, k: int, device: str = 'cpu'):
         self.n, self.d = embs.shape
-        self.mu = embs.mean(0)                              # (d,)
-        cov = np.cov(embs, rowvar=False)                    # (d, d)
-        eigvals, eigvecs = eigh(cov)
-        idx = np.argsort(eigvals)[::-1]
-        eigvals = eigvals[idx]
-        eigvecs = eigvecs[:, idx]
-        self.k = min(k, self.d)
-        self.V = eigvecs[:, :self.k]                        # (d, k)
-        self.lam = np.maximum(eigvals[:self.k], 1e-12)      # (k,)
-        # sigma2 = average of remaining eigenvalues
-        remaining = eigvals[self.k:]
-        self.sigma2 = float(max(remaining.mean(), 1e-12))
-        self.cov = cov
-        self.eigvals = eigvals
+        if 'cuda' in device and HAS_TORCH:
+            dev = torch.device(device)
+            X = torch.tensor(embs, dtype=torch.float32, device=dev)
+            self.mu = X.mean(0).cpu().numpy()
+            Xc = X - X.mean(0)
+            cov_t = (Xc.T @ Xc) / max(self.n - 1, 1)
+            eigvals_t, eigvecs_t = torch.linalg.eigh(cov_t)
+            idx = torch.argsort(eigvals_t, descending=True)
+            eigvals_t = eigvals_t[idx]
+            eigvecs_t = eigvecs_t[:, idx]
+            self.k = min(k, self.d)
+            self.V = eigvecs_t[:, :self.k].cpu().numpy()           # (d, k)
+            self.lam = torch.clamp(eigvals_t[:self.k], min=1e-12).cpu().numpy()  # (k,)
+            remaining = eigvals_t[self.k:].cpu().numpy()
+            self.sigma2 = float(max(remaining.mean(), 1e-12))
+            self.cov = cov_t.cpu().numpy()
+            self.eigvals = eigvals_t.cpu().numpy()
+            del X, Xc, cov_t, eigvals_t, eigvecs_t
+        else:
+            self.mu = embs.mean(0)                              # (d,)
+            cov = np.cov(embs, rowvar=False)                    # (d, d)
+            eigvals, eigvecs = eigh(cov)
+            idx = np.argsort(eigvals)[::-1]
+            eigvals = eigvals[idx]
+            eigvecs = eigvecs[:, idx]
+            self.k = min(k, self.d)
+            self.V = eigvecs[:, :self.k]                        # (d, k)
+            self.lam = np.maximum(eigvals[:self.k], 1e-12)      # (k,)
+            remaining = eigvals[self.k:]
+            self.sigma2 = float(max(remaining.mean(), 1e-12))
+            self.cov = cov
+            self.eigvals = eigvals
 
     def shrunk_cov(self, alpha=None):
         """Ledoit-Wolf style shrink: alpha*diag + (1-alpha)*cov."""
@@ -168,9 +186,9 @@ class TaskSignature:
         return (1 - alpha) * self.cov + alpha * np.eye(self.d) * np.trace(self.cov) / self.d
 
 
-def build_signatures(task_embs: dict[str, np.ndarray], k: int):
+def build_signatures(task_embs: dict[str, np.ndarray], k: int, device: str = 'cpu'):
     """Build TaskSignature for each task from train embeddings."""
-    return {t: TaskSignature(embs, k) for t, embs in task_embs.items()}
+    return {t: TaskSignature(embs, k, device=device) for t, embs in task_embs.items()}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -543,6 +561,8 @@ def main():
                         help="Skip sklearn classifiers (Phase C)")
     parser.add_argument("--device", default="auto",
                         help="Device: cpu | cuda | cuda:0 | auto (default: auto)")
+    parser.add_argument("--force", action="store_true",
+                        help="Force re-run even if output already exists")
     args = parser.parse_args()
     args.device = _resolve_device(args.device)
 
@@ -550,6 +570,12 @@ def main():
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     backbone = Path(args.emb_dir).name
     tag = f"{backbone}_{args.benchmark}" + ("_whitened" if args.whiten else "")
+
+    # ── Skip if already done ──
+    out_path = out_dir / f"routing_{tag}.json"
+    if out_path.exists() and not args.force:
+        print(f"[SKIP] Phase B+C: {out_path} already exists. Use --force to re-run.")
+        return
 
     print(f"=== Phase B+C: Routing Comparison  [{tag}]  k={args.subspace_k} ===\n")
 
@@ -572,24 +598,42 @@ def main():
         test_embs  = apply_whitening(test_embs, mu_g, W)
         print("Applied ZCA whitening\n")
 
-    # Build signatures
-    sigs = build_signatures(train_embs, args.subspace_k)
+    # Build signatures (GPU-accelerated cov + eigh)
+    sigs = build_signatures(train_embs, args.subspace_k, device=args.device)
 
     # Pooled (inverse) covariance for Mahalanobis
     d = next(iter(train_embs.values())).shape[1]
-    cov_pool = np.zeros((d, d))
-    n_total = 0
-    for embs in train_embs.values():
-        cov_pool += np.cov(embs, rowvar=False) * (embs.shape[0] - 1)
-        n_total += embs.shape[0] - 1
-    cov_pool /= max(n_total, 1)
-    # Regularize before inversion
-    cov_pool += 1e-4 * np.eye(d)
-    try:
-        inv_pool = np.linalg.inv(cov_pool)
-    except np.linalg.LinAlgError:
-        inv_pool = None
-        print("WARN: pooled covariance singular, skipping Mahalanobis.")
+    if 'cuda' in args.device and HAS_TORCH:
+        dev = torch.device(args.device)
+        cov_pool_t = torch.zeros(d, d, device=dev, dtype=torch.float32)
+        n_total = 0
+        for embs in train_embs.values():
+            X = torch.tensor(embs, dtype=torch.float32, device=dev)
+            Xc = X - X.mean(0)
+            cov_pool_t += Xc.T @ Xc
+            n_total += embs.shape[0] - 1
+            del X, Xc
+        cov_pool_t /= max(n_total, 1)
+        cov_pool_t += 1e-4 * torch.eye(d, device=dev)
+        try:
+            inv_pool = torch.linalg.inv(cov_pool_t).cpu().numpy()
+        except Exception:
+            inv_pool = None
+            print("WARN: pooled covariance singular, skipping Mahalanobis.")
+        del cov_pool_t
+    else:
+        cov_pool = np.zeros((d, d))
+        n_total = 0
+        for embs in train_embs.values():
+            cov_pool += np.cov(embs, rowvar=False) * (embs.shape[0] - 1)
+            n_total += embs.shape[0] - 1
+        cov_pool /= max(n_total, 1)
+        cov_pool += 1e-4 * np.eye(d)
+        try:
+            inv_pool = np.linalg.inv(cov_pool)
+        except np.linalg.LinAlgError:
+            inv_pool = None
+            print("WARN: pooled covariance singular, skipping Mahalanobis.")
 
     report = {"backbone": backbone, "benchmark": args.benchmark,
               "k": args.subspace_k, "d_model": d, "tasks": found}

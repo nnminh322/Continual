@@ -20,6 +20,7 @@ WHITEN=false
 SKIP_SKLEARN=false
 LAYER=""
 DEVICE="auto"
+FORCE=false
 
 usage() {
   echo "Usage: $0 --benchmark <Long_Sequence|SuperNI> --backbone <backbone_dir_name> [--k INT] [--whiten] [--skip_sklearn] [--layer embedding] [--device auto|cpu|cuda]"
@@ -43,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     --skip_sklearn) SKIP_SKLEARN=true; shift ;;
     --layer)       LAYER="$2"; shift 2 ;;
     --device)      DEVICE="$2"; shift 2 ;;
+    --force)       FORCE=true; shift ;;
     -h|--help) usage ;;
     *) echo "Unknown flag: $1"; usage ;;
   esac
@@ -75,6 +77,7 @@ CMD="python compare_routing.py \
 
 [[ "$WHITEN"       == "true" ]] && CMD+=" --whiten"
 [[ "$SKIP_SKLEARN" == "true" ]] && CMD+=" --skip_sklearn"
+[[ "$FORCE"        == "true" ]] && CMD+=" --force"
 
 echo "CMD: $CMD"
 echo ""

@@ -506,8 +506,23 @@ def main():
     parser.add_argument("--out_dir", default="results")
     parser.add_argument("--device", default="auto",
                         help="Device: cpu | cuda | cuda:0 | auto (default: auto)")
+    parser.add_argument("--force", action="store_true",
+                        help="Force re-run even if output already exists")
     args = parser.parse_args()
     args.device = _resolve_device(args.device)
+
+    tasks = BENCHMARKS[args.benchmark]
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    backbone = Path(args.emb_dir).name
+    tag = f"{backbone}_{args.benchmark}" + ("_whitened" if args.whiten else "")
+
+    # ── Skip if already done ──
+    out_path = out_dir / f"geometry_{tag}.json"
+    if out_path.exists() and not args.force:
+        print(f"[SKIP] Phase A: {out_path} already exists. Use --force to re-run.")
+        return
 
     # Set global GPU state — validate with a real kernel launch
     _USE_GPU = False
@@ -524,13 +539,6 @@ def main():
             print("[Phase A] GPU unavailable — running on CPU")
     else:
         print("[Phase A] Running on CPU")
-
-    tasks = BENCHMARKS[args.benchmark]
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    backbone = Path(args.emb_dir).name
-    tag = f"{backbone}_{args.benchmark}" + ("_whitened" if args.whiten else "")
 
     print(f"=== Phase A: Geometric EDA  [{tag}] ===")
     if args.whiten:

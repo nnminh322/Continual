@@ -152,17 +152,32 @@ def load_all(emb_dir, benchmark, tasks, split):
 
 class PPCASig:
     """Lightweight PPCA signature."""
-    def __init__(self, embs, k):
+    def __init__(self, embs, k, device='cpu'):
         self.n, self.d = embs.shape
-        self.mu = embs.mean(0)
-        cov = np.cov(embs, rowvar=False)
-        ev, evec = eigh(cov)
-        idx = np.argsort(ev)[::-1]
-        ev = ev[idx]; evec = evec[:, idx]
-        self.k = min(k, self.d)
-        self.V = evec[:, :self.k]
-        self.lam = np.maximum(ev[:self.k], 1e-12)
-        self.sigma2 = float(max(ev[self.k:].mean(), 1e-12)) if self.k < self.d else 1e-12
+        if 'cuda' in device and HAS_TORCH:
+            dev = torch.device(device)
+            X = torch.tensor(embs, dtype=torch.float32, device=dev)
+            self.mu = X.mean(0).cpu().numpy()
+            Xc = X - X.mean(0)
+            cov_t = (Xc.T @ Xc) / max(self.n - 1, 1)
+            ev_t, evec_t = torch.linalg.eigh(cov_t)
+            idx = torch.argsort(ev_t, descending=True)
+            ev_t = ev_t[idx]; evec_t = evec_t[:, idx]
+            self.k = min(k, self.d)
+            self.V = evec_t[:, :self.k].cpu().numpy()
+            self.lam = torch.clamp(ev_t[:self.k], min=1e-12).cpu().numpy()
+            self.sigma2 = float(max(ev_t[self.k:].cpu().numpy().mean(), 1e-12)) if self.k < self.d else 1e-12
+            del X, Xc, cov_t, ev_t, evec_t
+        else:
+            self.mu = embs.mean(0)
+            cov = np.cov(embs, rowvar=False)
+            ev, evec = eigh(cov)
+            idx = np.argsort(ev)[::-1]
+            ev = ev[idx]; evec = evec[:, idx]
+            self.k = min(k, self.d)
+            self.V = evec[:, :self.k]
+            self.lam = np.maximum(ev[:self.k], 1e-12)
+            self.sigma2 = float(max(ev[self.k:].mean(), 1e-12)) if self.k < self.d else 1e-12
 
 
 def psr_dist(h, sig, use_mean=True, use_subspace=True, use_penalty=True):
@@ -267,7 +282,7 @@ def route_accuracy_vec(sigs, test_embs, tasks, device='cpu',
 
 def ablation_components(train_embs, test_embs, tasks, k=8, device='cpu'):
     """Test PSR with each component enabled/disabled."""
-    sigs = {t: PPCASig(e, k) for t, e in train_embs.items()}
+    sigs = {t: PPCASig(e, k, device=device) for t, e in train_embs.items()}
     configs = {
         "Centroid_only":   dict(use_mean=True,  use_subspace=False, use_penalty=False),
         "Subspace_only":   dict(use_mean=False, use_subspace=True,  use_penalty=False),
@@ -289,7 +304,7 @@ def ablation_components(train_embs, test_embs, tasks, k=8, device='cpu'):
 def rank_sweep(train_embs, test_embs, tasks, ks=(2, 4, 8, 16, 32, 64), device='cpu'):
     results = {}
     for k in ks:
-        sigs = {t: PPCASig(e, k) for t, e in train_embs.items()}
+        sigs = {t: PPCASig(e, k, device=device) for t, e in train_embs.items()}
         acc, pt = route_accuracy_vec(sigs, test_embs, tasks, device=device)
         mem_per_task = next(iter(sigs.values())).d * k * 4 + k * 4 + next(iter(sigs.values())).d * 4 + 4  # bytes
         results[k] = {"accuracy": acc, "memory_bytes_per_task": mem_per_task}
@@ -344,7 +359,7 @@ def incremental_simulation(train_embs, test_embs, tasks, k=8, device='cpu'):
         n_cls = len(available)
 
         # ── PSR (incremental — independent, no drift) ──
-        sigs = {t: PPCASig(train_embs[t], k) for t in available}
+        sigs = {t: PPCASig(train_embs[t], k, device=device) for t in available}
         test_avail = OrderedDict((t, test_embs[t]) for t in available if t in test_embs)
         acc_psr, _ = route_accuracy_vec(sigs, test_avail, available, device=device)
         psr_results[t_idx] = {"n_tasks": n_cls, "accuracy": acc_psr}
@@ -439,6 +454,8 @@ def main():
                         help="If --emb_dir points to parent, compare all backbone subdirs")
     parser.add_argument("--device", default="auto",
                         help="Device: cpu | cuda | cuda:0 | auto (default: auto)")
+    parser.add_argument("--force", action="store_true",
+                        help="Force re-run even if output already exists")
     args = parser.parse_args()
     args.device = _resolve_device(args.device)
 
@@ -463,7 +480,7 @@ def main():
                 continue
             tr = OrderedDict((t, tr[t]) for t in found)
             te = OrderedDict((t, te[t]) for t in found)
-            sigs = {t: PPCASig(e, args.subspace_k) for t, e in tr.items()}
+            sigs = {t: PPCASig(e, args.subspace_k, device=args.device) for t, e in tr.items()}
             fn = lambda h: min(sigs, key=lambda t: psr_dist(h, sigs[t]))
             acc, pt = route_accuracy(sigs, te, found, fn)
             compare[bd.name] = {"accuracy": acc, "d_model": next(iter(tr.values())).shape[1],
@@ -478,6 +495,13 @@ def main():
     # ── Single backbone ──
     backbone = Path(args.emb_dir).name
     tag = f"{backbone}_{args.benchmark}" + ("_whitened" if args.whiten else "")
+
+    # ── Skip if already done ──
+    out_path_check = out_dir / f"ablation_{tag}.json"
+    if out_path_check.exists() and not args.force:
+        print(f"[SKIP] Phase D: {out_path_check} already exists. Use --force to re-run.")
+        return
+
     print(f"=== Phase D: PSR Ablation  [{tag}]  k={args.subspace_k} ===\n")
 
     train_embs = load_all(args.emb_dir, args.benchmark, tasks, "train")

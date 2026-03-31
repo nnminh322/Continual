@@ -21,6 +21,9 @@
 
 set -euo pipefail
 
+# Reduce CUDA memory fragmentation (helps Llama d=4096 on 16 GB GPUs)
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 BENCHMARK=""
 BACKBONE=""
 SUBSPACE_K=8
@@ -28,6 +31,7 @@ WHITEN=false
 LAYER=""
 SKIP_F=false        # Phase F (GPM) requires torch; set --skip_F to skip if unavailable
 DEVICE="auto"       # auto = cuda if available, else cpu (used by Phase F)
+FORCE=false         # --force = re-run even if output already exists
 
 usage() {
   echo "Usage: $0 --benchmark <Long_Sequence|SuperNI> --backbone <backbone_dir_name> [OPTIONS]"
@@ -38,7 +42,8 @@ usage() {
   echo "  --whiten      Apply ZCA whitening to all phases"
   echo "  --layer       embedding = use word-embedding-layer extractions (_wordemb suffix)"
   echo "  --skip_F      Skip Phase F (requires PyTorch)"
-  echo "  --device      cpu | cuda | cuda:0 | auto (default: auto, passed to Phase F)"
+  echo "  --device      cpu | cuda | cuda:0 | auto (default: auto, passed to all phases)"
+  echo "  --force       Force re-run even if output already exists"
   exit 1
 }
 
@@ -51,6 +56,7 @@ while [[ $# -gt 0 ]]; do
     --layer)     LAYER="$2"; shift 2 ;;
     --skip_F)    SKIP_F=true; shift ;;
     --device)    DEVICE="$2"; shift 2 ;;
+    --force)     FORCE=true; shift ;;
     -h|--help)   usage ;;
     *) echo "Unknown flag: $1"; usage ;;
   esac
@@ -62,6 +68,7 @@ SCRIPT_DIR="$(dirname "$0")"
 COMMON="--benchmark ${BENCHMARK} --backbone ${BACKBONE} --k ${SUBSPACE_K} --device ${DEVICE}"
 [[ "$WHITEN" == "true" ]] && COMMON+=" --whiten"
 [[ -n "$LAYER" ]] && COMMON+=" --layer ${LAYER}"
+[[ "$FORCE" == "true" ]] && COMMON+=" --force"
 
 echo "###################################################"
 echo "  Routing Geometry — Full Experiment Pipeline"
@@ -70,7 +77,8 @@ echo "  Benchmark : ${BENCHMARK}"
 echo "  k         : ${SUBSPACE_K}"
 echo "  Whiten    : ${WHITEN}"
 echo "  Skip F    : ${SKIP_F}"
-echo "  Device(F) : ${DEVICE}"
+echo "  Force     : ${FORCE}"
+echo "  Device    : ${DEVICE}"
 echo "###################################################"
 
 # ── Phase A: Geometric EDA ──────────────────────────────

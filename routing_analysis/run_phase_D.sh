@@ -19,6 +19,7 @@ WHITEN=false
 COMPARE_BACKBONES=false
 LAYER=""
 DEVICE="auto"
+FORCE=false
 
 usage() {
   echo "Usage: $0 --benchmark <Long_Sequence|SuperNI> --backbone <backbone_dir_name> [--k INT] [--whiten] [--compare_backbones] [--layer embedding] [--device auto|cpu|cuda]"
@@ -42,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --compare_backbones) COMPARE_BACKBONES=true; shift ;;
     --layer)             LAYER="$2"; shift 2 ;;
     --device)            DEVICE="$2"; shift 2 ;;
+    --force)             FORCE=true; shift ;;
     -h|--help) usage ;;
     *) echo "Unknown flag: $1"; usage ;;
   esac
@@ -79,6 +81,7 @@ CMD="python ablation_psr.py \
 
 [[ "$WHITEN"            == "true" ]] && CMD+=" --whiten"
 [[ "$COMPARE_BACKBONES" == "true" ]] && CMD+=" --compare_backbones"
+[[ "$FORCE"             == "true" ]] && CMD+=" --force"
 
 echo "CMD: $CMD"
 echo ""

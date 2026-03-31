@@ -116,17 +116,34 @@ def load_all(emb_dir, benchmark, tasks, split):
 
 
 class PPCASig:
-    def __init__(self, embs, k):
+    def __init__(self, embs, k, device='cpu'):
         self.n, self.d = embs.shape
-        self.mu = embs.mean(0)
-        self.cov = np.cov(embs, rowvar=False)
-        ev, evec = eigh(self.cov)
-        idx = np.argsort(ev)[::-1]
-        self.eigvals = ev[idx]
-        self.V = evec[:, idx[:k]]
-        self.k = min(k, self.d)
-        self.lam = np.maximum(self.eigvals[:self.k], 1e-12)
-        self.sigma2 = float(max(self.eigvals[self.k:].mean(), 1e-12)) if self.k < self.d else 1e-12
+        if 'cuda' in device and HAS_TORCH:
+            dev = torch.device(device)
+            X = torch.tensor(embs, dtype=torch.float32, device=dev)
+            self.mu = X.mean(0).cpu().numpy()
+            Xc = X - X.mean(0)
+            cov_t = (Xc.T @ Xc) / max(self.n - 1, 1)
+            ev_t, evec_t = torch.linalg.eigh(cov_t)
+            idx = torch.argsort(ev_t, descending=True)
+            ev_t = ev_t[idx]; evec_t = evec_t[:, idx]
+            self.cov = cov_t.cpu().numpy()
+            self.eigvals = ev_t.cpu().numpy()
+            self.V = evec_t[:, :min(k, self.d)].cpu().numpy()
+            self.k = min(k, self.d)
+            self.lam = np.maximum(self.eigvals[:self.k], 1e-12)
+            self.sigma2 = float(max(self.eigvals[self.k:].mean(), 1e-12)) if self.k < self.d else 1e-12
+            del X, Xc, cov_t, ev_t, evec_t
+        else:
+            self.mu = embs.mean(0)
+            self.cov = np.cov(embs, rowvar=False)
+            ev, evec = eigh(self.cov)
+            idx = np.argsort(ev)[::-1]
+            self.eigvals = ev[idx]
+            self.V = evec[:, idx[:k]]
+            self.k = min(k, self.d)
+            self.lam = np.maximum(self.eigvals[:self.k], 1e-12)
+            self.sigma2 = float(max(self.eigvals[self.k:].mean(), 1e-12)) if self.k < self.d else 1e-12
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -229,7 +246,7 @@ def _psr_dist(h, sig):
 
 def e1_kl_vs_confusion(train_embs, test_embs, tasks, k, device='cpu'):
     """E1: correlate pairwise KL with empirical confusion rates."""
-    sigs = {t: PPCASig(e, k) for t, e in train_embs.items()}
+    sigs = {t: PPCASig(e, k, device=device) for t, e in train_embs.items()}
 
     # Pairwise KL
     n = len(tasks)
@@ -281,9 +298,9 @@ def e1_kl_vs_confusion(train_embs, test_embs, tasks, k, device='cpu'):
 # E2 — Grassmannian Packing Bound
 # ═══════════════════════════════════════════════════════════════════════
 
-def e2_grassmann_bound(train_embs, tasks, k):
+def e2_grassmann_bound(train_embs, tasks, k, device='cpu'):
     """Verify T_max <= d / (k * (1 - delta_max))."""
-    sigs = {t: PPCASig(e, k) for t, e in train_embs.items()}
+    sigs = {t: PPCASig(e, k, device=device) for t, e in train_embs.items()}
     n = len(tasks)
     d = next(iter(sigs.values())).d
 
@@ -342,8 +359,9 @@ def marchenko_pastur_edges(gamma, sigma2=1.0):
     return float(lam_minus), float(lam_plus)
 
 
-def e3_rmt_analysis(train_embs, tasks, k):
+def e3_rmt_analysis(train_embs, tasks, k, device='cpu'):
     """Compare empirical eigenvalue distributions with RMT predictions."""
+    use_gpu = 'cuda' in device and HAS_TORCH
     results = {}
     for t in tasks:
         if t not in train_embs:
@@ -352,9 +370,20 @@ def e3_rmt_analysis(train_embs, tasks, k):
         n, d = embs.shape
         gamma = d / n  # aspect ratio
 
-        cov = np.cov(embs, rowvar=False)
-        eigvals = np.flip(np.sort(np.linalg.eigvalsh(cov)))
-        eigvals = np.maximum(eigvals, 0)
+        if use_gpu:
+            dev = torch.device(device)
+            X = torch.tensor(embs, dtype=torch.float32, device=dev)
+            Xc = X - X.mean(0)
+            cov_t = (Xc.T @ Xc) / max(n - 1, 1)
+            eigvals_t = torch.linalg.eigvalsh(cov_t)
+            eigvals_t = eigvals_t.flip(0).clamp(min=0)
+            eigvals = eigvals_t.cpu().numpy()
+            cov = cov_t.cpu().numpy()
+            del X, Xc, cov_t, eigvals_t
+        else:
+            cov = np.cov(embs, rowvar=False)
+            eigvals = np.flip(np.sort(np.linalg.eigvalsh(cov)))
+            eigvals = np.maximum(eigvals, 0)
 
         # Estimate noise floor (sigma2) from bottom eigenvalues
         sigma2_est = float(np.median(eigvals[k:]))  # median of "noise" eigenvalues
@@ -391,7 +420,7 @@ def e3_rmt_analysis(train_embs, tasks, k):
 def e3_shrinkage_routing(train_embs, test_embs, tasks, k, device='cpu'):
     """Compare routing accuracy with/without LW shrinkage on covariance."""
     # Raw PSR
-    sigs_raw = {t: PPCASig(e, k) for t, e in train_embs.items()}
+    sigs_raw = {t: PPCASig(e, k, device=device) for t, e in train_embs.items()}
 
     # PSR with shrinkage: re-estimate eigenvalues after shrinkage
     sigs_shrunk = {}
@@ -497,6 +526,8 @@ def main():
                         help="Apply global ZCA whitening")
     parser.add_argument("--device", default="auto",
                         help="Device: cpu | cuda | cuda:0 | auto (default: auto)")
+    parser.add_argument("--force", action="store_true",
+                        help="Force re-run even if output already exists")
     args = parser.parse_args()
     args.device = _resolve_device(args.device)
 
@@ -504,6 +535,12 @@ def main():
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     backbone = Path(args.emb_dir).name
     tag = f"{backbone}_{args.benchmark}" + ("_whitened" if args.whiten else "")
+
+    # ── Skip if already done ──
+    out_path = out_dir / f"theory_{tag}.json"
+    if out_path.exists() and not args.force:
+        print(f"[SKIP] Phase E: {out_path} already exists. Use --force to re-run.")
+        return
 
     print(f"=== Phase E: Theory Validation  [{tag}]  k={args.subspace_k} ===\n")
 
@@ -545,7 +582,7 @@ def main():
 
     # ── E2: Grassmann bound ──
     print(f"\n─── E2: Grassmannian Packing Bound (k={args.subspace_k}) ───")
-    e2 = e2_grassmann_bound(train_embs, found, args.subspace_k)
+    e2 = e2_grassmann_bound(train_embs, found, args.subspace_k, device=args.device)
     report["E2_grassmann"] = {k: v for k, v in e2.items() if k != "overlap_matrix"}
     print(f"  T_actual = {e2['T_actual']},  T_max_bound = {e2['T_max_bound']:.1f}")
     print(f"  δ_max = {e2['delta_max']:.4f},  δ_mean = {e2['delta_mean']:.4f}")
@@ -555,7 +592,7 @@ def main():
 
     # ── E3: RMT analysis ──
     print(f"\n─── E3: RMT / Marchenko-Pastur Analysis ───")
-    rmt = e3_rmt_analysis(train_embs, found, args.subspace_k)
+    rmt = e3_rmt_analysis(train_embs, found, args.subspace_k, device=args.device)
     for t, info in rmt.items():
         print(f"  {t:40s}  γ={info['gamma']:.2f}  #signal={info['n_signal_eigvals']:3d}"
               f"  λ₁/σ²={info['eigenvalue_inflation_ratio']:.1f}"
