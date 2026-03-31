@@ -25,9 +25,11 @@ SUBSPACE_K=8
 WHITEN=false
 LAYER=""
 
-# GPM parameters
-MLP_HIDDEN=100
+# GPM parameters (auto-detected from backbone if not set)
+MLP_HIDDEN=""       # auto: T5=100, Llama=50
 TRANSTHRESHOLD=0.995
+CHUNK=""            # auto: T5=1, Llama=4
+BACKBONE_TYPE="auto"  # auto-detect from backbone name
 LR=1e-3
 EPOCHS=30
 BATCH_SIZE=256
@@ -48,8 +50,10 @@ usage() {
   echo "  --layer            embedding = use _wordemb extraction dir"
   echo ""
   echo "  GPM/ROOT options:"
-  echo "  --mlp_hidden_dim   trans_input MLP hidden dim (default: 100)"
+  echo "  --mlp_hidden_dim   trans_input hidden dim (auto: T5=100, Llama=50)"
   echo "  --transthreshold   GPM energy threshold (default: 0.995)"
+  echo "  --chunk            GPM chunking factor (auto: T5=1, Llama=4)"
+  echo "  --backbone_type    t5 | llama | auto (default: auto-detect)"
   echo "  --lr               Proxy training LR (default: 1e-3)"
   echo "  --epochs           Proxy training epochs (default: 30)"
   echo "  --device           cpu | cuda | cuda:0 | auto (default: auto — uses GPU if available)"
@@ -69,6 +73,8 @@ while [[ $# -gt 0 ]]; do
     --layer)           LAYER="$2"; shift 2 ;;
     --mlp_hidden_dim)  MLP_HIDDEN="$2"; shift 2 ;;
     --transthreshold)  TRANSTHRESHOLD="$2"; shift 2 ;;
+    --chunk)           CHUNK="$2"; shift 2 ;;
+    --backbone_type)   BACKBONE_TYPE="$2"; shift 2 ;;
     --lr)              LR="$2"; shift 2 ;;
     --epochs)          EPOCHS="$2"; shift 2 ;;
     --device)          DEVICE="$2"; shift 2 ;;
@@ -101,7 +107,7 @@ if [[ "$DEVICE" == "auto" ]]; then
   DEVICE=$(python -c "import torch; print('cuda' if torch.cuda.is_available() else 'cpu')" 2>/dev/null || echo 'cpu')
 fi
 
-echo "  GPM: mlp_hidden=${MLP_HIDDEN}, threshold=${TRANSTHRESHOLD}, lr=${LR}, epochs=${EPOCHS}, device=${DEVICE}"
+echo "  GPM: backbone_type=${BACKBONE_TYPE}, mlp_hidden=${MLP_HIDDEN:-auto}, chunk=${CHUNK:-auto}, threshold=${TRANSTHRESHOLD}, lr=${LR}, epochs=${EPOCHS}, device=${DEVICE}"
 echo "  RLS: expansion=${RLS_EXPANSION}, lambda=${RLS_LAMBDA}"
 echo "========================================================"
 
@@ -109,14 +115,17 @@ CMD="python simulate_gpm_routing.py \
   --emb_dir         ${EMB_DIR} \
   --benchmark       ${BENCHMARK} \
   --subspace_k      ${SUBSPACE_K} \
-  --mlp_hidden_dim  ${MLP_HIDDEN} \
   --transthreshold  ${TRANSTHRESHOLD} \
+  --backbone_type   ${BACKBONE_TYPE} \
   --lr              ${LR} \
   --epochs          ${EPOCHS} \
   --batch_size      ${BATCH_SIZE} \
   --device          ${DEVICE} \
   --rls_expansion   ${RLS_EXPANSION} \
   --rls_lambda      ${RLS_LAMBDA}"
+
+[[ -n "$MLP_HIDDEN" ]] && CMD+=" --mlp_hidden_dim ${MLP_HIDDEN}"
+[[ -n "$CHUNK" ]]      && CMD+=" --chunk ${CHUNK}"
 
 [[ "$WHITEN" == "true" ]] && CMD+=" --whiten"
 [[ "$FORCE"  == "true" ]] && CMD+=" --force"

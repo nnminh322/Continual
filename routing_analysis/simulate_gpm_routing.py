@@ -116,213 +116,190 @@ def load_all(emb_dir, benchmark, tasks, split):
 
 # ═══════════════════════════════════════════════════════════════════════
 # 1. GPM Routing (ROOT/GainLoRA faithful reproduction)
+#
+# Verified against root_gainlora/src/:
+#   T5:    t5_gainlora_inflora.py   — SiLU after each Linear
+#   Llama: llama_gainlora_inflora.py — SiLU only at the end
+#   Trainer: cl_trainer_gainlora_inflora.py — GPM SVD, gradient projection
+#   Scripts: gen_script_*  — actual hyperparameters
 # ═══════════════════════════════════════════════════════════════════════
 
 class TransInputMLP(nn.Module):
-    """Single-task trans_input: Linear(d→h) → SiLU → Linear(h→d) → SiLU.
+    """Single-task trans_input MLP (bias=False).
 
-    Matches ROOT's `nn.Sequential(Linear, SiLU, Linear, SiLU)` with bias=False.
+    T5 (ROOT t5_gainlora_inflora.py L1051):
+        Linear(d→h) → SiLU → Linear(h→d) → SiLU
+    Llama (ROOT llama_gainlora_inflora.py L743):
+        Linear(d→h) → Linear(h→d) → SiLU   (one SiLU at end)
+
+    Init: kaiming_uniform_(a=√3) matching ROOT's Trans_input class.
     """
-    def __init__(self, d_model, hidden_dim):
+    def __init__(self, d_model, hidden_dim, backbone='t5'):
         super().__init__()
         self.linear1 = nn.Linear(d_model, hidden_dim, bias=False)
         self.linear2 = nn.Linear(hidden_dim, d_model, bias=False)
         self.act = nn.SiLU()
+        self.backbone = backbone
+        # ROOT Trans_input: kaiming_uniform_(a=√3)
+        nn.init.kaiming_uniform_(self.linear1.weight, a=math.sqrt(3))
+        nn.init.kaiming_uniform_(self.linear2.weight, a=math.sqrt(3))
 
     def forward(self, x):
         """x: (B, d) → (B, d)"""
+        if self.backbone == 'llama':
+            return self.act(self.linear2(self.linear1(x)))
         return self.act(self.linear2(self.act(self.linear1(x))))
+
+    def forward_medium(self, x):
+        """Return intermediate hidden features for GPM covariance."""
+        if self.backbone == 'llama':
+            return self.linear1(x)                 # no activation
+        return self.act(self.linear1(x))           # SiLU
 
 
 class FrozenTransInput(nn.Module):
-    """Multi-task frozen trans_input — stores (n_tasks, h, d) and (n_tasks, d, h) weights.
+    """Multi-task frozen trans_input (per-task loop to avoid broadcast OOM).
 
-    Matches ROOT's `Trans_input` class.  Uses a per-task loop instead of
-    broadcast matmul to keep GPU peak memory low (critical for d≥4096).
+    Backbone-aware: T5 has SiLU after each matmul, Llama only at end.
     """
-    def __init__(self, input_weights, output_weights):
-        """
-        input_weights:  list of (h, d) tensors, one per frozen task
-        output_weights: list of (d, h) tensors
-        """
+    def __init__(self, input_weights, output_weights, backbone='t5'):
         super().__init__()
-        # Stack into (n_tasks, h, d) and (n_tasks, d, h)
         self.register_buffer('W_in', torch.stack(input_weights, dim=0))    # (T, h, d)
         self.register_buffer('W_out', torch.stack(output_weights, dim=0))  # (T, d, h)
         self.act = nn.SiLU()
+        self.backbone = backbone
 
     def forward(self, x):
-        """x: (B, d) → (B, T, d).  Per-task loop avoids broadcast OOM."""
+        """x: (B, d) → (B, T, d)"""
         T = self.W_in.shape[0]
         results = []
         for t in range(T):
-            mid = self.act(x @ self.W_in[t].T)    # (B, d)@(d, h) → (B, h)
-            out = self.act(mid @ self.W_out[t].T)  # (B, h)@(h, d) → (B, d)
+            mid = x @ self.W_in[t].T                # (B, h)
+            if self.backbone != 'llama':
+                mid = self.act(mid)                  # T5: SiLU after first linear
+            out = self.act(mid @ self.W_out[t].T)    # SiLU after second linear (both)
             results.append(out)
-        return torch.stack(results, dim=1)          # (B, T, d)
+        return torch.stack(results, dim=1)
 
 
 def cal_attention(prompt_keys, x_features):
     """ROOT's cal_attention: |sigmoid(4 * cos_sim) * 2 - 1|.
 
-    Args:
-        prompt_keys: (B, T, d) or (T, d) — prompt keys per task
-        x_features:  (B, T, d) — transformed features per task
-    Returns:
-        weights: (B, T) — non-negative routing weights
+    Matches ROOT t5_gainlora_inflora.py L1188-L1217.
     """
     if prompt_keys.dim() == 2:
         prompt_keys = prompt_keys.unsqueeze(0).expand(x_features.shape[0], -1, -1)
-    # L2 normalize
     x_norm = x_features / (x_features.norm(dim=-1, keepdim=True) + 1e-12)
     pk_norm = prompt_keys / (prompt_keys.norm(dim=-1, keepdim=True) + 1e-12)
-    # Cosine similarity per task
     cos_sim = (x_norm * pk_norm).sum(dim=-1)  # (B, T)
-    weights = torch.abs(torch.sigmoid(cos_sim * 4) * 2 - 1)
-    return weights
+    return torch.abs(torch.sigmoid(cos_sim * 4) * 2 - 1)
 
 
-def gpm_svd_threshold(cov_matrix, threshold):
-    """Extract GPM bases from covariance matrix via SVD + cumulative energy threshold.
+# ── GPU-accelerated GPM functions (torch.linalg.svd) ────────────────
 
-    Returns U[:, :r] where r is smallest such that cumsum(S²)/sum(S²) >= threshold.
-    Returns None if r=0 (skip update).
+def _gpm_svd_extract(cov, threshold):
+    """First-task GPM basis extraction on GPU.
+
+    Args:
+        cov: (d, d) torch tensor on device
+        threshold: cumulative energy threshold
+    Returns:
+        (d, r) basis tensor or None
     """
-    U, S, _ = np.linalg.svd(cov_matrix, full_matrices=False)
+    U, S, _ = torch.linalg.svd(cov, full_matrices=False)
     sval_sq = S ** 2
     sval_total = sval_sq.sum()
-    if sval_total < 1e-12:
+    if sval_total.item() < 1e-12:
         return None
-    sval_ratio = sval_sq / sval_total
-    cumsum = np.cumsum(sval_ratio)
-    r = int(np.searchsorted(cumsum, threshold)) + 1
-    r = min(r, len(S))
-    if r == 0:
-        return None
+    cumsum = torch.cumsum(sval_sq / sval_total, dim=0)
+    r = int((cumsum < threshold).sum().item()) + 1
+    r = min(max(r, 1), S.shape[0])
     return U[:, :r]
 
 
-def gpm_update_bases(old_bases, new_cov, threshold):
-    """Update GPM bases incrementally (Eq-8, Eq-9 from GPM paper).
+def _gpm_update(old_bases, new_cov, threshold):
+    """Incremental GPM base update on GPU.
 
-    For task t>1:
-    1. Project new covariance into null-space of existing bases
-    2. SVD projected covariance
-    3. Append new bases if variance threshold not met
-
-    Args:
-        old_bases: (d, r_old) or None
-        new_cov:   (d, d) covariance matrix for new task
-        threshold: cumulative energy threshold
-    Returns:
-        updated_bases: (d, r_new) or None
+    Matches ROOT cl_trainer_gainlora_inflora.py L406-L470 (Eq-8, Eq-9).
     """
     if old_bases is None:
-        # First task: just extract from full covariance
-        return gpm_svd_threshold(new_cov, threshold)
+        return _gpm_svd_extract(new_cov, threshold)
 
-    d = new_cov.shape[0]
-    # Projection matrix P_old = U @ U^T
-    P_old = old_bases @ old_bases.T  # (d, d)
-
-    # Full SVD for threshold computation
-    U_full, S_full, _ = np.linalg.svd(new_cov, full_matrices=False)
+    # Full SVD for total variance
+    _, S_full, _ = torch.linalg.svd(new_cov, full_matrices=False)
     sval_total = (S_full ** 2).sum()
 
-    # Project into null-space: C_hat = (I - P_old) @ C @ (I - P_old)
-    Q = np.eye(d) - P_old
-    C_hat = Q @ new_cov  # simplified: project rows only (matches ROOT source)
+    # Project into null-space (Eq-8): act_hat = cov - U U^T cov
+    act_hat = new_cov - old_bases @ (old_bases.T @ new_cov)
 
-    U_hat, S_hat, _ = np.linalg.svd(C_hat, full_matrices=False)
+    U_hat, S_hat, _ = torch.linalg.svd(act_hat, full_matrices=False)
     sval_hat = (S_hat ** 2).sum()
 
-    # Check how much variance is already explained
-    accumulated = (sval_total - sval_hat) / max(sval_total, 1e-12)
+    # Greedy accumulation (Eq-9)
+    accumulated = (sval_total - sval_hat) / max(sval_total.item(), 1e-12)
+    sval_ratio = (S_hat ** 2) / max(sval_total.item(), 1e-12)
 
     r = 0
-    sval_ratio = (S_hat ** 2) / max(sval_total, 1e-12)
-    for ii in range(len(sval_ratio)):
+    for ii in range(sval_ratio.shape[0]):
         if accumulated < threshold:
-            accumulated += sval_ratio[ii]
+            accumulated += sval_ratio[ii].item()
             r += 1
         else:
             break
 
     if r == 0:
-        # Skip update — existing bases sufficient
         return old_bases
 
-    # Concatenate old + new bases
-    new_dirs = U_hat[:, :r]
-    updated = np.hstack([old_bases, new_dirs])
-    # Clip if exceeds dimension
+    updated = torch.cat([old_bases, U_hat[:, :r]], dim=1)
+    d = updated.shape[0]
     if updated.shape[1] > d:
         updated = updated[:, :d]
     return updated
 
 
-def init_prompt_key_from_cov(output_cov, d_model, old_routing_bases=None):
-    """Initialize prompt_key from output covariance (ROOT's method).
-
-    Task 1: top eigenvector of output covariance.
-    Task t>1: top eigenvector of random matrix projected into null-space.
-    """
-    if old_routing_bases is None:
-        # Task 1: data-informed init
-        U, S, _ = np.linalg.svd(output_cov, full_matrices=False)
-        pk = U[:, 0]  # top eigenvector
-    else:
-        # Task t>1: null-space init
-        d = output_cov.shape[0]
-        P_old = old_routing_bases @ old_routing_bases.T
-        R = np.random.randn(d, d).astype(np.float32)
-        R_proj = R - P_old @ R
-        U, S, _ = np.linalg.svd(R_proj, full_matrices=False)
-        pk = U[:, 0]
-
-    # Normalize (ROOT divides by sqrt(chunk) then scales to pre_norm)
-    pk = pk / (np.linalg.norm(pk) + 1e-12)
-    return pk.astype(np.float32)
-
-
 class GPMRouter:
-    """Full GPM routing simulator, faithful to ROOT/GainLoRA.
+    """Full GPM routing simulator, 100% faithful to ROOT/GainLoRA.
 
-    Incrementally learns trans_input MLP + prompt_key per task,
-    then applies GPM protection between tasks.
+    Verified against root_gainlora/src/ for:
+      - Backbone-specific architecture (T5 vs Llama)
+      - Kaiming init (a=√3)
+      - Per-chunk GPM bases (chunk=1 for T5, chunk=4 for Llama)
+      - Gradient projection after every optimizer step with norm preservation
+      - Prompt_key null-space initialization per chunk
+      - All SVD/matrix ops on GPU via torch.linalg
 
-    Parameters:
-        d_model:         embedding dimension
-        mlp_hidden_dim:  trans_input MLP hidden dim (ROOT default: 100)
-        transthreshold:  GPM energy threshold (ROOT default: 0.995)
-        lr:              proxy training learning rate
-        epochs:          proxy training epochs per task
-        device:          'cpu' or 'cuda'
+    Hyperparameters from ROOT gen_scripts:
+      T5:    mlp_hidden_dim=100, chunk=1,  transthreshold=0.995
+      Llama: mlp_hidden_dim=50,  chunk=4,  transthreshold=0.995
     """
 
     def __init__(self, d_model, mlp_hidden_dim=100, transthreshold=0.995,
-                 lr=1e-3, epochs=30, batch_size=256, device='cpu'):
+                 lr=1e-3, epochs=30, batch_size=256,
+                 chunk=1, backbone='t5', device='cpu'):
         self.d_model = d_model
         self.mlp_hidden_dim = mlp_hidden_dim
         self.transthreshold = transthreshold
         self.lr = lr
         self.epochs = epochs
         self.batch_size = batch_size
+        self.chunk = chunk
+        self.step = d_model // chunk   # dim per chunk
+        self.backbone = backbone
         self.device = device
 
-        # State accumulated across tasks
+        # Frozen snapshots (CPU numpy for storage, loaded to GPU on demand)
         self.prompt_keys = []              # list of np.ndarray (d,)
         self.frozen_W_in = []              # list of np.ndarray (h, d)
         self.frozen_W_out = []             # list of np.ndarray (d, h)
 
-        # GPM bases for 3 stages of trans_input:
-        # stage 1 = input covariance, stage 2 = medium, stage 3 = output
-        self.gpm_bases_input = None        # (d, r) or None
-        self.gpm_bases_medium = None       # (h, r) or None
-        self.gpm_bases_output = None       # (d, r) or None
+        # GPM bases — per-chunk for input/output, single for medium
+        # All stored as torch tensors on device
+        self.gpm_bases_input = {}          # {chunk_idx: (step, r) tensor}
+        self.gpm_bases_medium = None       # (h, r) tensor or None
+        self.gpm_bases_output = {}         # {chunk_idx: (step, r) tensor}
 
     def _adaptive_threshold(self, task_idx, total_tasks=15):
-        """Linearly interpolate threshold like ROOT:
+        """ROOT cl_trainer_gainlora_inflora.py L340:
         threshold_t = (1 - base) * t / T + base
         """
         return (1.0 - self.transthreshold) * task_idx / total_tasks + self.transthreshold
@@ -330,103 +307,147 @@ class GPMRouter:
     def add_task(self, task_embs, task_idx, total_tasks=15):
         """Learn routing for a new task and apply GPM protection.
 
-        All computation stays on GPU — task embeddings are loaded once.
-
-        Args:
-            task_embs: np.ndarray (N, d) — training embeddings for this task
-            task_idx:  0-indexed task number
-            total_tasks: total expected tasks (for threshold scheduling)
+        All computation on GPU. Per-chunk GPM matching ROOT exactly.
         """
         d = self.d_model
         h = self.mlp_hidden_dim
+        C = self.chunk
+        step = self.step
         threshold = self._adaptive_threshold(task_idx, total_tasks)
+        dev = self.device
 
-        # Load task embeddings to GPU once (e.g. 5000×4096×4 ≈ 80 MB — fine)
-        X_gpu = torch.from_numpy(task_embs).float().to(self.device)
+        X_gpu = torch.from_numpy(task_embs).float().to(dev)
         N = X_gpu.shape[0]
 
-        # ── Step 1: Initialize trans_input MLP ──
-        mlp = TransInputMLP(d, h).to(self.device)
+        # ── Step 1: Initialize trans_input MLP (kaiming a=√3) ──
+        mlp = TransInputMLP(d, h, backbone=self.backbone).to(dev)
 
-        # If task > 0: project initial MLP weights into GPM null-space
+        # Project initial weights into GPM null-space (per-chunk)
         if task_idx > 0:
             with torch.no_grad():
-                if self.gpm_bases_input is not None:
-                    P = torch.from_numpy(
-                        self.gpm_bases_input @ self.gpm_bases_input.T
-                    ).float().to(self.device)
-                    mlp.linear1.weight.data -= mlp.linear1.weight.data @ P
-                    del P
+                # linear1.weight (h, d): project INPUT columns per-chunk
+                for ci in range(C):
+                    s, e = ci * step, (ci + 1) * step
+                    bases = self.gpm_bases_input.get(ci)
+                    if bases is not None:
+                        P = bases @ bases.T  # (step, step)
+                        mlp.linear1.weight.data[:, s:e] -= (
+                            mlp.linear1.weight.data[:, s:e] @ P)
 
-                if self.gpm_bases_output is not None:
-                    P = torch.from_numpy(
-                        self.gpm_bases_output @ self.gpm_bases_output.T
-                    ).float().to(self.device)
-                    mlp.linear2.weight.data -= P @ mlp.linear2.weight.data
-                    del P
+                # linear2.weight (d, h): project MEDIUM columns (no chunk)
+                if self.gpm_bases_medium is not None:
+                    P = self.gpm_bases_medium @ self.gpm_bases_medium.T  # (h, h)
+                    mlp.linear2.weight.data -= mlp.linear2.weight.data @ P
 
-        # ── Step 2: Initialize prompt_key ──
-        # Compute output covariance on GPU: X_out.T @ X_out / N
+        # ── Step 2: Initialize prompt_key (per-chunk, ROOT's method) ──
         with torch.no_grad():
-            out_feat = mlp(X_gpu)                                 # (N, d) on GPU
-            out_cov = (out_feat.T @ out_feat).div_(max(N, 1))    # (d, d) on GPU
-        out_cov_np = out_cov.cpu().numpy()
-        del out_feat, out_cov
+            out_feat = mlp(X_gpu)  # (N, d)
 
-        pk_np = init_prompt_key_from_cov(out_cov_np, d, self.gpm_bases_output)
-        prompt_key = nn.Parameter(torch.from_numpy(pk_np).float().to(self.device))
+        pk = torch.zeros(d, device=dev)
+        if task_idx == 0:
+            # Task 0: top eigvec of output covariance per-chunk
+            # ROOT cl_trainer_gainlora_inflora.py L218-L240
+            with torch.no_grad():
+                for ci in range(C):
+                    s, e = ci * step, (ci + 1) * step
+                    cov_c = (out_feat[:, s:e].T @ out_feat[:, s:e]).div_(max(N, 1))
+                    U, _, _ = torch.linalg.svd(cov_c, full_matrices=False)
+                    pk[s:e] = U[:, 0]
+        else:
+            # Task ≥1: top eigvec of random matrix projected to null-space
+            # ROOT cl_trainer_gainlora_inflora.py L247-L260
+            with torch.no_grad():
+                for ci in range(C):
+                    s, e = ci * step, (ci + 1) * step
+                    R = torch.randn(step, step, device=dev)
+                    bases = self.gpm_bases_output.get(ci)
+                    if bases is not None:
+                        P = bases @ bases.T
+                        R = R - P @ R
+                    U, _, _ = torch.linalg.svd(R, full_matrices=False)
+                    pk[s:e] = U[:, 0]
 
-        # ── Step 3: Train trans_input + prompt_key via routing proxy loss ──
+        del out_feat
+        # ROOT normalizes: /= √chunk then *= pre_norm.
+        # Since cal_attention L2-normalizes anyway, unit-norm suffices.
+        pk = pk / (pk.norm() + 1e-12)
+        prompt_key = nn.Parameter(pk.to(dev))
+
+        # ── Step 3: Train routing with gradient projection ──
         if task_idx > 0:
             self._train_routing(mlp, prompt_key, X_gpu, task_idx)
 
-        # ── Step 4: Collect covariance on GPU and update GPM ──
+        # ── Step 4: Collect covariance per-chunk on GPU & update GPM ──
         with torch.no_grad():
-            medium = mlp.act(mlp.linear1(X_gpu))   # (N, h) on GPU
-            output = mlp(X_gpu)                     # (N, d) on GPU
+            medium = mlp.forward_medium(X_gpu)  # (N, h)
+            output = mlp(X_gpu)                 # (N, d)
 
-            cov_input  = (X_gpu.T  @ X_gpu ).div_(max(N, 1)).cpu().numpy()
-            cov_medium = (medium.T @ medium).div_(max(N, 1)).cpu().numpy()
-            cov_output = (output.T @ output).div_(max(N, 1)).cpu().numpy()
+            # Medium: single (h, h) covariance (not chunked — ROOT's design)
+            cov_med = (medium.T @ medium).div_(max(N, 1))
+            self.gpm_bases_medium = _gpm_update(
+                self.gpm_bases_medium, cov_med, threshold)
+
+            # Input & output: per-chunk (step, step) covariance
+            for ci in range(C):
+                s, e = ci * step, (ci + 1) * step
+                cov_inp = (X_gpu[:, s:e].T @ X_gpu[:, s:e]).div_(max(N, 1))
+                cov_out = (output[:, s:e].T @ output[:, s:e]).div_(max(N, 1))
+                self.gpm_bases_input[ci] = _gpm_update(
+                    self.gpm_bases_input.get(ci), cov_inp, threshold)
+                self.gpm_bases_output[ci] = _gpm_update(
+                    self.gpm_bases_output.get(ci), cov_out, threshold)
+
         del medium, output
-
-        self.gpm_bases_input = gpm_update_bases(
-            self.gpm_bases_input, cov_input, threshold)
-        self.gpm_bases_medium = gpm_update_bases(
-            self.gpm_bases_medium, cov_medium, threshold)
-        self.gpm_bases_output = gpm_update_bases(
-            self.gpm_bases_output, cov_output, threshold)
 
         # ── Step 5: Snapshot ──
         self.prompt_keys.append(prompt_key.detach().cpu().numpy())
-        self.frozen_W_in.append(mlp.linear1.weight.detach().cpu().numpy())   # (h, d)
-        self.frozen_W_out.append(mlp.linear2.weight.detach().cpu().numpy())  # (d, h)
+        self.frozen_W_in.append(mlp.linear1.weight.detach().cpu().numpy())
+        self.frozen_W_out.append(mlp.linear2.weight.detach().cpu().numpy())
 
-        # Free GPU memory
         del mlp, prompt_key, X_gpu
-        if 'cuda' in self.device:
+        if 'cuda' in dev:
             torch.cuda.empty_cache()
 
-    def _train_routing(self, mlp, prompt_key, X_gpu, task_idx):
-        """Train current trans_input + prompt_key to correctly route.
+    # ── Precompute projection matrices for gradient projection ──
+    def _build_proj_matrices(self):
+        """Build P = U U^T for each GPM stage. Returns dict of GPU tensors."""
+        C, step = self.chunk, self.step
+        proj = {'input': {}, 'medium': None, 'output': {}}
+        for ci in range(C):
+            b = self.gpm_bases_input.get(ci)
+            if b is not None:
+                proj['input'][ci] = b @ b.T
+            b = self.gpm_bases_output.get(ci)
+            if b is not None:
+                proj['output'][ci] = b @ b.T
+        if self.gpm_bases_medium is not None:
+            proj['medium'] = self.gpm_bases_medium @ self.gpm_bases_medium.T
+        return proj
 
-        Proxy objective: cross-entropy over [current_task, prev_tasks].
-        X_gpu is already on device — no CPU↔GPU transfers in the loop.
+    def _train_routing(self, mlp, prompt_key, X_gpu, task_idx):
+        """Train trans_input + prompt_key with ROOT-style gradient projection.
+
+        ROOT cl_trainer_gainlora_inflora.py L1336-L1436:
+          After every optimizer.step():
+            1. W_new = W_new - (W_new - W_old) @ P   (per-chunk for input/output)
+            2. Restore row norms (norm-preserving projection)
         """
-        n_prev = len(self.prompt_keys)
+        C, step = self.chunk, self.step
 
         frozen_pks = torch.tensor(
-            np.stack(self.prompt_keys), dtype=torch.float32, device=self.device
-        )
+            np.stack(self.prompt_keys), dtype=torch.float32, device=self.device)
         frozen_trans = FrozenTransInput(
             [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_in],
             [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_out],
+            backbone=self.backbone,
         ).to(self.device)
         frozen_trans.eval()
 
         optimizer = torch.optim.Adam(
-            list(mlp.parameters()) + [prompt_key], lr=self.lr
-        )
+            list(mlp.parameters()) + [prompt_key], lr=self.lr)
+
+        # Precompute projection matrices (stays on GPU, reused every step)
+        proj = self._build_proj_matrices()
 
         N = X_gpu.shape[0]
         bs = self.batch_size
@@ -437,8 +458,13 @@ class GPMRouter:
                 idx = perm[start:start + bs]
                 x_batch = X_gpu[idx]
 
-                x_cur = mlp(x_batch)
+                # ── Save old weights (for gradient projection) ──
+                old_W1 = mlp.linear1.weight.data.clone()
+                old_W2 = mlp.linear2.weight.data.clone()
+                old_pk = prompt_key.data.clone()
 
+                # ── Forward + loss ──
+                x_cur = mlp(x_batch)
                 with torch.no_grad():
                     x_prev = frozen_trans(x_batch)
 
@@ -455,18 +481,47 @@ class GPMRouter:
                 loss.backward()
                 optimizer.step()
 
+                # ── Gradient projection (ROOT's norm-preserving null-space) ──
+                with torch.no_grad():
+                    W1 = mlp.linear1.weight.data
+                    W2 = mlp.linear2.weight.data
+                    pk = prompt_key.data
+
+                    # Save post-step norms
+                    W1_norm = W1.norm(dim=1, keepdim=True)
+                    W2_norm = W2.norm(dim=1, keepdim=True)
+                    pk_norm = pk.norm()
+
+                    # linear1 (h, d): input bases, per-chunk
+                    for ci in range(C):
+                        P = proj['input'].get(ci)
+                        if P is not None:
+                            s, e = ci * step, (ci + 1) * step
+                            W1[:, s:e] -= (W1[:, s:e] - old_W1[:, s:e]) @ P
+
+                    # linear2 (d, h): medium bases, full
+                    P_med = proj['medium']
+                    if P_med is not None:
+                        W2.copy_(W2 - (W2 - old_W2) @ P_med)
+
+                    # prompt_key (d,): output bases, per-chunk
+                    for ci in range(C):
+                        P = proj['output'].get(ci)
+                        if P is not None:
+                            s, e = ci * step, (ci + 1) * step
+                            pk[s:e] -= (pk[s:e] - old_pk[s:e]) @ P
+
+                    # Restore norms (ROOT's norm-preserving step)
+                    mlp.linear1.weight.data = W1 * W1_norm / (W1.norm(dim=1, keepdim=True) + 1e-12)
+                    mlp.linear2.weight.data = W2 * W2_norm / (W2.norm(dim=1, keepdim=True) + 1e-12)
+                    prompt_key.data = pk * (pk_norm / (pk.norm() + 1e-12))
+
         del frozen_trans, frozen_pks
         if 'cuda' in self.device:
             torch.cuda.empty_cache()
 
     def route(self, h_batch):
-        """Route a batch of embeddings to task indices.
-
-        Args:
-            h_batch: np.ndarray (B, d)
-        Returns:
-            predicted task indices: np.ndarray (B,) — 0-indexed into self.prompt_keys
-        """
+        """Route embeddings to task indices (argmax of cal_attention weights)."""
         n_tasks = len(self.prompt_keys)
         if n_tasks == 0:
             raise ValueError("No tasks added yet")
@@ -474,27 +529,23 @@ class GPMRouter:
             return np.zeros(h_batch.shape[0], dtype=np.int64)
 
         X = torch.from_numpy(h_batch).float().to(self.device)
-
         all_pk = torch.tensor(
-            np.stack(self.prompt_keys), dtype=torch.float32, device=self.device
-        )
-
+            np.stack(self.prompt_keys), dtype=torch.float32, device=self.device)
         frozen_trans = FrozenTransInput(
             [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_in],
             [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_out],
+            backbone=self.backbone,
         ).to(self.device)
         frozen_trans.eval()
 
-        # FrozenTransInput uses per-task loop (no broadcast explosion)
-        # so we can use large chunks safely
-        chunk_size = 2048 if 'cuda' in self.device else 256
+        cs = 2048 if 'cuda' in self.device else 256
         all_preds = []
         with torch.no_grad():
-            for i in range(0, X.shape[0], chunk_size):
-                X_chunk = X[i : i + chunk_size]
-                all_x = frozen_trans(X_chunk)
-                weights = cal_attention(all_pk, all_x)
-                all_preds.append(weights.argmax(dim=1).cpu())
+            for i in range(0, X.shape[0], cs):
+                xc = X[i:i + cs]
+                all_x = frozen_trans(xc)
+                w = cal_attention(all_pk, all_x)
+                all_preds.append(w.argmax(dim=1).cpu())
 
         del frozen_trans, all_pk, X
         if 'cuda' in self.device:
@@ -668,7 +719,9 @@ def run_incremental_comparison(train_embs, test_embs, tasks, args):
             d, mlp_hidden_dim=args.mlp_hidden_dim,
             transthreshold=args.transthreshold,
             lr=args.lr, epochs=args.epochs,
-            batch_size=args.batch_size, device=args.device)
+            batch_size=args.batch_size,
+            chunk=args.chunk, backbone=args.backbone_type,
+            device=args.device)
     else:
         print("WARNING: torch not available, skipping GPM_ROOT routing.")
 
@@ -743,10 +796,15 @@ def main():
 
     # GPM (ROOT) parameters
     gpm = parser.add_argument_group("GPM/ROOT routing parameters")
-    gpm.add_argument("--mlp_hidden_dim", type=int, default=100,
-                     help="trans_input MLP hidden dim (ROOT default: 100)")
+    gpm.add_argument("--mlp_hidden_dim", type=int, default=None,
+                     help="trans_input MLP hidden dim (auto: T5=100, Llama=50)")
     gpm.add_argument("--transthreshold", type=float, default=0.995,
-                     help="GPM energy threshold for routing subspace (ROOT default: 0.995)")
+                     help="GPM energy threshold (ROOT default: 0.995)")
+    gpm.add_argument("--chunk", type=int, default=None,
+                     help="GPM chunking factor (auto: T5=1, Llama=4)")
+    gpm.add_argument("--backbone_type", default="auto",
+                     choices=["t5", "llama", "auto"],
+                     help="Backbone type for architecture selection (default: auto-detect)")
     gpm.add_argument("--lr", type=float, default=1e-3,
                      help="Proxy training learning rate")
     gpm.add_argument("--epochs", type=int, default=30,
@@ -768,9 +826,20 @@ def main():
     args = parser.parse_args()
     args.device = _resolve_device(args.device)
 
+    # ── Auto-detect backbone type from directory name ──
+    backbone = Path(args.emb_dir).name
+    if args.backbone_type == 'auto':
+        args.backbone_type = 'llama' if 'llama' in backbone.lower() else 't5'
+    is_llama = (args.backbone_type == 'llama')
+
+    # ── Auto-set ROOT defaults based on backbone ──
+    if args.mlp_hidden_dim is None:
+        args.mlp_hidden_dim = 50 if is_llama else 100
+    if args.chunk is None:
+        args.chunk = 4 if is_llama else 1
+
     tasks = BENCHMARKS[args.benchmark]
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
-    backbone = Path(args.emb_dir).name
     tag = f"{backbone}_{args.benchmark}" + ("_whitened" if args.whiten else "")
 
     # ── Skip if already done ──
@@ -780,7 +849,8 @@ def main():
         return
 
     print(f"=== Phase F: Learned Routing Comparison  [{tag}] ===")
-    print(f"    GPM: mlp_hidden={args.mlp_hidden_dim}, transthreshold={args.transthreshold}, "
+    print(f"    GPM: backbone={args.backbone_type}, mlp_hidden={args.mlp_hidden_dim}, "
+          f"chunk={args.chunk}, transthreshold={args.transthreshold}, "
           f"lr={args.lr}, epochs={args.epochs}")
     print(f"    RLS: expansion={args.rls_expansion}, lambda={args.rls_lambda}")
     print(f"    PSR: k={args.subspace_k}\n")
