@@ -64,9 +64,25 @@ _USE_GPU = False
 _DEVICE  = None   # torch.device object, set in main()
 
 
+def _test_gpu(device) -> bool:
+    """Run a tiny kernel to verify the GPU actually works.
+    Catches cudaErrorNoKernelImageForDevice (arch mismatch) early."""
+    try:
+        t = torch.zeros(8, device=device) + 1.0
+        _ = t.sum().item()
+        del t
+        torch.cuda.synchronize(device)
+        return True
+    except Exception as e:
+        print(f"[GPU] Kernel test on {device} FAILED: {type(e).__name__}: {e}")
+        print(f"[GPU] Falling back to CPU.  Tip: on Kaggle P100 run:")
+        print(f"      !pip install torch==2.1.2+cu118 --index-url https://download.pytorch.org/whl/cu118")
+        return False
+
+
 def _to_torch(arr: np.ndarray) -> "torch.Tensor":
-    """Convert numpy array to torch tensor on the active device."""
-    return torch.as_tensor(arr, dtype=torch.float64, device=_DEVICE)
+    """Convert numpy array to torch tensor on the active device (float32)."""
+    return torch.as_tensor(np.ascontiguousarray(arr), dtype=torch.float32, device=_DEVICE)
 
 
 def _cov_gpu(X: "torch.Tensor") -> "torch.Tensor":
@@ -493,13 +509,20 @@ def main():
     args = parser.parse_args()
     args.device = _resolve_device(args.device)
 
-    # Set global GPU state
-    _USE_GPU = HAS_TORCH and args.device != "cpu"
-    if _USE_GPU:
-        _DEVICE = torch.device(args.device)
-        print(f"[Phase A] All computations on {_DEVICE}")
+    # Set global GPU state — validate with a real kernel launch
+    _USE_GPU = False
+    _DEVICE  = None
+    if HAS_TORCH and args.device != "cpu":
+        dev = torch.device(args.device)
+        if _test_gpu(dev):
+            _USE_GPU = True
+            _DEVICE  = dev
+            gpu_name = torch.cuda.get_device_name(dev)
+            vram_gb  = torch.cuda.get_device_properties(dev).total_memory / 1e9
+            print(f"[Phase A] All computations on {dev}  ({gpu_name}, {vram_gb:.1f} GB)")
+        else:
+            print("[Phase A] GPU unavailable — running on CPU")
     else:
-        _DEVICE = None
         print("[Phase A] Running on CPU")
 
     tasks = BENCHMARKS[args.benchmark]
