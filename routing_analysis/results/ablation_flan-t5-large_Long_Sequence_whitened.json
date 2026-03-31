@@ -1,0 +1,300 @@
+{
+  "backbone": "flan-t5-large",
+  "benchmark": "Long_Sequence",
+  "k": 8,
+  "tasks": [
+    "agnews",
+    "amazon",
+    "boolq",
+    "cb",
+    "copa",
+    "dbpedia",
+    "imdb",
+    "mnli",
+    "multirc",
+    "qqp",
+    "rte",
+    "sst2",
+    "wic",
+    "yahoo",
+    "yelp"
+  ],
+  "D1_ablation": {
+    "Centroid_only": {
+      "accuracy": 0.04798125908468692
+    },
+    "Subspace_only": {
+      "accuracy": 4.233640507472375e-05
+    },
+    "PSR_light": {
+      "accuracy": 0.02290399514542555
+    },
+    "PSR_full": {
+      "accuracy": 0.15253806748422968
+    },
+    "PSR_no_penalty": {
+      "accuracy": 0.02290399514542555
+    }
+  },
+  "D2_rank_sweep": {
+    "2": {
+      "accuracy": 0.5150505920040643,
+      "memory_bytes_per_task": 12300
+    },
+    "4": {
+      "accuracy": 0.3061486572303524,
+      "memory_bytes_per_task": 20500
+    },
+    "8": {
+      "accuracy": 0.15253806748422968,
+      "memory_bytes_per_task": 36900
+    },
+    "16": {
+      "accuracy": 0.07486487630713651,
+      "memory_bytes_per_task": 69700
+    },
+    "32": {
+      "accuracy": 0.04160257405342854,
+      "memory_bytes_per_task": 135300
+    },
+    "64": {
+      "accuracy": 0.038864819858596404,
+      "memory_bytes_per_task": 266500
+    }
+  },
+  "D3_domain": {
+    "sentiment": {
+      "mean": 0.09482617093191695,
+      "tasks": 4,
+      "per_task": {
+        "yelp": 0.22657894736842105,
+        "amazon": 0.09763157894736842,
+        "imdb": 0.05394736842105263,
+        "sst2": 0.0011467889908256881
+      }
+    },
+    "NLI": {
+      "mean": 0.04777677496991576,
+      "tasks": 3,
+      "per_task": {
+        "mnli": 0.0075,
+        "cb": 0.125,
+        "rte": 0.010830324909747292
+      }
+    },
+    "topic": {
+      "mean": 0.32969298245614037,
+      "tasks": 3,
+      "per_task": {
+        "dbpedia": 0.4661842105263158,
+        "agnews": 0.011710526315789473,
+        "yahoo": 0.5111842105263158
+      }
+    },
+    "RC": {
+      "mean": 0.03504765040724256,
+      "tasks": 2,
+      "per_task": {
+        "multirc": 0.005569306930693069,
+        "boolq": 0.06452599388379204
+      }
+    },
+    "misc": {
+      "mean": 0.11077558708683936,
+      "tasks": 3,
+      "per_task": {
+        "copa": 0.3,
+        "qqp": 0.008815789473684211,
+        "wic": 0.023510971786833857
+      }
+    }
+  },
+  "D6_incremental": {
+    "PSR": {
+      "1": {
+        "n_tasks": 1,
+        "accuracy": 1.0
+      },
+      "2": {
+        "n_tasks": 2,
+        "accuracy": 0.8834868421052632
+      },
+      "3": {
+        "n_tasks": 3,
+        "accuracy": 0.4896047644829453
+      },
+      "4": {
+        "n_tasks": 4,
+        "accuracy": 0.48871855770268813
+      },
+      "5": {
+        "n_tasks": 5,
+        "accuracy": 0.4859873295393536
+      },
+      "6": {
+        "n_tasks": 6,
+        "accuracy": 0.33344772363303593
+      },
+      "7": {
+        "n_tasks": 7,
+        "accuracy": 0.26225388754212736
+      },
+      "8": {
+        "n_tasks": 8,
+        "accuracy": 0.20639212089026215
+      },
+      "9": {
+        "n_tasks": 9,
+        "accuracy": 0.18489864718848598
+      },
+      "10": {
+        "n_tasks": 10,
+        "accuracy": 0.16018858818725173
+      },
+      "11": {
+        "n_tasks": 11,
+        "accuracy": 0.15357057118058762
+      },
+      "12": {
+        "n_tasks": 12,
+        "accuracy": 0.15115497155734875
+      },
+      "13": {
+        "n_tasks": 13,
+        "accuracy": 0.1496918848026446
+      },
+      "14": {
+        "n_tasks": 14,
+        "accuracy": 0.16085740029402001
+      },
+      "15": {
+        "n_tasks": 15,
+        "accuracy": 0.15253806748422968
+      }
+    },
+    "RLS_batch": {
+      "1": {
+        "n_tasks": 1,
+        "accuracy": 1.0
+      },
+      "2": {
+        "n_tasks": 2,
+        "accuracy": 1.0
+      },
+      "3": {
+        "n_tasks": 3,
+        "accuracy": 1.0
+      },
+      "4": {
+        "n_tasks": 4,
+        "accuracy": 1.0
+      },
+      "5": {
+        "n_tasks": 5,
+        "accuracy": 1.0
+      },
+      "6": {
+        "n_tasks": 6,
+        "accuracy": 1.0
+      },
+      "7": {
+        "n_tasks": 7,
+        "accuracy": 1.0
+      },
+      "8": {
+        "n_tasks": 8,
+        "accuracy": 1.0
+      },
+      "9": {
+        "n_tasks": 9,
+        "accuracy": 0.9999783895924277
+      },
+      "10": {
+        "n_tasks": 10,
+        "accuracy": 0.9999814381705461
+      },
+      "11": {
+        "n_tasks": 11,
+        "accuracy": 0.9999815331203487
+      },
+      "12": {
+        "n_tasks": 12,
+        "accuracy": 0.9999818257819457
+      },
+      "13": {
+        "n_tasks": 13,
+        "accuracy": 0.9999820340992795
+      },
+      "14": {
+        "n_tasks": 14,
+        "accuracy": 0.9999683849449108
+      },
+      "15": {
+        "n_tasks": 15,
+        "accuracy": 0.9999717757299502
+      }
+    },
+    "RLS_incremental": {
+      "1": {
+        "n_tasks": 1,
+        "accuracy": 1.0
+      },
+      "2": {
+        "n_tasks": 2,
+        "accuracy": 1.0
+      },
+      "3": {
+        "n_tasks": 3,
+        "accuracy": 1.0
+      },
+      "4": {
+        "n_tasks": 4,
+        "accuracy": 1.0
+      },
+      "5": {
+        "n_tasks": 5,
+        "accuracy": 1.0
+      },
+      "6": {
+        "n_tasks": 6,
+        "accuracy": 1.0
+      },
+      "7": {
+        "n_tasks": 7,
+        "accuracy": 1.0
+      },
+      "8": {
+        "n_tasks": 8,
+        "accuracy": 1.0
+      },
+      "9": {
+        "n_tasks": 9,
+        "accuracy": 0.9999783895924277
+      },
+      "10": {
+        "n_tasks": 10,
+        "accuracy": 0.9999814381705461
+      },
+      "11": {
+        "n_tasks": 11,
+        "accuracy": 0.9999815331203487
+      },
+      "12": {
+        "n_tasks": 12,
+        "accuracy": 0.9999818257819457
+      },
+      "13": {
+        "n_tasks": 13,
+        "accuracy": 0.9999820340992795
+      },
+      "14": {
+        "n_tasks": 14,
+        "accuracy": 0.9999209623622769
+      },
+      "15": {
+        "n_tasks": 15,
+        "accuracy": 0.9999717757299502
+      }
+    }
+  }
+}
