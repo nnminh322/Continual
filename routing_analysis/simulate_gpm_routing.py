@@ -333,7 +333,9 @@ class GPMRouter:
                     P = torch.from_numpy(
                         self.gpm_bases_output @ self.gpm_bases_output.T
                     ).float().to(self.device)
-                    mlp.linear2.weight.data -= mlp.linear2.weight.data @ P
+                    # linear2.weight has shape (d, h); P is (d, d)
+                    # We must project the OUTPUT dimension: P @ W (d,d) @ (d,h) -> (d,h)
+                    mlp.linear2.weight.data -= P @ mlp.linear2.weight.data
 
         # ── Step 2: Initialize prompt_key ──
         # Compute output covariance from MLP applied to task embeddings
