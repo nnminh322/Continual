@@ -28,7 +28,7 @@ TRANSTHRESHOLD=0.995
 LR=1e-3
 EPOCHS=30
 BATCH_SIZE=256
-DEVICE="cpu"
+DEVICE="auto"   # auto = cuda if available, else cpu
 
 # RLS parameters
 RLS_EXPANSION=2048
@@ -48,7 +48,7 @@ usage() {
   echo "  --transthreshold   GPM energy threshold (default: 0.995)"
   echo "  --lr               Proxy training LR (default: 1e-3)"
   echo "  --epochs           Proxy training epochs (default: 30)"
-  echo "  --device           cpu or cuda (default: cpu)"
+  echo "  --device           cpu | cuda | cuda:0 | auto (default: auto — uses GPU if available)"
   echo ""
   echo "  RLS options:"
   echo "  --rls_expansion    Random feature dim (default: 2048)"
@@ -91,6 +91,11 @@ echo "  Backbone  : ${BACKBONE}  (${LAYER:-encoder/hidden})"
 echo "  Benchmark : ${BENCHMARK}"
 echo "  k (PSR)   : ${SUBSPACE_K}"
 echo "  Whiten    : ${WHITEN}"
+# Resolve "auto" device before printing and passing to python
+if [[ "$DEVICE" == "auto" ]]; then
+  DEVICE=$(python -c "import torch; print('cuda' if torch.cuda.is_available() else 'cpu')" 2>/dev/null || echo 'cpu')
+fi
+
 echo "  GPM: mlp_hidden=${MLP_HIDDEN}, threshold=${TRANSTHRESHOLD}, lr=${LR}, epochs=${EPOCHS}, device=${DEVICE}"
 echo "  RLS: expansion=${RLS_EXPANSION}, lambda=${RLS_LAMBDA}"
 echo "========================================================"

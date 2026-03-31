@@ -27,6 +27,7 @@ SUBSPACE_K=8
 WHITEN=false
 LAYER=""
 SKIP_F=false        # Phase F (GPM) requires torch; set --skip_F to skip if unavailable
+DEVICE="auto"       # auto = cuda if available, else cpu (used by Phase F)
 
 usage() {
   echo "Usage: $0 --benchmark <Long_Sequence|SuperNI> --backbone <backbone_dir_name> [OPTIONS]"
@@ -37,6 +38,7 @@ usage() {
   echo "  --whiten      Apply ZCA whitening to all phases"
   echo "  --layer       embedding = use word-embedding-layer extractions (_wordemb suffix)"
   echo "  --skip_F      Skip Phase F (requires PyTorch)"
+  echo "  --device      cpu | cuda | cuda:0 | auto (default: auto, passed to Phase F)"
   exit 1
 }
 
@@ -48,6 +50,7 @@ while [[ $# -gt 0 ]]; do
     --whiten)    WHITEN=true; shift ;;
     --layer)     LAYER="$2"; shift 2 ;;
     --skip_F)    SKIP_F=true; shift ;;
+    --device)    DEVICE="$2"; shift 2 ;;
     -h|--help)   usage ;;
     *) echo "Unknown flag: $1"; usage ;;
   esac
@@ -67,6 +70,7 @@ echo "  Benchmark : ${BENCHMARK}"
 echo "  k         : ${SUBSPACE_K}"
 echo "  Whiten    : ${WHITEN}"
 echo "  Skip F    : ${SKIP_F}"
+echo "  Device(F) : ${DEVICE}"
 echo "###################################################"
 
 # ── Phase A: Geometric EDA ──────────────────────────────
@@ -103,7 +107,7 @@ if [[ "$SKIP_F" == "false" ]]; then
   echo "══════════════════════════════════════════════════"
   echo "  PHASE F: Learned Routing (GPM vs RLS)"
   echo "══════════════════════════════════════════════════"
-  bash "${SCRIPT_DIR}/run_phase_F.sh" ${COMMON}
+  bash "${SCRIPT_DIR}/run_phase_F.sh" ${COMMON} --device ${DEVICE}
 else
   echo ""
   echo "[SKIP] Phase F — skipped (--skip_F)"
