@@ -562,56 +562,104 @@ class RLSRouter:
     """Offline RLS router matching SpecRoute's Woodbury implementation.
 
     Random feature expansion + incremental analytical ridge regression.
+    Supports GPU acceleration when device='cuda'.
     """
-    def __init__(self, d_model, expansion_dim=2048, lam=0.1, seed=42):
+    def __init__(self, d_model, expansion_dim=2048, lam=0.1, seed=42, device='cpu'):
         self.d_model = d_model
         self.E = expansion_dim
         self.lam = lam
+        self.device = device
+        self.use_gpu = 'cuda' in device and HAS_TORCH
 
         rng = np.random.RandomState(seed)
-        self.W_phi = rng.randn(d_model, expansion_dim).astype(np.float32) / np.sqrt(d_model)
-        self.b_phi = rng.randn(expansion_dim).astype(np.float32) * 0.01
+        W_phi_np = (rng.randn(d_model, expansion_dim) / np.sqrt(d_model)).astype(np.float32)
+        b_phi_np = (rng.randn(expansion_dim) * 0.01).astype(np.float32)
 
-        self.R = np.eye(expansion_dim, dtype=np.float64) / lam
-        self.Q = np.zeros((expansion_dim, 0), dtype=np.float64)
-        self.W_r = np.zeros((expansion_dim, 0), dtype=np.float64)
+        if self.use_gpu:
+            dev = torch.device(device)
+            self.W_phi = torch.tensor(W_phi_np, dtype=torch.float32, device=dev)
+            self.b_phi = torch.tensor(b_phi_np, dtype=torch.float32, device=dev)
+            self.R = torch.eye(expansion_dim, dtype=torch.float64, device=dev) / lam
+            self.Q = torch.zeros(expansion_dim, 0, dtype=torch.float64, device=dev)
+            self.W_r = torch.zeros(expansion_dim, 0, dtype=torch.float64, device=dev)
+        else:
+            self.W_phi = W_phi_np
+            self.b_phi = b_phi_np
+            self.R = np.eye(expansion_dim, dtype=np.float64) / lam
+            self.Q = np.zeros((expansion_dim, 0), dtype=np.float64)
+            self.W_r = np.zeros((expansion_dim, 0), dtype=np.float64)
         self.num_tasks = 0
 
     def _expand(self, h):
         """h: (N, d) → (N, E) via frozen random features."""
-        return np.maximum(0, h @ self.W_phi + self.b_phi)  # ReLU
+        if self.use_gpu:
+            if not isinstance(h, torch.Tensor):
+                h = torch.tensor(h, dtype=torch.float32, device=torch.device(self.device))
+            return torch.relu(h @ self.W_phi + self.b_phi).to(torch.float64)
+        return np.maximum(0, h @ self.W_phi + self.b_phi)
 
     def add_task(self, task_embs):
         """Woodbury update for new task."""
-        H = self._expand(task_embs).astype(np.float64)
-        N = H.shape[0]
-
-        # Woodbury: R_new = R - R H^T (I + H R H^T)^{-1} H R
-        chunk = 512
-        R = self.R.copy()
-        for start in range(0, N, chunk):
-            Hc = H[start:min(start + chunk, N)]
-            RH = R @ Hc.T
-            S = np.eye(Hc.shape[0]) + Hc @ RH
-            try:
-                S_inv_HcR = np.linalg.solve(S, Hc @ R)
-                R = R - RH @ S_inv_HcR
-            except np.linalg.LinAlgError:
-                pass
-        R = (R + R.T) * 0.5
-        R += 1e-6 * np.eye(self.E)
-        self.R = R
-
-        # Extend Q
-        tid = self.num_tasks
-        extra = np.zeros((self.E, 1), dtype=np.float64)
-        extra[:, 0] = H.T @ np.ones(N)
-        self.Q = np.hstack([self.Q, extra])
-        self.W_r = self.R @ self.Q
-        self.num_tasks += 1
+        if self.use_gpu:
+            dev = torch.device(self.device)
+            if isinstance(task_embs, np.ndarray):
+                task_embs_t = torch.tensor(task_embs, dtype=torch.float32, device=dev)
+            else:
+                task_embs_t = task_embs.to(dev)
+            H = self._expand(task_embs_t)
+            N = H.shape[0]
+            chunk = 512
+            R = self.R.clone()
+            for start in range(0, N, chunk):
+                Hc = H[start:min(start + chunk, N)]
+                RH = R @ Hc.T
+                S = torch.eye(Hc.shape[0], dtype=torch.float64, device=dev) + Hc @ RH
+                try:
+                    S_inv_HcR = torch.linalg.solve(S, Hc @ R)
+                    R = R - RH @ S_inv_HcR
+                except Exception:
+                    pass
+            R = (R + R.T) * 0.5
+            R += 1e-6 * torch.eye(self.E, dtype=torch.float64, device=dev)
+            self.R = R
+            extra = torch.zeros(self.E, 1, dtype=torch.float64, device=dev)
+            extra[:, 0] = H.T @ torch.ones(N, dtype=torch.float64, device=dev)
+            self.Q = torch.cat([self.Q, extra], dim=1)
+            self.W_r = self.R @ self.Q
+            self.num_tasks += 1
+        else:
+            H = self._expand(task_embs).astype(np.float64)
+            N = H.shape[0]
+            chunk = 512
+            R = self.R.copy()
+            for start in range(0, N, chunk):
+                Hc = H[start:min(start + chunk, N)]
+                RH = R @ Hc.T
+                S = np.eye(Hc.shape[0]) + Hc @ RH
+                try:
+                    S_inv_HcR = np.linalg.solve(S, Hc @ R)
+                    R = R - RH @ S_inv_HcR
+                except np.linalg.LinAlgError:
+                    pass
+            R = (R + R.T) * 0.5
+            R += 1e-6 * np.eye(self.E)
+            self.R = R
+            tid = self.num_tasks
+            extra = np.zeros((self.E, 1), dtype=np.float64)
+            extra[:, 0] = H.T @ np.ones(N)
+            self.Q = np.hstack([self.Q, extra])
+            self.W_r = self.R @ self.Q
+            self.num_tasks += 1
 
     def route(self, h_batch):
         """h_batch: (N, d) → predicted task indices (N,)."""
+        if self.use_gpu:
+            dev = torch.device(self.device)
+            if isinstance(h_batch, np.ndarray):
+                h_batch = torch.tensor(h_batch, dtype=torch.float32, device=dev)
+            H = self._expand(h_batch)
+            logits = H @ self.W_r
+            return logits.argmax(dim=1).cpu().numpy()
         H = self._expand(h_batch).astype(np.float64)
         logits = H @ self.W_r
         return logits.argmax(axis=1)
@@ -652,46 +700,86 @@ class CosineNearestCentroidRouter:
 
 
 class PSRRouter:
-    """PPCA-based PSR routing (non-parametric, from analyze_geometry)."""
-    def __init__(self, k=8):
+    """PPCA-based PSR routing (non-parametric, from analyze_geometry).
+    
+    Supports GPU acceleration when device='cuda'.
+    """
+    def __init__(self, k=8, device='cpu'):
         self.k = k
         self.sigs = []
+        self.device = device
+        self.use_gpu = 'cuda' in device and HAS_TORCH
 
     def add_task(self, embs):
         n, d = embs.shape
-        mu = embs.mean(0)
-        cov = np.cov(embs, rowvar=False)
-        eigvals, eigvecs = np.linalg.eigh(cov)
-        idx = np.argsort(eigvals)[::-1]
-        eigvals = eigvals[idx]
-        eigvecs = eigvecs[:, idx]
-        k = min(self.k, d)
-        V = eigvecs[:, :k]
-        lam = np.maximum(eigvals[:k], 1e-12)
-        sigma2 = max(eigvals[k:].mean() if k < d else 1e-12, 1e-12)
-        self.sigs.append((mu, V, lam, sigma2, d))
+        if self.use_gpu:
+            dev = torch.device(self.device)
+            X = torch.tensor(embs, dtype=torch.float32, device=dev)
+            mu = X.mean(0)
+            Xc = X - mu
+            cov_t = (Xc.T @ Xc) / max(n - 1, 1)
+            ev, evec = torch.linalg.eigh(cov_t)
+            idx = torch.argsort(ev, descending=True)
+            ev = ev[idx]; evec = evec[:, idx]
+            k = min(self.k, d)
+            V = evec[:, :k]
+            lam = torch.clamp(ev[:k], min=1e-12)
+            sigma2 = float(max(ev[k:].mean().item(), 1e-12)) if k < d else 1e-12
+            self.sigs.append((mu, V, lam, sigma2, d))
+            del X, Xc, cov_t, ev, evec
+        else:
+            mu = embs.mean(0)
+            cov = np.cov(embs, rowvar=False)
+            eigvals, eigvecs = np.linalg.eigh(cov)
+            idx = np.argsort(eigvals)[::-1]
+            eigvals = eigvals[idx]
+            eigvecs = eigvecs[:, idx]
+            k = min(self.k, d)
+            V = eigvecs[:, :k]
+            lam = np.maximum(eigvals[:k], 1e-12)
+            sigma2 = max(eigvals[k:].mean() if k < d else 1e-12, 1e-12)
+            self.sigs.append((mu, V, lam, sigma2, d))
 
     def route(self, h_batch):
         """Vectorized PSR routing — all tasks evaluated simultaneously."""
         T = len(self.sigs)
-        if T == 0:
+        if T == 0 or T == 1:
             return np.zeros(h_batch.shape[0], dtype=np.int64)
-        if T == 1:
-            return np.zeros(h_batch.shape[0], dtype=np.int64)
-        d = self.sigs[0][4]
-        k = min(self.k, d)
-        C   = np.stack([s[0] for s in self.sigs]).astype(np.float32)  # (T, d)
-        V   = np.stack([s[1] for s in self.sigs]).astype(np.float32)  # (T, d, k)
-        lam = np.stack([s[2] for s in self.sigs]).astype(np.float32)  # (T, k)
-        s2  = np.array([s[3] for s in self.sigs], dtype=np.float32)   # (T,)
-        W_psr = lam / (s2[:, None] * (lam + s2[:, None]))             # (T, k)
-        pen = np.sum(np.log(lam + s2[:, None]), axis=1) + (d - k) * np.log(s2)  # (T,)
-        H = h_batch.astype(np.float32)
-        Hd = H[:, None, :] - C[None, :, :]                           # (N, T, d)
-        iso = np.sum(Hd**2, axis=-1) / (s2[None, :] + 1e-12)        # (N, T)
-        dp  = np.einsum('ntd,tdk->ntk', Hd, V)                       # (N, T, k)
-        dists = iso + np.sum(W_psr[None, :, :] * dp**2, axis=-1) + pen[None, :]
-        return np.argmin(dists, axis=1).astype(np.int64)
+
+        if self.use_gpu:
+            dev = torch.device(self.device)
+            d = self.sigs[0][4]
+            k = min(self.k, d)
+            C   = torch.stack([s[0] for s in self.sigs])  # (T, d) — already on GPU
+            V   = torch.stack([s[1] for s in self.sigs])  # (T, d, k)
+            lam = torch.stack([s[2] for s in self.sigs])  # (T, k)
+            s2  = torch.tensor([s[3] for s in self.sigs], dtype=torch.float32, device=dev)
+            W_psr = lam / (s2[:, None] * (lam + s2[:, None]))
+            pen = torch.log(lam + s2[:, None]).sum(1) + (d - k) * torch.log(s2)
+            if isinstance(h_batch, np.ndarray):
+                H = torch.tensor(h_batch, dtype=torch.float32, device=dev)
+            else:
+                H = h_batch.to(dev)
+            Hd = H[:, None, :] - C[None, :, :]
+            iso = Hd.pow(2).sum(-1) / (s2[None, :] + 1e-12)
+            dp  = torch.einsum('ntd,tdk->ntk', Hd, V)
+            dists = iso + (W_psr[None, :, :] * dp.pow(2)).sum(-1) + pen[None, :]
+            return dists.argmin(dim=1).cpu().numpy().astype(np.int64)
+        else:
+            d = self.sigs[0][4]
+            k = min(self.k, d)
+            C   = np.stack([s[0] for s in self.sigs]).astype(np.float32)
+            V   = np.stack([s[1] for s in self.sigs]).astype(np.float32)
+            lam = np.stack([s[2] for s in self.sigs]).astype(np.float32)
+            s2  = np.array([s[3] for s in self.sigs], dtype=np.float32)
+            W_psr = lam / (s2[:, None] * (lam + s2[:, None]))
+            pen = np.sum(np.log(lam + s2[:, None]), axis=1) + (d - k) * np.log(s2)
+            H = h_batch.astype(np.float32)
+            Hd = H[:, None, :] - C[None, :, :]
+            iso = np.sum(Hd**2, axis=-1) / (s2[None, :] + 1e-12)
+            dp  = np.einsum('ntd,tdk->ntk', Hd, V)
+            dists = iso + np.sum(W_psr[None, :, :] * dp**2, axis=-1) + pen[None, :]
+            return np.argmin(dists, axis=1).astype(np.int64)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -709,10 +797,11 @@ def run_incremental_comparison(train_embs, test_embs, tasks, args):
     routers = OrderedDict()
     routers["NearestCentroid"] = NearestCentroidRouter()
     routers["CosineNearestCentroid"] = CosineNearestCentroidRouter()
-    routers["PSR"] = PSRRouter(k=args.subspace_k)
+    routers["PSR"] = PSRRouter(k=args.subspace_k, device=args.device)
 
     routers["RLS_Woodbury"] = RLSRouter(
-        d, expansion_dim=args.rls_expansion, lam=args.rls_lambda)
+        d, expansion_dim=args.rls_expansion, lam=args.rls_lambda,
+        device=args.device)
 
     if HAS_TORCH:
         routers["GPM_ROOT"] = GPMRouter(
@@ -867,9 +956,9 @@ def main():
 
     if args.whiten:
         from compare_routing import compute_whitening, apply_whitening
-        mu_g, W = compute_whitening(train_embs)
-        train_embs = apply_whitening(train_embs, mu_g, W)
-        test_embs = apply_whitening(test_embs, mu_g, W)
+        mu_g, W = compute_whitening(train_embs, device=args.device)
+        train_embs = apply_whitening(train_embs, mu_g, W, device=args.device)
+        test_embs = apply_whitening(test_embs, mu_g, W, device=args.device)
         # Convert back to float32
         train_embs = OrderedDict((t, e.astype(np.float32)) for t, e in train_embs.items())
         test_embs = OrderedDict((t, e.astype(np.float32)) for t, e in test_embs.items())

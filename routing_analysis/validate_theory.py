@@ -71,7 +71,17 @@ def compute_whitening(task_embs, device: str = "cpu"):
     W = evec @ np.diag(1.0 / np.sqrt(ev)) @ evec.T
     return mu, W
 
-def apply_whitening(task_embs, mu, W):
+def apply_whitening(task_embs, mu, W, device='cpu'):
+    if 'cuda' in device and HAS_TORCH:
+        dev = torch.device(device)
+        mu_t = torch.tensor(mu, dtype=torch.float32, device=dev)
+        W_t  = torch.tensor(W, dtype=torch.float32, device=dev)
+        out = {}
+        for t, e in task_embs.items():
+            X = torch.tensor(e, dtype=torch.float32, device=dev)
+            out[t] = ((X - mu_t) @ W_t.T).cpu().numpy()
+            del X
+        return out
     return {t: (e - mu) @ W.T for t, e in task_embs.items()}
 
 # ── shared constants ──
@@ -180,6 +190,99 @@ def compute_kl_ppca(sig_t: PPCASig, sig_s: PPCASig):
             "D_sigma": float(D_sigma)}
 
 
+def compute_kl_batch_gpu(sigs, tasks, device='cpu'):
+    """Batch-compute all pairwise KL divergences on GPU.
+
+    Returns (kl_mat, dmu_mat, dsig_mat) each of shape (n, n).
+    ~50-100x faster than calling compute_kl_ppca in a double loop for d=4096.
+    """
+    n = len(tasks)
+    d = sigs[tasks[0]].d
+    use_gpu = 'cuda' in device and HAS_TORCH
+
+    if not use_gpu:
+        # Fallback to CPU loop
+        kl_mat  = np.zeros((n, n))
+        dmu_mat = np.zeros((n, n))
+        dsig_mat= np.zeros((n, n))
+        for i in range(n):
+            for j in range(n):
+                if i == j:
+                    continue
+                kl = compute_kl_ppca(sigs[tasks[i]], sigs[tasks[j]])
+                kl_mat[i, j]  = kl["kl_total"]
+                dmu_mat[i, j] = kl["D_mu"]
+                dsig_mat[i, j]= kl["D_sigma"]
+        return kl_mat, dmu_mat, dsig_mat
+
+    dev = torch.device(device)
+    # Stack all covariances and means on GPU once
+    Covs = torch.zeros(n, d, d, dtype=torch.float64, device=dev)
+    Mus  = torch.zeros(n, d, dtype=torch.float64, device=dev)
+    for i, t in enumerate(tasks):
+        Covs[i] = torch.tensor(sigs[t].cov, dtype=torch.float64, device=dev)
+        Mus[i]  = torch.tensor(sigs[t].mu, dtype=torch.float64, device=dev)
+    # Regularize
+    eye_d = torch.eye(d, dtype=torch.float64, device=dev)
+    Covs = Covs + 1e-6 * eye_d.unsqueeze(0)
+
+    # Precompute Cholesky and log-determinants for all tasks
+    try:
+        L_all = torch.linalg.cholesky(Covs)  # (n, d, d)
+    except torch.linalg.LinAlgError:
+        # Add more regularization if needed
+        Covs = Covs + 1e-4 * eye_d.unsqueeze(0)
+        L_all = torch.linalg.cholesky(Covs)
+
+    # log|Σ_i| = 2 * sum(log(diag(L_i)))
+    logdets = 2.0 * torch.log(torch.diagonal(L_all, dim1=-2, dim2=-1)).sum(-1)  # (n,)
+
+    # Precompute Σ_s^{-1} for all s via Cholesky solve
+    # inv_all[s] = Σ_s^{-1} = solve(L_s @ L_s^T, I)
+    eye_batch = eye_d.unsqueeze(0).expand(n, -1, -1)
+    inv_all = torch.cholesky_solve(eye_batch, L_all)  # (n, d, d)
+
+    # Precompute traces: tr(Σ_s^{-1} @ Σ_t) for all (s,t) pairs
+    # tr(A @ B) = sum(A * B^T) = sum(A * B) for symmetric matrices
+    # inv_all: (n, d, d), Covs: (n, d, d)
+    # trace_mat[i,j] = tr(inv_all[j] @ Covs[i])
+    # = sum over (a,b) of inv_all[j,a,b] * Covs[i,b,a]
+    # = sum over (a,b) of inv_all[j,a,b] * Covs[i,a,b]  (symmetric)
+    # Vectorize: reshape to (n, d*d) and do matmul
+    inv_flat = inv_all.reshape(n, d*d)  # (n, d*d)
+    cov_flat = Covs.reshape(n, d*d)     # (n, d*d)
+    trace_mat = cov_flat @ inv_flat.T   # (n_t, n_s) = trace_mat[i,j] = tr(inv[j] @ Cov[i])
+
+    # Compute D_mu for all pairs: D_mu[i,j] = 0.5 * (mu_j - mu_i)^T @ inv[j] @ (mu_j - mu_i)
+    # delta_mu[i,j] = mu_j - mu_i  → shape (n, n, d)
+    delta = Mus.unsqueeze(0) - Mus.unsqueeze(1)  # (n_i, n_j, d): delta[i,j] = mu[j] - mu[i]
+    # quad_form[i,j] = delta[i,j]^T @ inv[j] @ delta[i,j]
+    # = (delta[i,j] @ inv[j]) . delta[i,j]
+    # inv_delta[i,j] = inv[j] @ delta[i,j]
+    inv_delta = torch.einsum('jab,ijb->ija', inv_all, delta)  # (n, n, d)
+    dmu_mat_t = 0.5 * (delta * inv_delta).sum(-1)  # (n, n)
+
+    # D_sigma[i,j] = 0.5 * (tr(inv[j] @ Cov[i]) - d + logdet[j] - logdet[i])
+    dsig_mat_t = 0.5 * (trace_mat - d + logdets.unsqueeze(0) - logdets.unsqueeze(1))
+
+    kl_mat_t = dmu_mat_t + dsig_mat_t
+
+    # Zero diagonal
+    mask = torch.eye(n, dtype=torch.bool, device=dev)
+    kl_mat_t[mask] = 0
+    dmu_mat_t[mask] = 0
+    dsig_mat_t[mask] = 0
+
+    kl_mat  = kl_mat_t.cpu().numpy()
+    dmu_mat = dmu_mat_t.cpu().numpy()
+    dsig_mat= dsig_mat_t.cpu().numpy()
+
+    del Covs, Mus, L_all, inv_all, inv_flat, cov_flat, trace_mat, delta, inv_delta
+    del kl_mat_t, dmu_mat_t, dsig_mat_t, eye_d, eye_batch, logdets, mask
+
+    return kl_mat, dmu_mat, dsig_mat
+
+
 def compute_confusion_matrix(sigs, test_embs, tasks, device='cpu'):
     """Empirical routing confusion using PSR (vectorized batch version)."""
     T = len(tasks)
@@ -248,19 +351,9 @@ def e1_kl_vs_confusion(train_embs, test_embs, tasks, k, device='cpu'):
     """E1: correlate pairwise KL with empirical confusion rates."""
     sigs = {t: PPCASig(e, k, device=device) for t, e in train_embs.items()}
 
-    # Pairwise KL
+    # Pairwise KL — batch GPU or CPU loop
     n = len(tasks)
-    kl_mat = np.zeros((n, n))
-    dmu_mat = np.zeros((n, n))
-    dsig_mat = np.zeros((n, n))
-    for i in range(n):
-        for j in range(n):
-            if i == j:
-                continue
-            kl = compute_kl_ppca(sigs[tasks[i]], sigs[tasks[j]])
-            kl_mat[i, j]   = kl["kl_total"]
-            dmu_mat[i, j]  = kl["D_mu"]
-            dsig_mat[i, j] = kl["D_sigma"]
+    kl_mat, dmu_mat, dsig_mat = compute_kl_batch_gpu(sigs, tasks, device=device)
 
     # Confusion matrix
     cm = compute_confusion_matrix(sigs, test_embs, tasks, device=device)
@@ -303,39 +396,73 @@ def e2_grassmann_bound(train_embs, tasks, k, device='cpu'):
     sigs = {t: PPCASig(e, k, device=device) for t, e in train_embs.items()}
     n = len(tasks)
     d = next(iter(sigs.values())).d
+    use_gpu = 'cuda' in device and HAS_TORCH
 
-    # Pairwise subspace overlap δ_ij = ||V_i^T V_j||_F^2
-    overlap = np.zeros((n, n))
-    for i in range(n):
-        Vi = sigs[tasks[i]].V
-        for j in range(i+1, n):
-            Vj = sigs[tasks[j]].V
-            M = Vi.T @ Vj
-            ov = float(np.sum(M**2))
-            overlap[i, j] = overlap[j, i] = ov
+    if use_gpu:
+        dev = torch.device(device)
+        # Stack all V matrices on GPU: (n, d, k)
+        V_all = torch.stack([torch.tensor(sigs[tasks[i]].V, dtype=torch.float32, device=dev)
+                             for i in range(n)])  # (n, d, k)
+        # Pairwise overlap: δ_ij = ||V_i^T V_j||_F^2
+        # V_i^T V_j = (k, d) @ (d, k) = (k, k) per pair
+        # Batch: VtV[i,j] = V_all[i].T @ V_all[j]
+        # overlap[i,j] = ||VtV[i,j]||_F^2
+        VtV = torch.einsum('idk,jdk->ijk', V_all, V_all)  # remap: idK,jdK→ijK... no
+        # Actually: V_all is (n, d, k), V_i^T is (k, d)
+        # V_i^T @ V_j = (k, d) @ (d, k) = (k, k)
+        # Using einsum: 'ikd,jld->ijkl' no, simpler:
+        # VtV_{i,j} shape (k, k) = V_all[i].T @ V_all[j]
+        # = einsum('da,db->ab', V_all[i], V_all[j]) 
+        # For batch: einsum('ida,jda->ija', ...) but V is (n,d,k)
+        # V_all[i,:,a] is column a of V_i → V_i^T[a,:] = V_all[i,:,a]
+        # V_i^T @ V_j = sum_d V_all[i,d,a] * V_all[j,d,b] → einsum('ida,jdb->ijab', V_all, V_all)
+        VtV = torch.einsum('ida,jdb->ijab', V_all, V_all)  # (n, n, k, k)
+        overlap_t = (VtV ** 2).sum(dim=(-2, -1))  # (n, n)
+        # Zero diagonal
+        overlap_t.fill_diagonal_(0)
+        overlap = overlap_t.cpu().numpy()
 
-    delta_max = float(np.max(overlap))
-    delta_mean = float(np.mean(overlap[np.triu_indices(n, k=1)]))
+        # Geodesic distances via SVD on GPU
+        # sv[i,j] = svdvals(V_i^T @ V_j) = svdvals(VtV[i,j])
+        # VtV already computed as (n, n, k, k)
+        geodesic_nn = []
+        for i in range(n):
+            min_geo = float('inf')
+            for j in range(n):
+                if i == j:
+                    continue
+                sv = torch.linalg.svdvals(VtV[i, j])
+                sv = torch.clamp(sv, 0, 1)
+                angles = torch.arccos(torch.clamp(sv, -1, 1))
+                geo = float(torch.linalg.norm(angles))
+                min_geo = min(min_geo, geo)
+            geodesic_nn.append(min_geo)
+        del V_all, VtV, overlap_t
+    else:
+        # CPU path
+        overlap = np.zeros((n, n))
+        for i in range(n):
+            Vi = sigs[tasks[i]].V
+            for j in range(i+1, n):
+                Vj = sigs[tasks[j]].V
+                M = Vi.T @ Vj
+                ov = float(np.sum(M**2))
+                overlap[i, j] = overlap[j, i] = ov
 
-    # Packing bound
-    T_max = d / (k * (1.0 - delta_max + 1e-9))
-
-    # Margin: minimum routing margin from subspace perspective
-    # For each task, min geodesic to nearest neighbor
-    from numpy.linalg import svd as np_svd
-    geodesic_nn = []
-    for i in range(n):
-        Vi = sigs[tasks[i]].V
-        min_geo = float('inf')
-        for j in range(n):
-            if i == j:
-                continue
-            Vj = sigs[tasks[j]].V
-            sv = np.clip(np_svd(Vi.T @ Vj, compute_uv=False), 0, 1)
-            angles = np.arccos(np.clip(sv, -1, 1))
-            geo = float(norm(angles))
-            min_geo = min(min_geo, geo)
-        geodesic_nn.append(min_geo)
+        from numpy.linalg import svd as np_svd
+        geodesic_nn = []
+        for i in range(n):
+            Vi = sigs[tasks[i]].V
+            min_geo = float('inf')
+            for j in range(n):
+                if i == j:
+                    continue
+                Vj = sigs[tasks[j]].V
+                sv = np.clip(np_svd(Vi.T @ Vj, compute_uv=False), 0, 1)
+                angles = np.arccos(np.clip(sv, -1, 1))
+                geo = float(norm(angles))
+                min_geo = min(min_geo, geo)
+            geodesic_nn.append(min_geo)
 
     return {
         "d": d, "k": k, "T_actual": n,
@@ -419,6 +546,7 @@ def e3_rmt_analysis(train_embs, tasks, k, device='cpu'):
 
 def e3_shrinkage_routing(train_embs, test_embs, tasks, k, device='cpu'):
     """Compare routing accuracy with/without LW shrinkage on covariance."""
+    use_gpu = 'cuda' in device and HAS_TORCH
     # Raw PSR
     sigs_raw = {t: PPCASig(e, k, device=device) for t, e in train_embs.items()}
 
@@ -426,28 +554,58 @@ def e3_shrinkage_routing(train_embs, test_embs, tasks, k, device='cpu'):
     sigs_shrunk = {}
     for t, embs in train_embs.items():
         n, d = embs.shape
-        cov = np.cov(embs, rowvar=False)
-        # OAS shrinkage
-        trace_cov = np.trace(cov)
-        trace_cov2 = np.sum(cov**2)
-        mu_hat = trace_cov / d
-        rho_num = (1 - 2/d) * trace_cov2 + trace_cov**2
-        rho_den = (n + 1 - 2/d) * (trace_cov2 - trace_cov**2 / d)
-        alpha = max(0.0, min(1.0, rho_num / max(rho_den, 1e-12)))
-        cov_s = (1 - alpha) * cov + alpha * np.eye(d) * mu_hat
 
-        sig = PPCASig.__new__(PPCASig)
-        sig.n, sig.d = n, d
-        sig.mu = embs.mean(0)
-        sig.cov = cov_s
-        ev, evec = eigh(cov_s)
-        idx = np.argsort(ev)[::-1]
-        sig.eigvals = ev[idx]
-        sig.V = evec[:, idx[:k]]
-        sig.k = min(k, d)
-        sig.lam = np.maximum(sig.eigvals[:sig.k], 1e-12)
-        sig.sigma2 = float(max(sig.eigvals[sig.k:].mean(), 1e-12))
-        sigs_shrunk[t] = sig
+        if use_gpu:
+            dev = torch.device(device)
+            X = torch.tensor(embs, dtype=torch.float32, device=dev)
+            Xc = X - X.mean(0)
+            cov_t = (Xc.T @ Xc) / max(n - 1, 1)
+            # OAS shrinkage on GPU
+            trace_cov = torch.trace(cov_t)
+            trace_cov2 = (cov_t ** 2).sum()
+            mu_hat = trace_cov / d
+            rho_num = (1 - 2/d) * trace_cov2 + trace_cov**2
+            rho_den = (n + 1 - 2/d) * (trace_cov2 - trace_cov**2 / d)
+            alpha = max(0.0, min(1.0, float(rho_num / max(rho_den, 1e-12))))
+            cov_s = (1 - alpha) * cov_t + alpha * torch.eye(d, device=dev) * mu_hat
+            ev_t, evec_t = torch.linalg.eigh(cov_s)
+            idx = torch.argsort(ev_t, descending=True)
+            ev_t = ev_t[idx]; evec_t = evec_t[:, idx]
+
+            sig = PPCASig.__new__(PPCASig)
+            sig.n, sig.d = n, d
+            sig.mu = X.mean(0).cpu().numpy()
+            sig.cov = cov_s.cpu().numpy()
+            sig.eigvals = ev_t.cpu().numpy()
+            sig.V = evec_t[:, :min(k, d)].cpu().numpy()
+            sig.k = min(k, d)
+            sig.lam = np.maximum(sig.eigvals[:sig.k], 1e-12)
+            sig.sigma2 = float(max(sig.eigvals[sig.k:].mean(), 1e-12))
+            sigs_shrunk[t] = sig
+            del X, Xc, cov_t, cov_s, ev_t, evec_t
+        else:
+            cov = np.cov(embs, rowvar=False)
+            # OAS shrinkage
+            trace_cov = np.trace(cov)
+            trace_cov2 = np.sum(cov**2)
+            mu_hat = trace_cov / d
+            rho_num = (1 - 2/d) * trace_cov2 + trace_cov**2
+            rho_den = (n + 1 - 2/d) * (trace_cov2 - trace_cov**2 / d)
+            alpha = max(0.0, min(1.0, rho_num / max(rho_den, 1e-12)))
+            cov_s = (1 - alpha) * cov + alpha * np.eye(d) * mu_hat
+
+            sig = PPCASig.__new__(PPCASig)
+            sig.n, sig.d = n, d
+            sig.mu = embs.mean(0)
+            sig.cov = cov_s
+            ev, evec = eigh(cov_s)
+            idx = np.argsort(ev)[::-1]
+            sig.eigvals = ev[idx]
+            sig.V = evec[:, idx[:k]]
+            sig.k = min(k, d)
+            sig.lam = np.maximum(sig.eigvals[:sig.k], 1e-12)
+            sig.sigma2 = float(max(sig.eigvals[sig.k:].mean(), 1e-12))
+            sigs_shrunk[t] = sig
 
     fn_raw = lambda h: min(sigs_raw,    key=lambda t: _psr_dist(h, sigs_raw[t]))
     fn_shr = lambda h: min(sigs_shrunk, key=lambda t: _psr_dist(h, sigs_shrunk[t]))
@@ -554,8 +712,8 @@ def main():
 
     if args.whiten:
         mu_g, W = compute_whitening(train_embs, device=args.device)
-        train_embs = apply_whitening(train_embs, mu_g, W)
-        test_embs  = apply_whitening(test_embs, mu_g, W)
+        train_embs = apply_whitening(train_embs, mu_g, W, device=args.device)
+        test_embs  = apply_whitening(test_embs, mu_g, W, device=args.device)
         print("Applied ZCA whitening\n")
 
     report = {"backbone": backbone, "benchmark": args.benchmark,

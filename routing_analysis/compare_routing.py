@@ -73,7 +73,17 @@ def compute_whitening(task_embs: dict[str, np.ndarray], device: str = "cpu"):
     W = eigvecs @ np.diag(1.0 / np.sqrt(eigvals)) @ eigvecs.T
     return mu_global, W
 
-def apply_whitening(task_embs, mu_global, W):
+def apply_whitening(task_embs, mu_global, W, device='cpu'):
+    if 'cuda' in device and HAS_TORCH:
+        dev = torch.device(device)
+        mu_t = torch.tensor(mu_global, dtype=torch.float32, device=dev)
+        W_t  = torch.tensor(W, dtype=torch.float32, device=dev)
+        out = {}
+        for t, embs in task_embs.items():
+            X = torch.tensor(embs, dtype=torch.float32, device=dev)
+            out[t] = ((X - mu_t) @ W_t.T).cpu().numpy()
+            del X
+        return out
     return {t: (embs - mu_global) @ W.T for t, embs in task_embs.items()}
 
 # ── Benchmark → task list mapping (shared with analyze_geometry.py) ──
@@ -282,31 +292,148 @@ def _build_Xy(task_embs_train: dict[str, np.ndarray]):
     return np.vstack(Xs), np.concatenate(ys), tasks
 
 
-def train_sklearn_classifiers(X_train, y_train, tasks):
+class _GPURidgeClassifier:
+    """GPU-accelerated Ridge classifier: W = (X^TX + αI)^{-1} X^T Y."""
+    def __init__(self, alpha=1.0, device='cuda'):
+        self.alpha = alpha
+        self.device = device
+        self.W = None
+        self.classes_ = None
+
+    def fit(self, X, y):
+        dev = torch.device(self.device)
+        self.classes_ = np.unique(y)
+        n_cls = len(self.classes_)
+        N, d = X.shape
+        X_t = torch.tensor(X, dtype=torch.float64, device=dev)
+        # One-hot encode Y
+        Y_t = torch.zeros(N, n_cls, dtype=torch.float64, device=dev)
+        for i, c in enumerate(self.classes_):
+            Y_t[y == c, i] = 1.0
+        XtX = X_t.T @ X_t + self.alpha * torch.eye(d, dtype=torch.float64, device=dev)
+        XtY = X_t.T @ Y_t
+        self.W = torch.linalg.solve(XtX, XtY)  # (d, n_cls)
+        del X_t, Y_t, XtX, XtY
+
+    def predict(self, X):
+        dev = torch.device(self.device)
+        X_t = torch.tensor(X, dtype=torch.float64, device=dev)
+        scores = X_t @ self.W  # (N, n_cls)
+        pred_idx = scores.argmax(dim=1).cpu().numpy()
+        del X_t, scores
+        return self.classes_[pred_idx]
+
+
+class _GPULDAClassifier:
+    """GPU-accelerated LDA using torch for scatter matrix computation."""
+    def __init__(self, device='cuda'):
+        self.device = device
+        self.W = None  # projection weights
+        self.classes_ = None
+        self.class_means_ = None
+
+    def fit(self, X, y):
+        dev = torch.device(self.device)
+        self.classes_ = np.unique(y)
+        n_cls = len(self.classes_)
+        N, d = X.shape
+        X_t = torch.tensor(X, dtype=torch.float64, device=dev)
+        # Class means and within-class scatter
+        means = []
+        Sw = torch.zeros(d, d, dtype=torch.float64, device=dev)
+        for c in self.classes_:
+            mask = torch.tensor(y == c, device=dev)
+            Xc = X_t[mask]
+            mc = Xc.mean(0)
+            means.append(mc)
+            Xc_centered = Xc - mc
+            Sw += Xc_centered.T @ Xc_centered
+        self.class_means_ = torch.stack(means)  # (n_cls, d)
+        global_mean = X_t.mean(0)
+        # Between-class scatter
+        Sb = torch.zeros(d, d, dtype=torch.float64, device=dev)
+        for i, c in enumerate(self.classes_):
+            nc = int((y == c).sum())
+            diff = means[i] - global_mean
+            Sb += nc * diff.unsqueeze(1) @ diff.unsqueeze(0)
+        # Regularize Sw
+        Sw += 1e-6 * torch.eye(d, dtype=torch.float64, device=dev)
+        # Solve generalized eigenvalue: Sw^{-1} Sb
+        # Use at most (n_cls - 1) discriminant directions
+        n_components = min(n_cls - 1, d)
+        # Sw^{-1} Sb v = λ v  →  solve Sw @ v = Sb @ V / λ
+        # Faster: Cholesky of Sw, then standard eigenvalue
+        try:
+            L = torch.linalg.cholesky(Sw)
+            # Transform: L^{-1} Sb L^{-T}
+            Sb_t = torch.linalg.solve_triangular(L, Sb, upper=False)
+            Sb_t = torch.linalg.solve_triangular(L, Sb_t.T, upper=False).T
+            eigvals, eigvecs = torch.linalg.eigh(Sb_t)
+            idx = torch.argsort(eigvals, descending=True)[:n_components]
+            V = eigvecs[:, idx]
+            # Back-transform: W = L^{-T} V
+            self.W = torch.linalg.solve_triangular(L.T, V, upper=True)  # (d, n_components)
+        except Exception:
+            # Fallback: direct eigendecomposition
+            M = torch.linalg.solve(Sw, Sb)
+            eigvals, eigvecs = torch.linalg.eigh(M)
+            idx = torch.argsort(eigvals, descending=True)[:n_components]
+            self.W = eigvecs[:, idx]
+        # Project class means
+        self.projected_means_ = self.class_means_ @ self.W  # (n_cls, n_components)
+        del X_t, Sw, Sb
+
+    def predict(self, X):
+        dev = torch.device(self.device)
+        X_t = torch.tensor(X, dtype=torch.float64, device=dev)
+        proj = X_t @ self.W  # (N, n_components)
+        # Nearest projected mean
+        dists = torch.cdist(proj.unsqueeze(0), self.projected_means_.unsqueeze(0)).squeeze(0)
+        pred_idx = dists.argmin(dim=1).cpu().numpy()
+        del X_t, proj, dists
+        return self.classes_[pred_idx]
+
+
+def train_sklearn_classifiers(X_train, y_train, tasks, device='cpu'):
     """Train routing-relevant classifiers. Returns dict[name → model].
 
-    Kept: LDA (shared cov = PSR k=d, Sigma_t=Sigma), QDA (full per-task cov),
-    LinearSVM (discriminative baseline), RidgeClassifier (≈ RLS from V11).
-    Removed per review: kNN, RF, XGBoost, LogReg — not theory-motivated.
+    When device='cuda', LDA and RidgeClassifier use GPU-accelerated implementations.
+    QDA and LinearSVM remain sklearn (CPU) when d <= 2048.
     """
-    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
-    from sklearn.svm import LinearSVC
-    from sklearn.linear_model import RidgeClassifier
+    import time
+    d = X_train.shape[1]
+    use_gpu = 'cuda' in device and HAS_TORCH
 
     models = {}
-    models["LDA"] = LinearDiscriminantAnalysis()
-    models["QDA"] = QuadraticDiscriminantAnalysis(reg_param=0.1)
+    if use_gpu:
+        models["LDA"] = _GPULDAClassifier(device=device)
+        models["RidgeClassifier"] = _GPURidgeClassifier(alpha=1.0, device=device)
+    else:
+        from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+        from sklearn.linear_model import RidgeClassifier
+        models["LDA"] = LinearDiscriminantAnalysis()
+        models["RidgeClassifier"] = RidgeClassifier(alpha=1.0)
+
+    if d <= 2048:
+        from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
+        models["QDA"] = QuadraticDiscriminantAnalysis(reg_param=0.1)
+    else:
+        print(f"  [SKIP] QDA: d={d} too large (>2048), O(d³) per class would hang")
+
+    from sklearn.svm import LinearSVC
     models["LinearSVM"] = LinearSVC(max_iter=5000, dual="auto")
-    models["RidgeClassifier"] = RidgeClassifier(alpha=1.0)
 
     trained = {}
     for name, clf in models.items():
         try:
+            t0 = time.time()
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=UserWarning)
                 warnings.filterwarnings("ignore", message=".*not full rank.*")
                 clf.fit(X_train, y_train)
+            elapsed = time.time() - t0
             trained[name] = clf
+            print(f"  {name}: fitted in {elapsed:.1f}s")
         except Exception as e:
             print(f"  WARN: {name} failed to fit: {e}")
     return trained
@@ -594,8 +721,8 @@ def main():
     # Optional whitening (fit on train, apply to both)
     if args.whiten:
         mu_g, W = compute_whitening(train_embs, device=args.device)
-        train_embs = apply_whitening(train_embs, mu_g, W)
-        test_embs  = apply_whitening(test_embs, mu_g, W)
+        train_embs = apply_whitening(train_embs, mu_g, W, device=args.device)
+        test_embs  = apply_whitening(test_embs, mu_g, W, device=args.device)
         print("Applied ZCA whitening\n")
 
     # Build signatures (GPU-accelerated cov + eigh)
@@ -671,7 +798,7 @@ def main():
         print("\n─── Phase C: Sklearn classifiers ───")
         X_train, y_train, _ = _build_Xy(train_embs)
         print(f"Training on {X_train.shape[0]} samples, {len(found)} classes, d={d}")
-        trained = train_sklearn_classifiers(X_train, y_train, found)
+        trained = train_sklearn_classifiers(X_train, y_train, found, device=args.device)
         sk_results, sk_confusion = evaluate_sklearn_methods(trained, test_embs, found)
 
         print(f"\n{'Method':25s} {'Accuracy':>10s}")

@@ -126,7 +126,17 @@ def compute_whitening(task_embs: dict[str, np.ndarray], device: str = "cpu"):
     return mu_global, W
 
 
-def apply_whitening(task_embs: dict[str, np.ndarray], mu_global, W):
+def apply_whitening(task_embs: dict[str, np.ndarray], mu_global, W, device='cpu'):
+    if 'cuda' in device and HAS_TORCH:
+        dev = torch.device(device)
+        mu_t = torch.tensor(mu_global, dtype=torch.float32, device=dev)
+        W_t  = torch.tensor(W, dtype=torch.float32, device=dev)
+        out = {}
+        for t, embs in task_embs.items():
+            X = torch.tensor(embs, dtype=torch.float32, device=dev)
+            out[t] = ((X - mu_t) @ W_t.T).cpu().numpy()
+            del X
+        return out
     return {t: (embs - mu_global) @ W.T for t, embs in task_embs.items()}
 
 
@@ -561,7 +571,7 @@ def main():
     # Optional global whitening
     if args.whiten:
         mu_g, W = compute_whitening(task_embs, device=args.device)
-        task_embs = apply_whitening(task_embs, mu_g, W)
+        task_embs = apply_whitening(task_embs, mu_g, W, device=args.device)
         print("Applied ZCA whitening to remove global anisotropy\n")
 
     report = {"backbone": backbone, "benchmark": args.benchmark,

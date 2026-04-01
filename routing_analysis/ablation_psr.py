@@ -74,7 +74,17 @@ def compute_whitening(task_embs, device: str = "cpu"):
     W = evec @ np.diag(1.0 / np.sqrt(ev)) @ evec.T
     return mu, W
 
-def apply_whitening(task_embs, mu, W):
+def apply_whitening(task_embs, mu, W, device='cpu'):
+    if 'cuda' in device and HAS_TORCH:
+        dev = torch.device(device)
+        mu_t = torch.tensor(mu, dtype=torch.float32, device=dev)
+        W_t  = torch.tensor(W, dtype=torch.float32, device=dev)
+        out = {}
+        for t, e in task_embs.items():
+            X = torch.tensor(e, dtype=torch.float32, device=dev)
+            out[t] = ((X - mu_t) @ W_t.T).cpu().numpy()
+            del X
+        return out
     return {t: (e - mu) @ W.T for t, e in task_embs.items()}
 
 # ── shared constants ──
@@ -337,99 +347,178 @@ def domain_analysis(per_task_acc, benchmark):
 
 def incremental_simulation(train_embs, test_embs, tasks, k=8, device='cpu'):
     """Simulate adding tasks one by one. At step t, only tasks[0:t+1] are available.
-    Compares PSR (incremental) vs RLS (incremental Woodbury) vs RLS (batch=upper bound)."""
-    from sklearn.linear_model import RidgeClassifier
+    Compares PSR (incremental) vs RLS (incremental Woodbury) vs RLS (batch=upper bound).
+
+    When device='cuda', all RLS matrix ops (Woodbury, ridge solve) run on GPU.
+    """
+    use_gpu = 'cuda' in device and HAS_TORCH
 
     psr_results = {}
     rls_inc_results = {}
     rls_batch_results = {}
 
-    # RLS incremental state (Woodbury formulation)
-    # R = (X^T X + alpha I)^{-1} , W = R X^T Y
     alpha_rls = 1.0
     d = next(iter(train_embs.values())).shape[1]
-    R_inv = None  # will be (d, d)
-    XtY_accum = None  # (d, max_classes) — grows as classes are added
 
-    for t_idx in range(1, len(tasks) + 1):
-        available = [tasks[i] for i in range(t_idx) if tasks[i] in train_embs]
-        if not available:
-            continue
-        task2idx = {t: i for i, t in enumerate(available)}
-        n_cls = len(available)
+    if use_gpu:
+        dev = torch.device(device)
+        R_inv_t = None
+        XtY_accum_t = None
+        # Pre-convert all embeddings to GPU tensors
+        train_tensors = {t: torch.tensor(e, dtype=torch.float64, device=dev) for t, e in train_embs.items()}
+        test_tensors  = {t: torch.tensor(e, dtype=torch.float64, device=dev) for t, e in test_embs.items()}
+        eye_d = torch.eye(d, dtype=torch.float64, device=dev)
 
-        # ── PSR (incremental — independent, no drift) ──
-        sigs = {t: PPCASig(train_embs[t], k, device=device) for t in available}
-        test_avail = OrderedDict((t, test_embs[t]) for t in available if t in test_embs)
-        acc_psr, _ = route_accuracy_vec(sigs, test_avail, available, device=device)
-        psr_results[t_idx] = {"n_tasks": n_cls, "accuracy": acc_psr}
-
-        # ── RLS batch (sklearn Ridge — upper bound, sees all data) ──
-        Xs, ys = [], []
-        for t in available:
-            Xs.append(train_embs[t])
-            ys.append(np.full(train_embs[t].shape[0], task2idx[t], dtype=np.int64))
-        X_all = np.vstack(Xs)
-        y_all = np.concatenate(ys)
-        ridge = RidgeClassifier(alpha=alpha_rls)
-        ridge.fit(X_all, y_all)
-
-        # Evaluate batch RLS
-        correct_b, total_b = 0, 0
-        for t in available:
-            if t not in test_embs:
+        for t_idx in range(1, len(tasks) + 1):
+            available = [tasks[i] for i in range(t_idx) if tasks[i] in train_embs]
+            if not available:
                 continue
-            preds = ridge.predict(test_embs[t])
-            correct_b += int((preds == task2idx[t]).sum())
-            total_b += test_embs[t].shape[0]
-        rls_batch_results[t_idx] = {"n_tasks": n_cls,
-                                     "accuracy": correct_b / max(total_b, 1)}
+            task2idx = {t: i for i, t in enumerate(available)}
+            n_cls = len(available)
 
-        # ── RLS incremental (Woodbury update — realistic CL) ──
-        # Add new task's data via Woodbury: R_new^{-1} = R_old^{-1} - ...
-        new_task = available[-1]
-        X_new = train_embs[new_task]
-        n_new = X_new.shape[0]
+            # ── PSR (incremental) ──
+            sigs = {t: PPCASig(train_embs[t], k, device=device) for t in available}
+            test_avail = OrderedDict((t, test_embs[t]) for t in available if t in test_embs)
+            acc_psr, _ = route_accuracy_vec(sigs, test_avail, available, device=device)
+            psr_results[t_idx] = {"n_tasks": n_cls, "accuracy": acc_psr}
 
-        if R_inv is None:
-            # First task: R_inv = (X^T X + alpha I)^{-1}
-            R_inv = np.linalg.inv(X_new.T @ X_new + alpha_rls * np.eye(d))
-            XtY_accum = np.zeros((d, n_cls))
-            XtY_accum[:, task2idx[new_task]] = X_new.T @ np.ones(n_new)
-        else:
-            # Expand XtY if new class appeared
-            if n_cls > XtY_accum.shape[1]:
-                pad = np.zeros((d, n_cls - XtY_accum.shape[1]))
-                XtY_accum = np.concatenate([XtY_accum, pad], axis=1)
-            # Woodbury: (A + UCV)^{-1} = A^{-1} - A^{-1}U(C^{-1}+VA^{-1}U)^{-1}VA^{-1}
-            # A = old (XtX + alpha I), U = X_new^T, C = I, V = X_new
-            U = X_new.T  # (d, n_new)
-            V = X_new     # (n_new, d)
-            RU = R_inv @ U  # (d, n_new)
-            S = np.eye(n_new) + V @ RU  # (n_new, n_new)
-            try:
-                S_inv = np.linalg.inv(S)
-                R_inv = R_inv - RU @ S_inv @ (V @ R_inv)
-            except np.linalg.LinAlgError:
-                # Fallback: recompute from scratch
-                Xs_so_far = np.vstack([train_embs[t] for t in available])
-                R_inv = np.linalg.inv(Xs_so_far.T @ Xs_so_far + alpha_rls * np.eye(d))
-            XtY_accum[:, task2idx[new_task]] = X_new.T @ np.ones(n_new)
+            # ── RLS batch (GPU ridge solve) ──
+            Xs_t = torch.cat([train_tensors[t] for t in available], dim=0)
+            y_np = np.concatenate([np.full(train_embs[t].shape[0], task2idx[t], dtype=np.int64) for t in available])
+            # One-hot Y
+            Y_t = torch.zeros(Xs_t.shape[0], n_cls, dtype=torch.float64, device=dev)
+            for i, t in enumerate(available):
+                start = sum(train_embs[available[j]].shape[0] for j in range(i))
+                end = start + train_embs[t].shape[0]
+                Y_t[start:end, i] = 1.0
+            # W = (X^TX + αI)^{-1} X^T Y
+            XtX = Xs_t.T @ Xs_t + alpha_rls * eye_d
+            XtY = Xs_t.T @ Y_t
+            W_batch = torch.linalg.solve(XtX, XtY)  # (d, n_cls)
 
-        # Compute weights W = R_inv @ XtY
-        W_inc = R_inv @ XtY_accum[:, :n_cls]  # (d, n_cls)
+            correct_b, total_b = 0, 0
+            for t in available:
+                if t not in test_tensors:
+                    continue
+                scores = test_tensors[t] @ W_batch
+                preds = scores.argmax(dim=1)
+                correct_b += int((preds == task2idx[t]).sum().item())
+                total_b += test_tensors[t].shape[0]
+            rls_batch_results[t_idx] = {"n_tasks": n_cls,
+                                         "accuracy": correct_b / max(total_b, 1)}
 
-        # Evaluate incremental RLS
-        correct_i, total_i = 0, 0
-        for t in available:
-            if t not in test_embs:
+            # ── RLS incremental (Woodbury on GPU) ──
+            new_task = available[-1]
+            X_new = train_tensors[new_task]
+            n_new = X_new.shape[0]
+
+            if R_inv_t is None:
+                R_inv_t = torch.linalg.inv(X_new.T @ X_new + alpha_rls * eye_d)
+                XtY_accum_t = torch.zeros(d, n_cls, dtype=torch.float64, device=dev)
+                XtY_accum_t[:, task2idx[new_task]] = X_new.T @ torch.ones(n_new, dtype=torch.float64, device=dev)
+            else:
+                if n_cls > XtY_accum_t.shape[1]:
+                    pad = torch.zeros(d, n_cls - XtY_accum_t.shape[1], dtype=torch.float64, device=dev)
+                    XtY_accum_t = torch.cat([XtY_accum_t, pad], dim=1)
+                U = X_new.T  # (d, n_new)
+                V = X_new     # (n_new, d)
+                RU = R_inv_t @ U
+                S = torch.eye(n_new, dtype=torch.float64, device=dev) + V @ RU
+                try:
+                    S_inv_VR = torch.linalg.solve(S, V @ R_inv_t)
+                    R_inv_t = R_inv_t - RU @ S_inv_VR
+                except Exception:
+                    Xs_so_far = torch.cat([train_tensors[t] for t in available], dim=0)
+                    R_inv_t = torch.linalg.inv(Xs_so_far.T @ Xs_so_far + alpha_rls * eye_d)
+                XtY_accum_t[:, task2idx[new_task]] = X_new.T @ torch.ones(n_new, dtype=torch.float64, device=dev)
+
+            W_inc = R_inv_t @ XtY_accum_t[:, :n_cls]
+
+            correct_i, total_i = 0, 0
+            for t in available:
+                if t not in test_tensors:
+                    continue
+                scores = test_tensors[t] @ W_inc
+                preds = scores.argmax(dim=1)
+                correct_i += int((preds == task2idx[t]).sum().item())
+                total_i += test_tensors[t].shape[0]
+            rls_inc_results[t_idx] = {"n_tasks": n_cls,
+                                       "accuracy": correct_i / max(total_i, 1)}
+
+        del train_tensors, test_tensors
+    else:
+        # CPU path (original)
+        from sklearn.linear_model import RidgeClassifier
+        R_inv = None
+        XtY_accum = None
+
+        for t_idx in range(1, len(tasks) + 1):
+            available = [tasks[i] for i in range(t_idx) if tasks[i] in train_embs]
+            if not available:
                 continue
-            scores = test_embs[t] @ W_inc  # (N, n_cls)
-            preds = np.argmax(scores, axis=1)
-            correct_i += int((preds == task2idx[t]).sum())
-            total_i += test_embs[t].shape[0]
-        rls_inc_results[t_idx] = {"n_tasks": n_cls,
-                                   "accuracy": correct_i / max(total_i, 1)}
+            task2idx = {t: i for i, t in enumerate(available)}
+            n_cls = len(available)
+
+            # ── PSR ──
+            sigs = {t: PPCASig(train_embs[t], k, device=device) for t in available}
+            test_avail = OrderedDict((t, test_embs[t]) for t in available if t in test_embs)
+            acc_psr, _ = route_accuracy_vec(sigs, test_avail, available, device=device)
+            psr_results[t_idx] = {"n_tasks": n_cls, "accuracy": acc_psr}
+
+            # ── RLS batch (sklearn) ──
+            Xs, ys = [], []
+            for t in available:
+                Xs.append(train_embs[t])
+                ys.append(np.full(train_embs[t].shape[0], task2idx[t], dtype=np.int64))
+            X_all = np.vstack(Xs)
+            y_all = np.concatenate(ys)
+            ridge = RidgeClassifier(alpha=alpha_rls)
+            ridge.fit(X_all, y_all)
+            correct_b, total_b = 0, 0
+            for t in available:
+                if t not in test_embs:
+                    continue
+                preds = ridge.predict(test_embs[t])
+                correct_b += int((preds == task2idx[t]).sum())
+                total_b += test_embs[t].shape[0]
+            rls_batch_results[t_idx] = {"n_tasks": n_cls,
+                                         "accuracy": correct_b / max(total_b, 1)}
+
+            # ── RLS incremental (Woodbury) ──
+            new_task = available[-1]
+            X_new = train_embs[new_task]
+            n_new = X_new.shape[0]
+            if R_inv is None:
+                R_inv = np.linalg.inv(X_new.T @ X_new + alpha_rls * np.eye(d))
+                XtY_accum = np.zeros((d, n_cls))
+                XtY_accum[:, task2idx[new_task]] = X_new.T @ np.ones(n_new)
+            else:
+                if n_cls > XtY_accum.shape[1]:
+                    pad = np.zeros((d, n_cls - XtY_accum.shape[1]))
+                    XtY_accum = np.concatenate([XtY_accum, pad], axis=1)
+                U = X_new.T
+                V = X_new
+                RU = R_inv @ U
+                S = np.eye(n_new) + V @ RU
+                try:
+                    S_inv = np.linalg.inv(S)
+                    R_inv = R_inv - RU @ S_inv @ (V @ R_inv)
+                except np.linalg.LinAlgError:
+                    Xs_so_far = np.vstack([train_embs[t] for t in available])
+                    R_inv = np.linalg.inv(Xs_so_far.T @ Xs_so_far + alpha_rls * np.eye(d))
+                XtY_accum[:, task2idx[new_task]] = X_new.T @ np.ones(n_new)
+            W_inc = R_inv @ XtY_accum[:, :n_cls]
+
+            correct_i, total_i = 0, 0
+            for t in available:
+                if t not in test_embs:
+                    continue
+                scores = test_embs[t] @ W_inc
+                preds = np.argmax(scores, axis=1)
+                correct_i += int((preds == task2idx[t]).sum())
+                total_i += test_embs[t].shape[0]
+            rls_inc_results[t_idx] = {"n_tasks": n_cls,
+                                       "accuracy": correct_i / max(total_i, 1)}
 
     return {
         "PSR": {str(k): v for k, v in psr_results.items()},
@@ -514,8 +603,8 @@ def main():
 
     if args.whiten:
         mu_g, W = compute_whitening(train_embs, device=args.device)
-        train_embs = apply_whitening(train_embs, mu_g, W)
-        test_embs  = apply_whitening(test_embs, mu_g, W)
+        train_embs = apply_whitening(train_embs, mu_g, W, device=args.device)
+        test_embs  = apply_whitening(test_embs, mu_g, W, device=args.device)
         print("Applied ZCA whitening\n")
 
     report = {"backbone": backbone, "benchmark": args.benchmark,
