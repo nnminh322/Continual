@@ -307,6 +307,12 @@ def compute_confusion_matrix(sigs, test_embs, tasks, device='cpu'):
         W_t   = torch.tensor(W_psr, device=dev)
         pen_t = torch.tensor(pen,   device=dev)
         s2_t  = torch.tensor(s2,    device=dev)
+        # Precompute (avoids (N,T,d) intermediates)
+        CV_t  = torch.einsum('td,tdk->tk', C_t, V_t)   # (T, k)
+        C_sq_t = (C_t ** 2).sum(1)                      # (T,)
+    else:
+        CV  = np.einsum('td,tdk->tk', C, V)              # (T, k)
+        C_sq_np = np.sum(C ** 2, axis=1)                  # (T,)
 
     cm = np.zeros((T, T))
     for i, t in enumerate(task_list):
@@ -315,22 +321,25 @@ def compute_confusion_matrix(sigs, test_embs, tasks, device='cpu'):
         N    = H_np.shape[0]
         if use_gpu:
             H    = torch.tensor(H_np, device=dev)
-            Hd   = H.unsqueeze(1) - C_t.unsqueeze(0)               # (N, T, d)
-            iso  = Hd.pow(2).sum(-1) / (s2_t.unsqueeze(0) + 1e-12) # (N, T)
-            dp   = torch.einsum('ntd,tdk->ntk', Hd, V_t)
+            H_sq = (H ** 2).sum(1, keepdim=True)                    # (N, 1)
+            l2   = H_sq + C_sq_t.unsqueeze(0) - 2 * (H @ C_t.T)    # (N, T)
+            iso  = l2 / (s2_t.unsqueeze(0) + 1e-12)                 # (N, T)
+            H_proj = torch.einsum('nd,tdk->ntk', H, V_t)            # (N, T, k)
+            dp   = H_proj - CV_t.unsqueeze(0)                        # (N, T, k)
             dists = iso + (W_t.unsqueeze(0) * dp.pow(2)).sum(-1) + pen_t.unsqueeze(0)
             preds = dists.argmin(dim=1).cpu().numpy()
-            del H, Hd, iso, dp, dists
+            del H, H_sq, l2, iso, H_proj, dp, dists
         else:
             H   = H_np.astype(np.float64)
-            Hd  = H[:, None, :] - C[None, :, :]                    # (N, T, d)
-            iso = np.sum(Hd**2, axis=-1) / (s2[None, :] + 1e-12)
-            dp  = np.einsum('ntd,tdk->ntk', Hd, V)
+            H_sq = np.sum(H ** 2, axis=1, keepdims=True)            # (N, 1)
+            l2   = H_sq + C_sq_np[None, :] - 2 * (H @ C.T)          # (N, T)
+            iso  = l2 / (s2[None, :] + 1e-12)
+            H_proj = np.einsum('nd,tdk->ntk', H, V)                  # (N, T, k)
+            dp   = H_proj - CV[None, :, :]                           # (N, T, k)
             dists = iso + np.sum(W_psr[None, :, :] * dp**2, axis=-1) + pen[None, :]
             preds = np.argmin(dists, axis=1)
         counts = np.zeros(T)
-        for p in preds:
-            counts[p] += 1
+        np.add.at(counts, preds, 1)
         cm[i] = counts / max(N, 1)
     return cm
 
@@ -607,9 +616,6 @@ def e3_shrinkage_routing(train_embs, test_embs, tasks, k, device='cpu'):
             sig.sigma2 = float(max(sig.eigvals[sig.k:].mean(), 1e-12))
             sigs_shrunk[t] = sig
 
-    fn_raw = lambda h: min(sigs_raw,    key=lambda t: _psr_dist(h, sigs_raw[t]))
-    fn_shr = lambda h: min(sigs_shrunk, key=lambda t: _psr_dist(h, sigs_shrunk[t]))
-
     # Vectorized evaluation using compute_confusion_matrix logic
     # We reuse the batch PSR infrastructure from compare_routing
     # Build per-task accuracy faster via vectorized PSR
@@ -634,6 +640,11 @@ def e3_shrinkage_routing(train_embs, test_embs, tasks, k, device='cpu'):
             C_t = torch.tensor(C, device=_dev); V_t = torch.tensor(V, device=_dev)
             W_t = torch.tensor(W_, device=_dev); pen_t = torch.tensor(pen, device=_dev)
             s2_t= torch.tensor(s2, device=_dev)
+            CV_t = torch.einsum('td,tdk->tk', C_t, V_t)        # (T, k)
+            C_sq_t = (C_t ** 2).sum(1)                          # (T,)
+        else:
+            CV_np = np.einsum('td,tdk->tk', C, V)               # (T, k)
+            C_sq_np = np.sum(C ** 2, axis=1)                     # (T,)
         per_task = {}
         for i, t in enumerate(tl):
             if t not in te:
@@ -642,17 +653,21 @@ def e3_shrinkage_routing(train_embs, test_embs, tasks, k, device='cpu'):
             N = H_np.shape[0]
             if use_gpu:
                 H_ = torch.tensor(H_np, device=_dev)
-                Hd = H_.unsqueeze(1) - C_t.unsqueeze(0)
-                iso= Hd.pow(2).sum(-1) / (s2_t.unsqueeze(0) + 1e-12)
-                dp = torch.einsum('ntd,tdk->ntk', Hd, V_t)
+                H_sq = (H_ ** 2).sum(1, keepdim=True)              # (N, 1)
+                l2 = H_sq + C_sq_t.unsqueeze(0) - 2 * (H_ @ C_t.T) # (N, T)
+                iso= l2 / (s2_t.unsqueeze(0) + 1e-12)
+                H_proj = torch.einsum('nd,tdk->ntk', H_, V_t)
+                dp = H_proj - CV_t.unsqueeze(0)
                 dists_ = iso + (W_t.unsqueeze(0) * dp.pow(2)).sum(-1) + pen_t.unsqueeze(0)
                 preds_ = dists_.argmin(dim=1).cpu().numpy()
-                del H_, Hd, iso, dp, dists_
+                del H_, H_sq, l2, iso, H_proj, dp, dists_
             else:
                 H_ = H_np.astype(np.float64)
-                Hd = H_[:, None, :] - C[None, :, :]
-                iso= np.sum(Hd**2, axis=-1) / (s2[None, :] + 1e-12)
-                dp = np.einsum('ntd,tdk->ntk', Hd, V)
+                H_sq = np.sum(H_ ** 2, axis=1, keepdims=True)      # (N, 1)
+                l2 = H_sq + C_sq_np[None, :] - 2 * (H_ @ C.T)      # (N, T)
+                iso= l2 / (s2[None, :] + 1e-12)
+                H_proj = np.einsum('nd,tdk->ntk', H_, V)
+                dp = H_proj - CV_np[None, :, :]
                 dists_ = iso + np.sum(W_[None, :, :] * dp**2, axis=-1) + pen[None, :]
                 preds_ = np.argmin(dists_, axis=1)
             per_task[t] = float((preds_ == i).sum()) / max(N, 1)

@@ -496,6 +496,17 @@ def evaluate_distance_methods(sigs, task_embs_test, tasks, device="cpu", inv_poo
         lam_t     = torch.tensor(lam,    device=dev)     # (T, k)
         inv_pool_t = (torch.tensor(inv_pool.astype(np.float32), device=dev)
                       if inv_pool is not None else None)
+        # Precompute centroid projections (avoids (N,T,d) intermediates)
+        CV_t      = torch.einsum('td,tdk->tk', C_t, V_t)   # (T, k)
+        if inv_pool_t is not None:
+            C_inv_t   = C_t @ inv_pool_t                    # (T, d)
+            C_inv_C_t = (C_t * C_inv_t).sum(1)              # (T,)
+    else:
+        # CPU precomputes (avoid (N,T,d) intermediates)
+        CV     = np.einsum('td,tdk->tk', C, V)               # (T, k)
+        if inv_pool is not None:
+            C_inv   = C @ inv_pool                            # (T, d)
+            C_inv_C = np.sum(C * C_inv, axis=1)               # (T,)
 
     for true_task in tasks_found:
         H_np    = task_embs_test[true_task].astype(np.float32)  # (N, d)
@@ -509,16 +520,19 @@ def evaluate_distance_methods(sigs, task_embs_test, tasks, device="cpu", inv_poo
             HC     = H @ C_t.T                                                # (N, T)
             l2_sq  = H_sq + C_sq_t.unsqueeze(0) - 2 * HC                     # (N, T)
             cos_d  = 1.0 - H_norm @ C_norm_t.T                               # (N, T)
-            norm_l2 = (H_norm.unsqueeze(1) - C_norm_t.unsqueeze(0)).pow(2).sum(-1)  # (N, T)
+            # NormL2 = ||h_norm - c_norm||^2 = 2*(1 - cos_sim) = 2*cos_d
+            # (both are unit-normalized, avoids (N,T,d) intermediate)
+            norm_l2 = 2.0 * cos_d                                            # (N, T)
             # Subspace projections: H_proj[n,t,j] = V_t[:,j] · H[n]
             H_proj  = torch.einsum('nd,tdk->ntk', H, V_t)                    # (N, T, k)
             spec    = H_proj.pow(2).sum(-1) / (H_sq + 1e-12)                 # (N, T) ↑
             sub_res = H_sq - H_proj.pow(2).sum(-1)                           # (N, T) ↓
             w_spec  = (lam_t.unsqueeze(0) * H_proj.pow(2)).sum(-1) / (lam_sum_t + 1e-12)  # (N, T) ↑
-            # PSR: delta = h - mu
-            HminusC = H.unsqueeze(1) - C_t.unsqueeze(0)                      # (N, T, d)
-            d_proj  = torch.einsum('ntd,tdk->ntk', HminusC, V_t)             # (N, T, k)
-            iso     = HminusC.pow(2).sum(-1) / (s2_t.unsqueeze(0) + 1e-12)  # (N, T)
+            # PSR: delta projections without (N,T,d) HminusC tensor
+            # d_proj = (H - C) @ V = H @ V - C @ V = H_proj - CV_t
+            d_proj  = H_proj - CV_t.unsqueeze(0)                              # (N, T, k)
+            # iso = ||H - C||^2 / sigma^2 = l2_sq / sigma^2
+            iso     = l2_sq / (s2_t.unsqueeze(0) + 1e-12)                    # (N, T)
             sub_psr = (W_t.unsqueeze(0) * d_proj.pow(2)).sum(-1)             # (N, T)
             psr_full    = sub_psr + iso + pen_t.unsqueeze(0)
             psr_no_mean = ((W_t.unsqueeze(0) * H_proj.pow(2)).sum(-1)
@@ -539,13 +553,19 @@ def evaluate_distance_methods(sigs, task_embs_test, tasks, device="cpu", inv_poo
                 "PSR_no_penalty":   psr_no_pen.argmin(dim=1),
             }
             if inv_pool_t is not None:
-                maha = torch.einsum('ntd,de,nte->nt', HminusC, inv_pool_t, HminusC)
+                # Mahalanobis via expansion (no (N,T,d) intermediate):
+                # (H-C)@inv@(H-C)^T = H@inv@H^T + C@inv@C^T - 2*H@inv@C^T
+                H_inv    = H @ inv_pool_t                                    # (N, d)
+                H_inv_H  = (H * H_inv).sum(1, keepdim=True)                 # (N, 1)
+                H_inv_C  = H_inv @ C_t.T                                    # (N, T)
+                maha     = H_inv_H + C_inv_C_t.unsqueeze(0) - 2 * H_inv_C  # (N, T)
                 pred_dict["Mahalanobis"] = maha.argmin(dim=1)
+                del H_inv, H_inv_H, H_inv_C, maha
             # Move to CPU numpy
             preds_np = {m: p.cpu().numpy() for m, p in pred_dict.items()}
             # Free GPU tensors
             del H, H_sq, H_norm, HC, l2_sq, cos_d, norm_l2, H_proj
-            del spec, sub_res, w_spec, HminusC, d_proj, iso, sub_psr
+            del spec, sub_res, w_spec, d_proj, iso, sub_psr
             del psr_full, psr_no_mean, psr_no_sub, psr_no_pen
         else:
             H      = H_np.astype(np.float64)
@@ -554,15 +574,16 @@ def evaluate_distance_methods(sigs, task_embs_test, tasks, device="cpu", inv_poo
             HC     = H @ C.T                                                   # (N, T)
             l2_sq  = H_sq + C_sq[None, :] - 2 * HC                            # (N, T)
             cos_d  = 1.0 - H_norm @ C_norm.T                                  # (N, T)
-            norm_l2 = np.sum((H_norm[:, None, :] - C_norm[None, :, :])**2, axis=-1)  # (N, T)
+            # NormL2 = 2*(1 - cos_sim) = 2*cos_d  (both unit-normalized)
+            norm_l2 = 2.0 * cos_d                                             # (N, T)
             H_proj  = np.einsum('nd,tdk->ntk', H, V)                          # (N, T, k)
             spec    = np.sum(H_proj**2, axis=-1) / (H_sq + 1e-12)             # (N, T) ↑
             sub_res = H_sq - np.sum(H_proj**2, axis=-1)                       # (N, T) ↓
             w_spec  = (np.sum(lam[None, :, :] * H_proj**2, axis=-1)
                        / (lam_sum[None, :] + 1e-12))                          # (N, T) ↑
-            HminusC = H[:, None, :] - C[None, :, :]                           # (N, T, d)
-            d_proj  = np.einsum('ntd,tdk->ntk', HminusC, V)                   # (N, T, k)
-            iso     = np.sum(HminusC**2, axis=-1) / (s2[None, :] + 1e-12)     # (N, T)
+            # PSR without (N,T,d) intermediate
+            d_proj  = H_proj - CV[None, :, :]                                 # (N, T, k)
+            iso     = l2_sq / (s2[None, :] + 1e-12)                           # (N, T)
             sub_psr = np.sum(W_psr[None, :, :] * d_proj**2, axis=-1)          # (N, T)
             psr_full    = sub_psr + iso + pen[None, :]
             psr_no_mean = (np.sum(W_psr[None, :, :] * H_proj**2, axis=-1)
@@ -582,19 +603,23 @@ def evaluate_distance_methods(sigs, task_embs_test, tasks, device="cpu", inv_poo
                 "PSR_no_penalty":   np.argmin(psr_no_pen,  axis=1),
             }
             if inv_pool is not None:
-                maha = np.einsum('ntd,de,nte->nt', HminusC, inv_pool, HminusC)
+                # Mahalanobis via expansion (no (N,T,d) intermediate)
+                H_inv   = H @ inv_pool                                        # (N, d)
+                H_inv_H = np.sum(H * H_inv, axis=1, keepdims=True)            # (N, 1)
+                H_inv_C = H_inv @ C.T                                         # (N, T)
+                maha    = H_inv_H + C_inv_C[None, :] - 2 * H_inv_C            # (N, T)
                 preds_np["Mahalanobis"] = np.argmin(maha, axis=1)
 
-        # ── Accumulate results ──
+        # ── Accumulate results (vectorized — no per-sample Python loops) ──
+        idx_map = np.array([task2idx[tasks_found[p]] for p in range(len(tasks_found))])
+        true_found_idx = tasks_found.index(true_task)
         for m, pred_indices in preds_np.items():
-            # pred_indices are indices into tasks_found; map to tasks for confusion matrix
-            task_found_indices = np.array([task2idx[tasks_found[p]] for p in pred_indices])
-            correct = int((pred_indices == tasks_found.index(true_task)).sum())
+            task_found_indices = idx_map[pred_indices]
+            correct = int((pred_indices == true_found_idx).sum())
             results[m]["correct"] += correct
             results[m]["total"]   += N
             results[m]["per_task"][true_task] = correct / max(N, 1)
-            for n_i in range(N):
-                confusion[m][true_idx, task_found_indices[n_i]] += 1
+            np.add.at(confusion[m][true_idx], task_found_indices, 1)
 
     for m in results:
         results[m]["accuracy"] = results[m]["correct"] / max(results[m]["total"], 1)
@@ -622,8 +647,7 @@ def evaluate_sklearn_methods(trained_models, task_embs_test, tasks):
         preds = clf.predict(X_test)
         acc = float((preds == y_test).mean())
         cm = np.zeros((len(tasks), len(tasks)), dtype=np.int64)
-        for true, pred in zip(y_test, preds):
-            cm[true, pred] += 1
+        np.add.at(cm, (y_test, preds), 1)
         # per-task accuracy
         per_task = {}
         for t in tasks:

@@ -249,32 +249,54 @@ def route_accuracy_vec(sigs, test_embs, tasks, device='cpu',
 
     correct, total = 0, 0
     per_task = {}
+
+    # Precompute centroid projections (avoids (N,T,d) intermediate)
+    if use_gpu:
+        CV_t = torch.einsum('td,tdk->tk', C_t, V_t)   # (T, k)
+        C_sq_t = (C_t ** 2).sum(1)                     # (T,)
+    else:
+        CV = np.einsum('td,tdk->tk', C, V)             # (T, k)
+        C_sq = np.sum(C ** 2, axis=1)                   # (T,)
+
     for i, t_true in enumerate(task_list):
         H_np = test_embs[t_true].astype(np.float32)  # (N, d)
         N    = H_np.shape[0]
         if use_gpu:
             H = torch.tensor(H_np, device=dev)                     # (N, d)
+            H_sq = (H ** 2).sum(1, keepdim=True)                   # (N, 1)
             if use_mean:
-                Hd = H.unsqueeze(1) - C_t.unsqueeze(0)             # (N, T, d)
+                # iso = ||H-C||^2 / s2, via expansion (no (N,T,d) intermediate)
+                l2 = H_sq + C_sq_t.unsqueeze(0) - 2 * (H @ C_t.T)  # (N, T)
+                iso = l2 / (s2_t.unsqueeze(0) + 1e-12)             # (N, T)
             else:
-                Hd = H.unsqueeze(1).expand(N, T, d).clone()        # (N, T, d)
-            iso   = Hd.pow(2).sum(-1) / (s2_t.unsqueeze(0) + 1e-12)  # (N, T)
+                iso = H_sq / (s2_t.unsqueeze(0) + 1e-12)           # (N, T)
             dists = iso.clone()
             if use_subspace:
-                dp = torch.einsum('ntd,tdk->ntk', Hd, V_t)
+                H_proj = torch.einsum('nd,tdk->ntk', H, V_t)       # (N, T, k)
+                if use_mean:
+                    dp = H_proj - CV_t.unsqueeze(0)                 # (N, T, k)
+                else:
+                    dp = H_proj
                 dists = dists + (W_t.unsqueeze(0) * dp.pow(2)).sum(-1)
             if use_penalty:
                 dists = dists + pen_t.unsqueeze(0)
             preds = dists.argmin(dim=1).cpu().numpy()
-            del H, Hd, iso, dists
+            del H, H_sq, iso, dists
         else:
             H  = H_np.astype(np.float64)
-            Hd = (H[:, None, :] - C[None, :, :]) if use_mean else np.broadcast_to(
-                H[:, None, :], (N, T, d)).copy()                   # (N, T, d)
-            iso   = np.sum(Hd**2, axis=-1) / (s2[None, :] + 1e-12)  # (N, T)
+            H_sq = np.sum(H ** 2, axis=1, keepdims=True)           # (N, 1)
+            if use_mean:
+                l2 = H_sq + C_sq[None, :] - 2 * (H @ C.T)          # (N, T)
+                iso = l2 / (s2[None, :] + 1e-12)                   # (N, T)
+            else:
+                iso = H_sq / (s2[None, :] + 1e-12)                 # (N, T)
             dists = iso.copy()
             if use_subspace:
-                dp = np.einsum('ntd,tdk->ntk', Hd, V)
+                H_proj = np.einsum('nd,tdk->ntk', H, V)             # (N, T, k)
+                if use_mean:
+                    dp = H_proj - CV[None, :, :]                    # (N, T, k)
+                else:
+                    dp = H_proj
                 dists += np.sum(W_psr[None, :, :] * dp**2, axis=-1)
             if use_penalty:
                 dists += pen[None, :]
@@ -570,8 +592,7 @@ def main():
             tr = OrderedDict((t, tr[t]) for t in found)
             te = OrderedDict((t, te[t]) for t in found)
             sigs = {t: PPCASig(e, args.subspace_k, device=args.device) for t, e in tr.items()}
-            fn = lambda h: min(sigs, key=lambda t: psr_dist(h, sigs[t]))
-            acc, pt = route_accuracy(sigs, te, found, fn)
+            acc, pt = route_accuracy_vec(sigs, te, found, device=args.device)
             compare[bd.name] = {"accuracy": acc, "d_model": next(iter(tr.values())).shape[1],
                                 "n_tasks": len(found), "per_task": pt}
             print(f"  PSR accuracy: {acc*100:.2f}%  (d={compare[bd.name]['d_model']}, {len(found)} tasks)")

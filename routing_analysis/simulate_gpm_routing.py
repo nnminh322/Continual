@@ -158,7 +158,7 @@ class TransInputMLP(nn.Module):
 
 
 class FrozenTransInput(nn.Module):
-    """Multi-task frozen trans_input (per-task loop to avoid broadcast OOM).
+    """Multi-task frozen trans_input (vectorized via batched einsum).
 
     Backbone-aware: T5 has SiLU after each matmul, Llama only at end.
     """
@@ -170,16 +170,13 @@ class FrozenTransInput(nn.Module):
         self.backbone = backbone
 
     def forward(self, x):
-        """x: (B, d) → (B, T, d)"""
-        T = self.W_in.shape[0]
-        results = []
-        for t in range(T):
-            mid = x @ self.W_in[t].T                # (B, h)
-            if self.backbone != 'llama':
-                mid = self.act(mid)                  # T5: SiLU after first linear
-            out = self.act(mid @ self.W_out[t].T)    # SiLU after second linear (both)
-            results.append(out)
-        return torch.stack(results, dim=1)
+        """x: (B, d) → (B, T, d)  —  fully vectorized, no Python loop."""
+        # mid = x @ W_in^T for all T tasks simultaneously
+        mid = torch.einsum('bd,thd->bth', x, self.W_in)    # (B, T, h)
+        if self.backbone != 'llama':
+            mid = self.act(mid)                              # T5: SiLU after first linear
+        out = self.act(torch.einsum('bth,tdh->btd', mid, self.W_out))  # (B, T, d)
+        return out
 
 
 def cal_attention(prompt_keys, x_features):
@@ -291,6 +288,11 @@ class GPMRouter:
         self.prompt_keys = []              # list of np.ndarray (d,)
         self.frozen_W_in = []              # list of np.ndarray (h, d)
         self.frozen_W_out = []             # list of np.ndarray (d, h)
+
+        # Cached GPU tensors (rebuilt when task count changes)
+        self._cached_frozen_trans = None   # FrozenTransInput on device
+        self._cached_frozen_pks = None     # (T, d) tensor on device
+        self._cached_n_tasks = 0           # number of tasks when cache was built
 
         # GPM bases — per-chunk for input/output, single for medium
         # All stored as torch tensors on device
@@ -424,6 +426,29 @@ class GPMRouter:
             proj['medium'] = self.gpm_bases_medium @ self.gpm_bases_medium.T
         return proj
 
+    def _get_frozen_trans_and_pks(self):
+        """Return cached FrozenTransInput and prompt_keys on GPU.
+
+        Rebuilds only when the task count changes (avoids repeated numpy→GPU).
+        """
+        n = len(self.prompt_keys)
+        if n == self._cached_n_tasks and self._cached_frozen_trans is not None:
+            return self._cached_frozen_trans, self._cached_frozen_pks
+
+        frozen_pks = torch.tensor(
+            np.stack(self.prompt_keys), dtype=torch.float32, device=self.device)
+        frozen_trans = FrozenTransInput(
+            [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_in],
+            [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_out],
+            backbone=self.backbone,
+        ).to(self.device)
+        frozen_trans.eval()
+
+        self._cached_frozen_trans = frozen_trans
+        self._cached_frozen_pks = frozen_pks
+        self._cached_n_tasks = n
+        return frozen_trans, frozen_pks
+
     def _train_routing(self, mlp, prompt_key, X_gpu, task_idx):
         """Train trans_input + prompt_key with ROOT-style gradient projection.
 
@@ -434,14 +459,7 @@ class GPMRouter:
         """
         C, step = self.chunk, self.step
 
-        frozen_pks = torch.tensor(
-            np.stack(self.prompt_keys), dtype=torch.float32, device=self.device)
-        frozen_trans = FrozenTransInput(
-            [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_in],
-            [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_out],
-            backbone=self.backbone,
-        ).to(self.device)
-        frozen_trans.eval()
+        frozen_trans, frozen_pks = self._get_frozen_trans_and_pks()
 
         optimizer = torch.optim.Adam(
             list(mlp.parameters()) + [prompt_key], lr=self.lr)
@@ -516,10 +534,6 @@ class GPMRouter:
                     mlp.linear2.weight.data = W2 * W2_norm / (W2.norm(dim=1, keepdim=True) + 1e-12)
                     prompt_key.data = pk * (pk_norm / (pk.norm() + 1e-12))
 
-        del frozen_trans, frozen_pks
-        if 'cuda' in self.device:
-            torch.cuda.empty_cache()
-
     def route(self, h_batch):
         """Route embeddings to task indices (argmax of cal_attention weights)."""
         n_tasks = len(self.prompt_keys)
@@ -529,14 +543,7 @@ class GPMRouter:
             return np.zeros(h_batch.shape[0], dtype=np.int64)
 
         X = torch.from_numpy(h_batch).float().to(self.device)
-        all_pk = torch.tensor(
-            np.stack(self.prompt_keys), dtype=torch.float32, device=self.device)
-        frozen_trans = FrozenTransInput(
-            [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_in],
-            [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_out],
-            backbone=self.backbone,
-        ).to(self.device)
-        frozen_trans.eval()
+        frozen_trans, all_pk = self._get_frozen_trans_and_pks()
 
         cs = 2048 if 'cuda' in self.device else 256
         all_preds = []
@@ -547,10 +554,7 @@ class GPMRouter:
                 w = cal_attention(all_pk, all_x)
                 all_preds.append(w.argmax(dim=1).cpu())
 
-        del frozen_trans, all_pk, X
-        if 'cuda' in self.device:
-            torch.cuda.empty_cache()
-
+        del X
         return torch.cat(all_preds).numpy()
 
 
@@ -670,29 +674,71 @@ class RLSRouter:
 # ═══════════════════════════════════════════════════════════════════════
 
 class NearestCentroidRouter:
-    """L2 nearest centroid (simplest possible baseline)."""
-    def __init__(self):
+    """L2 nearest centroid (simplest possible baseline). GPU-accelerated."""
+    def __init__(self, device='cpu'):
         self.centroids = []
+        self.device = device
+        self.use_gpu = 'cuda' in device and HAS_TORCH
 
     def add_task(self, embs):
-        self.centroids.append(embs.mean(0))
+        if self.use_gpu:
+            dev = torch.device(self.device)
+            X = torch.tensor(embs, dtype=torch.float32, device=dev)
+            self.centroids.append(X.mean(0))
+            del X
+        else:
+            self.centroids.append(embs.mean(0))
 
     def route(self, h_batch):
+        if self.use_gpu:
+            dev = torch.device(self.device)
+            C = torch.stack(self.centroids)  # (T, d) — already on GPU
+            if isinstance(h_batch, np.ndarray):
+                H = torch.tensor(h_batch, dtype=torch.float32, device=dev)
+            else:
+                H = h_batch.to(dev)
+            # L2 via expansion: ||h-c||^2 = ||h||^2 + ||c||^2 - 2*h@c^T
+            H_sq = (H ** 2).sum(1, keepdim=True)  # (N, 1)
+            C_sq = (C ** 2).sum(1, keepdim=True).T  # (1, T)
+            dists = H_sq + C_sq - 2 * (H @ C.T)
+            return dists.argmin(dim=1).cpu().numpy()
         C = np.stack(self.centroids)  # (T, d)
-        dists = np.linalg.norm(h_batch[:, None, :] - C[None, :, :], axis=2)
+        # Avoid (N, T, d) intermediate — use expansion
+        H_sq = np.sum(h_batch ** 2, axis=1, keepdims=True)
+        C_sq = np.sum(C ** 2, axis=1, keepdims=True).T
+        dists = H_sq + C_sq - 2 * (h_batch @ C.T)
         return dists.argmin(axis=1)
 
 
 class CosineNearestCentroidRouter:
-    """Cosine nearest centroid."""
-    def __init__(self):
+    """Cosine nearest centroid. GPU-accelerated."""
+    def __init__(self, device='cpu'):
         self.centroids = []
+        self.device = device
+        self.use_gpu = 'cuda' in device and HAS_TORCH
 
     def add_task(self, embs):
-        mu = embs.mean(0)
-        self.centroids.append(mu / (np.linalg.norm(mu) + 1e-12))
+        if self.use_gpu:
+            dev = torch.device(self.device)
+            X = torch.tensor(embs, dtype=torch.float32, device=dev)
+            mu = X.mean(0)
+            self.centroids.append(mu / (mu.norm() + 1e-12))
+            del X
+        else:
+            mu = embs.mean(0)
+            self.centroids.append(mu / (np.linalg.norm(mu) + 1e-12))
 
     def route(self, h_batch):
+        if self.use_gpu:
+            dev = torch.device(self.device)
+            C = torch.stack(self.centroids)  # (T, d)
+            if isinstance(h_batch, np.ndarray):
+                H = torch.tensor(h_batch, dtype=torch.float32, device=dev)
+            else:
+                H = h_batch.to(dev)
+            H_norm = H / (H.norm(dim=1, keepdim=True) + 1e-12)
+            sims = H_norm @ C.T
+            return sims.argmax(dim=1).cpu().numpy()
         C = np.stack(self.centroids)
         h_norm = h_batch / (np.linalg.norm(h_batch, axis=1, keepdims=True) + 1e-12)
         sims = h_norm @ C.T  # (N, T)
@@ -760,9 +806,15 @@ class PSRRouter:
                 H = torch.tensor(h_batch, dtype=torch.float32, device=dev)
             else:
                 H = h_batch.to(dev)
-            Hd = H[:, None, :] - C[None, :, :]
-            iso = Hd.pow(2).sum(-1) / (s2[None, :] + 1e-12)
-            dp  = torch.einsum('ntd,tdk->ntk', Hd, V)
+            # Avoid (N,T,d) intermediate: iso = ||H-C||^2 / s2
+            H_sq = (H ** 2).sum(1, keepdim=True)                            # (N, 1)
+            C_sq = (C ** 2).sum(1)                                           # (T,)
+            l2   = H_sq + C_sq.unsqueeze(0) - 2 * (H @ C.T)                 # (N, T)
+            iso  = l2 / (s2[None, :] + 1e-12)                               # (N, T)
+            # d_proj = (H-C)@V = H@V - C@V  (no (N,T,d) intermediate)
+            H_proj = torch.einsum('nd,tdk->ntk', H, V)                      # (N, T, k)
+            CV     = torch.einsum('td,tdk->tk', C, V)                        # (T, k)
+            dp     = H_proj - CV.unsqueeze(0)                                # (N, T, k)
             dists = iso + (W_psr[None, :, :] * dp.pow(2)).sum(-1) + pen[None, :]
             return dists.argmin(dim=1).cpu().numpy().astype(np.int64)
         else:
@@ -775,9 +827,14 @@ class PSRRouter:
             W_psr = lam / (s2[:, None] * (lam + s2[:, None]))
             pen = np.sum(np.log(lam + s2[:, None]), axis=1) + (d - k) * np.log(s2)
             H = h_batch.astype(np.float32)
-            Hd = H[:, None, :] - C[None, :, :]
-            iso = np.sum(Hd**2, axis=-1) / (s2[None, :] + 1e-12)
-            dp  = np.einsum('ntd,tdk->ntk', Hd, V)
+            # Avoid (N,T,d) intermediate
+            H_sq = np.sum(H ** 2, axis=1, keepdims=True)                     # (N, 1)
+            C_sq = np.sum(C ** 2, axis=1)                                     # (T,)
+            l2   = H_sq + C_sq[None, :] - 2 * (H @ C.T)                      # (N, T)
+            iso  = l2 / (s2[None, :] + 1e-12)                                # (N, T)
+            H_proj = np.einsum('nd,tdk->ntk', H, V)                          # (N, T, k)
+            CV     = np.einsum('td,tdk->tk', C, V)                            # (T, k)
+            dp     = H_proj - CV[None, :, :]                                  # (N, T, k)
             dists = iso + np.sum(W_psr[None, :, :] * dp**2, axis=-1) + pen[None, :]
             return np.argmin(dists, axis=1).astype(np.int64)
 
@@ -795,8 +852,8 @@ def run_incremental_comparison(train_embs, test_embs, tasks, args):
 
     # Initialize routers
     routers = OrderedDict()
-    routers["NearestCentroid"] = NearestCentroidRouter()
-    routers["CosineNearestCentroid"] = CosineNearestCentroidRouter()
+    routers["NearestCentroid"] = NearestCentroidRouter(device=args.device)
+    routers["CosineNearestCentroid"] = CosineNearestCentroidRouter(device=args.device)
     routers["PSR"] = PSRRouter(k=args.subspace_k, device=args.device)
 
     routers["RLS_Woodbury"] = RLSRouter(
