@@ -222,17 +222,22 @@ def compute_kl_batch_gpu(sigs, tasks, device='cpu'):
     for i, t in enumerate(tasks):
         Covs[i] = torch.tensor(sigs[t].cov, dtype=torch.float64, device=dev)
         Mus[i]  = torch.tensor(sigs[t].mu, dtype=torch.float64, device=dev)
-    # Regularize
+    # Adaptive regularization: scale by trace so rank-deficient covs become PD
     eye_d = torch.eye(d, dtype=torch.float64, device=dev)
-    Covs = Covs + 1e-6 * eye_d.unsqueeze(0)
+    traces = torch.diagonal(Covs, dim1=-2, dim2=-1).sum(-1)          # (n,)
+    reg = (1e-6 * traces / d).clamp(min=1e-10)                       # per-task scale
+    Covs = Covs + reg[:, None, None] * eye_d.unsqueeze(0)
 
     # Precompute Cholesky and log-determinants for all tasks
-    try:
-        L_all = torch.linalg.cholesky(Covs)  # (n, d, d)
-    except torch.linalg.LinAlgError:
-        # Add more regularization if needed
-        Covs = Covs + 1e-4 * eye_d.unsqueeze(0)
-        L_all = torch.linalg.cholesky(Covs)
+    for attempt, bump in enumerate([0, 1e-4, 1e-3, 1e-2]):
+        try:
+            if bump > 0:
+                Covs = Covs + bump * eye_d.unsqueeze(0)
+            L_all = torch.linalg.cholesky(Covs)  # (n, d, d)
+            break
+        except torch.linalg.LinAlgError:
+            if attempt == 3:
+                raise
 
     # log|Σ_i| = 2 * sum(log(diag(L_i)))
     logdets = 2.0 * torch.log(torch.diagonal(L_all, dim1=-2, dim2=-1)).sum(-1)  # (n,)
