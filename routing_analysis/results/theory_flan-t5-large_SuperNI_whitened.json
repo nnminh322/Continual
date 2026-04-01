@@ -1,0 +1,348 @@
+{
+  "backbone": "flan-t5-large",
+  "benchmark": "SuperNI",
+  "k": 8,
+  "tasks": [
+    "task002_quoref_answer_generation",
+    "task073_commonsenseqa_answer_generation",
+    "task1290_xsum_summarization",
+    "task1510_evalution_relation_extraction",
+    "task1572_samsum_summary",
+    "task1590_diplomacy_text_generation",
+    "task1687_sentiment140_classification",
+    "task1729_personachat_generate_next",
+    "task181_outcome_extraction",
+    "task363_sst2_polarity_classification",
+    "task511_reddit_tifu_long_text_summarization",
+    "task591_sciq_answer_generation",
+    "task639_multi_woz_user_utterance_generation",
+    "task748_glucose_reverse_cause_event_detection",
+    "task875_emotion_classification"
+  ],
+  "E1_kl_confusion": {
+    "spearman": {
+      "rho": -0.47509076144002066,
+      "pval": 3.19660749968931e-13
+    },
+    "PSR_accuracy": 0.10805038759689922
+  },
+  "E2_grassmann": {
+    "d": 1024,
+    "k": 8,
+    "T_actual": 15,
+    "T_max_bound": 129.1345827379746,
+    "delta_max": 0.008786048740148544,
+    "delta_mean": 0.0014765943633392453,
+    "geodesic_to_nearest": {
+      "task002_quoref_answer_generation": 4.371663570404053,
+      "task073_commonsenseqa_answer_generation": 4.320310115814209,
+      "task1290_xsum_summarization": 4.391916751861572,
+      "task1510_evalution_relation_extraction": 4.301585674285889,
+      "task1572_samsum_summary": 4.235138893127441,
+      "task1590_diplomacy_text_generation": 4.235138893127441,
+      "task1687_sentiment140_classification": 4.3009185791015625,
+      "task1729_personachat_generate_next": 4.24373722076416,
+      "task181_outcome_extraction": 4.301585674285889,
+      "task363_sst2_polarity_classification": 4.30553674697876,
+      "task511_reddit_tifu_long_text_summarization": 4.307394027709961,
+      "task591_sciq_answer_generation": 4.380595684051514,
+      "task639_multi_woz_user_utterance_generation": 4.2624287605285645,
+      "task748_glucose_reverse_cause_event_detection": 4.288028240203857,
+      "task875_emotion_classification": 4.30553674697876
+    },
+    "mean_geodesic_nn": 4.303434371948242,
+    "bound_satisfied": true
+  },
+  "E3_rmt": {
+    "task002_quoref_answer_generation": {
+      "n": 1000,
+      "d": 1024,
+      "gamma": 1.024,
+      "sigma2_est": 0.4989396333694458,
+      "mp_lower": 0.0,
+      "mp_upper": 2.0196366380209105,
+      "n_signal_eigvals": 263,
+      "top5_eigvals": [
+        11.582948684692383,
+        11.345080375671387,
+        10.807289123535156,
+        10.647955894470215,
+        10.316815376281738
+      ],
+      "evr_k_signal": 0.7789204120635986,
+      "oas_shrinkage_alpha": 0.4946140261570393,
+      "eigenvalue_inflation_ratio": 23.215130468730774
+    },
+    "task073_commonsenseqa_answer_generation": {
+      "n": 975,
+      "d": 1024,
+      "gamma": 1.0502564102564103,
+      "sigma2_est": 0.20421017706394196,
+      "mp_lower": 0.0,
+      "mp_upper": 0.8372406471756184,
+      "n_signal_eigvals": 252,
+      "top5_eigvals": [
+        10.485386848449707,
+        9.01093864440918,
+        8.531594276428223,
+        7.779677391052246,
+        7.530962944030762
+      ],
+      "evr_k_signal": 0.7903440594673157,
+      "oas_shrinkage_alpha": 0.35564829091306244,
+      "eigenvalue_inflation_ratio": 51.346054340702814
+    },
+    "task1290_xsum_summarization": {
+      "n": 1000,
+      "d": 1024,
+      "gamma": 1.024,
+      "sigma2_est": 0.869645357131958,
+      "mp_lower": 0.0,
+      "mp_upper": 3.5202006573167104,
+      "n_signal_eigvals": 209,
+      "top5_eigvals": [
+        11.638358116149902,
+        11.548737525939941,
+        11.33122444152832,
+        11.23265552520752,
+        11.216447830200195
+      ],
+      "evr_k_signal": 0.6406616568565369,
+      "oas_shrinkage_alpha": 0.638936326174267,
+      "eigenvalue_inflation_ratio": 13.382878458102232
+    },
+    "task1510_evalution_relation_extraction": {
+      "n": 1000,
+      "d": 1024,
+      "gamma": 1.024,
+      "sigma2_est": 0.0042078616097569466,
+      "mp_lower": 0.0,
+      "mp_upper": 0.01703282502814137,
+      "n_signal_eigvals": 339,
+      "top5_eigvals": [
+        10.220972061157227,
+        9.232410430908203,
+        8.813072204589844,
+        8.56428337097168,
+        6.466146469116211
+      ],
+      "evr_k_signal": 0.9848936796188354,
+      "oas_shrinkage_alpha": 0.037268685138143416,
+      "eigenvalue_inflation_ratio": 2429.0181115884197
+    },
+    "task1572_samsum_summary": {
+      "n": 160,
+      "d": 1024,
+      "gamma": 6.4,
+      "sigma2_est": 0.0,
+      "mp_lower": 0.0,
+      "mp_upper": 0.0,
+      "n_signal_eigvals": 508,
+      "top5_eigvals": [
+        62.02943420410156,
+        40.96879577636719,
+        39.11760711669922,
+        35.28830337524414,
+        33.013343811035156
+      ],
+      "evr_k_signal": 1.0,
+      "oas_shrinkage_alpha": 0.671260135254259,
+      "eigenvalue_inflation_ratio": 62029434204101.56
+    },
+    "task1590_diplomacy_text_generation": {
+      "n": 126,
+      "d": 1024,
+      "gamma": 8.126984126984127,
+      "sigma2_est": 0.0,
+      "mp_lower": 0.0,
+      "mp_upper": 0.0,
+      "n_signal_eigvals": 501,
+      "top5_eigvals": [
+        60.00395584106445,
+        36.76198959350586,
+        29.5097599029541,
+        27.464649200439453,
+        25.485713958740234
+      ],
+      "evr_k_signal": 1.0,
+      "oas_shrinkage_alpha": 0.5409216253848551,
+      "eigenvalue_inflation_ratio": 60003955841064.45
+    },
+    "task1687_sentiment140_classification": {
+      "n": 1000,
+      "d": 1024,
+      "gamma": 1.024,
+      "sigma2_est": 0.27576300501823425,
+      "mp_lower": 0.0,
+      "mp_upper": 1.1162494039297464,
+      "n_signal_eigvals": 260,
+      "top5_eigvals": [
+        10.7101411819458,
+        9.962488174438477,
+        9.23447322845459,
+        8.646142959594727,
+        8.495590209960938
+      ],
+      "evr_k_signal": 0.7893878221511841,
+      "oas_shrinkage_alpha": 0.3996750577145211,
+      "eigenvalue_inflation_ratio": 38.838208849797006
+    },
+    "task1729_personachat_generate_next": {
+      "n": 1000,
+      "d": 1024,
+      "gamma": 1.024,
+      "sigma2_est": 0.24051810801029205,
+      "mp_lower": 0.0,
+      "mp_upper": 0.9735830761020547,
+      "n_signal_eigvals": 256,
+      "top5_eigvals": [
+        11.423466682434082,
+        9.415578842163086,
+        9.10555648803711,
+        8.619773864746094,
+        8.520934104919434
+      ],
+      "evr_k_signal": 0.7987140417098999,
+      "oas_shrinkage_alpha": 0.3539556978512008,
+      "eigenvalue_inflation_ratio": 47.495245896185324
+    },
+    "task181_outcome_extraction": {
+      "n": 338,
+      "d": 1024,
+      "gamma": 3.029585798816568,
+      "sigma2_est": 2.2607187588619126e-07,
+      "mp_lower": 0.0,
+      "mp_upper": 1.6979641139966736e-06,
+      "n_signal_eigvals": 337,
+      "top5_eigvals": [
+        25.330699920654297,
+        20.476144790649414,
+        17.888826370239258,
+        16.033897399902344,
+        13.118170738220215
+      ],
+      "evr_k_signal": 0.9999997615814209,
+      "oas_shrinkage_alpha": 0.19974510382466812,
+      "eigenvalue_inflation_ratio": 112047108.12151723
+    },
+    "task363_sst2_polarity_classification": {
+      "n": 1000,
+      "d": 1024,
+      "gamma": 1.024,
+      "sigma2_est": 0.1712266504764557,
+      "mp_lower": 0.0,
+      "mp_upper": 0.6931011160057257,
+      "n_signal_eigvals": 267,
+      "top5_eigvals": [
+        10.90466594696045,
+        10.588141441345215,
+        9.421158790588379,
+        8.788065910339355,
+        8.502312660217285
+      ],
+      "evr_k_signal": 0.8300110101699829,
+      "oas_shrinkage_alpha": 0.2887155279769693,
+      "eigenvalue_inflation_ratio": 63.68556481492279
+    },
+    "task511_reddit_tifu_long_text_summarization": {
+      "n": 1000,
+      "d": 1024,
+      "gamma": 1.024,
+      "sigma2_est": 0.4464854598045349,
+      "mp_lower": 0.0,
+      "mp_upper": 1.8073096075275068,
+      "n_signal_eigvals": 223,
+      "top5_eigvals": [
+        10.587549209594727,
+        9.949030876159668,
+        9.23167896270752,
+        9.004477500915527,
+        8.821708679199219
+      ],
+      "evr_k_signal": 0.6975459456443787,
+      "oas_shrinkage_alpha": 0.5062117383222088,
+      "eigenvalue_inflation_ratio": 23.713088471525605
+    },
+    "task591_sciq_answer_generation": {
+      "n": 1000,
+      "d": 1024,
+      "gamma": 1.024,
+      "sigma2_est": 0.6396215558052063,
+      "mp_lower": 0.0,
+      "mp_upper": 2.589097041356103,
+      "n_signal_eigvals": 260,
+      "top5_eigvals": [
+        11.431622505187988,
+        11.346118927001953,
+        11.280762672424316,
+        11.123844146728516,
+        11.070854187011719
+      ],
+      "evr_k_signal": 0.7612875699996948,
+      "oas_shrinkage_alpha": 0.5454154673791717,
+      "eigenvalue_inflation_ratio": 17.872478501442867
+    },
+    "task639_multi_woz_user_utterance_generation": {
+      "n": 142,
+      "d": 1024,
+      "gamma": 7.211267605633803,
+      "sigma2_est": 6.312739220248886e-09,
+      "mp_lower": 0.0,
+      "mp_upper": 8.573980273193963e-08,
+      "n_signal_eigvals": 472,
+      "top5_eigvals": [
+        68.5938491821289,
+        64.27127075195312,
+        57.258705139160156,
+        47.98283004760742,
+        46.364681243896484
+      ],
+      "evr_k_signal": 1.0000001192092896,
+      "oas_shrinkage_alpha": 0.4147987010812035,
+      "eigenvalue_inflation_ratio": 10865940566.989637
+    },
+    "task748_glucose_reverse_cause_event_detection": {
+      "n": 1000,
+      "d": 1024,
+      "gamma": 1.024,
+      "sigma2_est": 0.18777036666870117,
+      "mp_lower": 0.0,
+      "mp_upper": 0.7600677250226089,
+      "n_signal_eigvals": 267,
+      "top5_eigvals": [
+        9.475444793701172,
+        8.205102920532227,
+        8.189885139465332,
+        7.468094825744629,
+        7.037444591522217
+      ],
+      "evr_k_signal": 0.8172940611839294,
+      "oas_shrinkage_alpha": 0.3574019188857514,
+      "eigenvalue_inflation_ratio": 50.46294024881724
+    },
+    "task875_emotion_classification": {
+      "n": 1000,
+      "d": 1024,
+      "gamma": 1.024,
+      "sigma2_est": 0.13195928931236267,
+      "mp_lower": 0.0,
+      "mp_upper": 0.5341524256604975,
+      "n_signal_eigvals": 279,
+      "top5_eigvals": [
+        10.95594596862793,
+        8.8217191696167,
+        8.367953300476074,
+        7.365505695343018,
+        7.04056978225708
+      ],
+      "evr_k_signal": 0.8489001393318176,
+      "oas_shrinkage_alpha": 0.27645514378443037,
+      "eigenvalue_inflation_ratio": 83.0251968294097
+    }
+  },
+  "E3_shrinkage": {
+    "raw_acc": 0.10805038759689922,
+    "shrinkage_acc": 0.13455038759689925,
+    "improvement": 0.026500000000000024
+  }
+}

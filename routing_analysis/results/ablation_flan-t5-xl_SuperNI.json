@@ -1,0 +1,300 @@
+{
+  "backbone": "flan-t5-xl",
+  "benchmark": "SuperNI",
+  "k": 8,
+  "tasks": [
+    "task002_quoref_answer_generation",
+    "task073_commonsenseqa_answer_generation",
+    "task1290_xsum_summarization",
+    "task1510_evalution_relation_extraction",
+    "task1572_samsum_summary",
+    "task1590_diplomacy_text_generation",
+    "task1687_sentiment140_classification",
+    "task1729_personachat_generate_next",
+    "task181_outcome_extraction",
+    "task363_sst2_polarity_classification",
+    "task511_reddit_tifu_long_text_summarization",
+    "task591_sciq_answer_generation",
+    "task639_multi_woz_user_utterance_generation",
+    "task748_glucose_reverse_cause_event_detection",
+    "task875_emotion_classification"
+  ],
+  "D1_ablation": {
+    "Centroid_only": {
+      "accuracy": 0.9866332497911445
+    },
+    "Subspace_only": {
+      "accuracy": 0.028404344193817876
+    },
+    "PSR_light": {
+      "accuracy": 0.9239766081871345
+    },
+    "PSR_full": {
+      "accuracy": 0.9866332497911445
+    },
+    "PSR_no_penalty": {
+      "accuracy": 0.9239766081871345
+    }
+  },
+  "D2_rank_sweep": {
+    "2": {
+      "accuracy": 0.9941520467836257,
+      "memory_bytes_per_task": 24588
+    },
+    "4": {
+      "accuracy": 0.9908103592314118,
+      "memory_bytes_per_task": 40980
+    },
+    "8": {
+      "accuracy": 0.9866332497911445,
+      "memory_bytes_per_task": 73764
+    },
+    "16": {
+      "accuracy": 0.9699248120300752,
+      "memory_bytes_per_task": 139332
+    },
+    "32": {
+      "accuracy": 0.9373433583959899,
+      "memory_bytes_per_task": 270468
+    },
+    "64": {
+      "accuracy": 0.9055973266499582,
+      "memory_bytes_per_task": 532740
+    }
+  },
+  "D3_domain": {
+    "sentiment": {
+      "mean": 0.9766666666666666,
+      "tasks": 3,
+      "per_task": {
+        "task1687_sentiment140_classification": 1.0,
+        "task363_sst2_polarity_classification": 0.97,
+        "task875_emotion_classification": 0.96
+      }
+    },
+    "QA": {
+      "mean": 1.0,
+      "tasks": 3,
+      "per_task": {
+        "task073_commonsenseqa_answer_generation": 1.0,
+        "task591_sciq_answer_generation": 1.0,
+        "task002_quoref_answer_generation": 1.0
+      }
+    },
+    "summarization": {
+      "mean": 0.9833333333333334,
+      "tasks": 3,
+      "per_task": {
+        "task1290_xsum_summarization": 1.0,
+        "task1572_samsum_summary": 0.95,
+        "task511_reddit_tifu_long_text_summarization": 1.0
+      }
+    },
+    "extraction": {
+      "mean": 0.9589922480620153,
+      "tasks": 3,
+      "per_task": {
+        "task181_outcome_extraction": 0.9069767441860465,
+        "task748_glucose_reverse_cause_event_detection": 1.0,
+        "task1510_evalution_relation_extraction": 0.97
+      }
+    },
+    "dialogue": {
+      "mean": 0.9791666666666666,
+      "tasks": 3,
+      "per_task": {
+        "task639_multi_woz_user_utterance_generation": 1.0,
+        "task1590_diplomacy_text_generation": 0.9375,
+        "task1729_personachat_generate_next": 1.0
+      }
+    }
+  },
+  "D6_incremental": {
+    "PSR": {
+      "1": {
+        "n_tasks": 1,
+        "accuracy": 1.0
+      },
+      "2": {
+        "n_tasks": 2,
+        "accuracy": 1.0
+      },
+      "3": {
+        "n_tasks": 3,
+        "accuracy": 1.0
+      },
+      "4": {
+        "n_tasks": 4,
+        "accuracy": 0.9925
+      },
+      "5": {
+        "n_tasks": 5,
+        "accuracy": 0.9904761904761905
+      },
+      "6": {
+        "n_tasks": 6,
+        "accuracy": 0.9885321100917431
+      },
+      "7": {
+        "n_tasks": 7,
+        "accuracy": 0.9906716417910447
+      },
+      "8": {
+        "n_tasks": 8,
+        "accuracy": 0.9921383647798742
+      },
+      "9": {
+        "n_tasks": 9,
+        "accuracy": 0.9867452135493373
+      },
+      "10": {
+        "n_tasks": 10,
+        "accuracy": 0.9845956354300385
+      },
+      "11": {
+        "n_tasks": 11,
+        "accuracy": 0.9863481228668942
+      },
+      "12": {
+        "n_tasks": 12,
+        "accuracy": 0.9877425944841676
+      },
+      "13": {
+        "n_tasks": 13,
+        "accuracy": 0.9879638916750251
+      },
+      "14": {
+        "n_tasks": 14,
+        "accuracy": 0.9890610756608933
+      },
+      "15": {
+        "n_tasks": 15,
+        "accuracy": 0.9866332497911445
+      }
+    },
+    "RLS_batch": {
+      "1": {
+        "n_tasks": 1,
+        "accuracy": 1.0
+      },
+      "2": {
+        "n_tasks": 2,
+        "accuracy": 1.0
+      },
+      "3": {
+        "n_tasks": 3,
+        "accuracy": 1.0
+      },
+      "4": {
+        "n_tasks": 4,
+        "accuracy": 1.0
+      },
+      "5": {
+        "n_tasks": 5,
+        "accuracy": 1.0
+      },
+      "6": {
+        "n_tasks": 6,
+        "accuracy": 1.0
+      },
+      "7": {
+        "n_tasks": 7,
+        "accuracy": 1.0
+      },
+      "8": {
+        "n_tasks": 8,
+        "accuracy": 1.0
+      },
+      "9": {
+        "n_tasks": 9,
+        "accuracy": 1.0
+      },
+      "10": {
+        "n_tasks": 10,
+        "accuracy": 1.0
+      },
+      "11": {
+        "n_tasks": 11,
+        "accuracy": 1.0
+      },
+      "12": {
+        "n_tasks": 12,
+        "accuracy": 1.0
+      },
+      "13": {
+        "n_tasks": 13,
+        "accuracy": 1.0
+      },
+      "14": {
+        "n_tasks": 14,
+        "accuracy": 1.0
+      },
+      "15": {
+        "n_tasks": 15,
+        "accuracy": 1.0
+      }
+    },
+    "RLS_incremental": {
+      "1": {
+        "n_tasks": 1,
+        "accuracy": 1.0
+      },
+      "2": {
+        "n_tasks": 2,
+        "accuracy": 1.0
+      },
+      "3": {
+        "n_tasks": 3,
+        "accuracy": 1.0
+      },
+      "4": {
+        "n_tasks": 4,
+        "accuracy": 1.0
+      },
+      "5": {
+        "n_tasks": 5,
+        "accuracy": 1.0
+      },
+      "6": {
+        "n_tasks": 6,
+        "accuracy": 1.0
+      },
+      "7": {
+        "n_tasks": 7,
+        "accuracy": 1.0
+      },
+      "8": {
+        "n_tasks": 8,
+        "accuracy": 1.0
+      },
+      "9": {
+        "n_tasks": 9,
+        "accuracy": 1.0
+      },
+      "10": {
+        "n_tasks": 10,
+        "accuracy": 1.0
+      },
+      "11": {
+        "n_tasks": 11,
+        "accuracy": 1.0
+      },
+      "12": {
+        "n_tasks": 12,
+        "accuracy": 1.0
+      },
+      "13": {
+        "n_tasks": 13,
+        "accuracy": 1.0
+      },
+      "14": {
+        "n_tasks": 14,
+        "accuracy": 1.0
+      },
+      "15": {
+        "n_tasks": 15,
+        "accuracy": 1.0
+      }
+    }
+  }
+}

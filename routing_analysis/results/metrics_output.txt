@@ -1,0 +1,98 @@
+========== ablation_Llama-2-7b-hf_Long_Sequence.json ==========
+========== ablation_Llama-2-7b-hf_Long_Sequence_whitened.json ==========
+========== ablation_Llama-2-7b-hf_SuperNI.json ==========
+========== ablation_Llama-2-7b-hf_SuperNI_whitened.json ==========
+========== ablation_flan-t5-large_Long_Sequence copy.json ==========
+========== ablation_flan-t5-large_Long_Sequence.json ==========
+========== ablation_flan-t5-large_Long_Sequence_whitened copy.json ==========
+========== ablation_flan-t5-large_Long_Sequence_whitened.json ==========
+========== ablation_flan-t5-large_SuperNI.json ==========
+========== ablation_flan-t5-large_SuperNI_whitened.json ==========
+========== ablation_flan-t5-xl_Long_Sequence.json ==========
+========== ablation_flan-t5-xl_Long_Sequence_whitened.json ==========
+========== ablation_flan-t5-xl_SuperNI.json ==========
+========== ablation_flan-t5-xl_SuperNI_whitened.json ==========
+========== geometry_Llama-2-7b-hf_Long_Sequence.json ==========
+========== geometry_Llama-2-7b-hf_Long_Sequence_whitened.json ==========
+========== geometry_Llama-2-7b-hf_SuperNI.json ==========
+========== geometry_Llama-2-7b-hf_SuperNI_whitened.json ==========
+========== geometry_flan-t5-large_Long_Sequence copy.json ==========
+========== geometry_flan-t5-large_Long_Sequence.json ==========
+========== geometry_flan-t5-large_Long_Sequence_whitened copy.json ==========
+========== geometry_flan-t5-large_Long_Sequence_whitened.json ==========
+========== geometry_flan-t5-large_SuperNI.json ==========
+========== geometry_flan-t5-large_SuperNI_whitened.json ==========
+========== geometry_flan-t5-xl_Long_Sequence.json ==========
+========== geometry_flan-t5-xl_Long_Sequence_whitened.json ==========
+========== geometry_flan-t5-xl_SuperNI.json ==========
+========== geometry_flan-t5-xl_SuperNI_whitened.json ==========
+========== learned_routing_Llama-2-7b-hf_Long_Sequence.json ==========
+========== learned_routing_Llama-2-7b-hf_Long_Sequence_whitened.json ==========
+========== learned_routing_Llama-2-7b-hf_SuperNI.json ==========
+========== learned_routing_Llama-2-7b-hf_SuperNI_whitened.json ==========
+========== learned_routing_flan-t5-large_Long_Sequence copy.json ==========
+========== learned_routing_flan-t5-large_Long_Sequence.json ==========
+========== learned_routing_flan-t5-large_Long_Sequence_whitened copy.json ==========
+========== learned_routing_flan-t5-large_Long_Sequence_whitened.json ==========
+========== learned_routing_flan-t5-large_SuperNI.json ==========
+========== learned_routing_flan-t5-large_SuperNI_whitened.json ==========
+========== learned_routing_flan-t5-xl_Long_Sequence.json ==========
+========== learned_routing_flan-t5-xl_Long_Sequence_whitened.json ==========
+========== learned_routing_flan-t5-xl_SuperNI.json ==========
+========== learned_routing_flan-t5-xl_SuperNI_whitened.json ==========
+========== routing_Llama-2-7b-hf_Long_Sequence.json ==========
+Phase B Top 3: [('Mahalanobis', '95.00%'), ('SpectralAffinity', '55.43%'), ('SubspaceResidual', '55.43%')]
+Phase C Top 3: [('LDA', '95.01%'), ('RidgeClassifier', '94.52%'), ('LinearSVM', '93.31%')]
+========== routing_Llama-2-7b-hf_Long_Sequence_whitened.json ==========
+Phase B Top 3: [('Mahalanobis', '95.01%'), ('L2', '93.88%'), ('Cosine', '92.33%')]
+Phase C Top 3: [('RidgeClassifier', '95.20%'), ('LDA', '95.01%'), ('LinearSVM', '91.46%')]
+========== routing_Llama-2-7b-hf_SuperNI.json ==========
+Phase B Top 3: [('Mahalanobis', '97.83%'), ('SpectralAffinity', '67.50%'), ('SubspaceResidual', '67.50%')]
+Phase C Top 3: [('LDA', '97.83%'), ('RidgeClassifier', '97.41%'), ('LinearSVM', '97.08%')]
+========== routing_Llama-2-7b-hf_SuperNI_whitened.json ==========
+Phase B Top 3: [('Mahalanobis', '97.83%'), ('L2', '97.33%'), ('Cosine', '95.41%')]
+Phase C Top 3: [('LDA', '97.83%'), ('RidgeClassifier', '97.49%'), ('LinearSVM', '89.56%')]
+========== routing_flan-t5-large_Long_Sequence copy.json ==========
+Phase B Top 3: [('Mahalanobis', '99.98%'), ('Cosine', '97.14%'), ('NormL2', '97.14%')]
+Phase C Top 3: [('LinearSVM', '100.00%'), ('LDA', '99.99%'), ('RidgeClassifier', '99.99%')]
+========== routing_flan-t5-large_Long_Sequence.json ==========
+Phase B Top 3: [('Mahalanobis', '99.98%'), ('Cosine', '97.14%'), ('NormL2', '97.14%')]
+Phase C Top 3: [('LDA', '99.99%'), ('RidgeClassifier', '99.99%'), ('LinearSVM', '99.97%')]
+========== routing_flan-t5-large_Long_Sequence_whitened copy.json ==========
+Phase B Top 3: [('L2', '100.00%'), ('Mahalanobis', '99.99%'), ('Cosine', '99.96%')]
+Phase C Top 3: [('LinearSVM', '100.00%'), ('RidgeClassifier', '100.00%'), ('LDA', '99.99%')]
+========== routing_flan-t5-large_Long_Sequence_whitened.json ==========
+Phase B Top 3: [('L2', '100.00%'), ('Mahalanobis', '99.99%'), ('Cosine', '99.96%')]
+Phase C Top 3: [('RidgeClassifier', '100.00%'), ('LDA', '99.99%'), ('LinearSVM', '99.98%')]
+========== routing_flan-t5-large_SuperNI.json ==========
+Phase B Top 3: [('L2', '100.00%'), ('Cosine', '100.00%'), ('NormL2', '100.00%')]
+Phase C Top 3: [('LDA', '100.00%'), ('RidgeClassifier', '100.00%'), ('LinearSVM', '100.00%')]
+========== routing_flan-t5-large_SuperNI_whitened.json ==========
+Phase B Top 3: [('L2', '100.00%'), ('Cosine', '100.00%'), ('NormL2', '100.00%')]
+Phase C Top 3: [('LDA', '100.00%'), ('RidgeClassifier', '100.00%'), ('LinearSVM', '100.00%')]
+========== routing_flan-t5-xl_Long_Sequence.json ==========
+Phase B Top 3: [('Mahalanobis', '99.99%'), ('Cosine', '97.40%'), ('NormL2', '97.40%')]
+Phase C Top 3: [('LDA', '100.00%'), ('RidgeClassifier', '100.00%'), ('LinearSVM', '99.98%')]
+========== routing_flan-t5-xl_Long_Sequence_whitened.json ==========
+Phase B Top 3: [('L2', '100.00%'), ('Mahalanobis', '100.00%'), ('Cosine', '99.99%')]
+Phase C Top 3: [('RidgeClassifier', '100.00%'), ('LDA', '100.00%'), ('LinearSVM', '99.96%')]
+========== routing_flan-t5-xl_SuperNI.json ==========
+Phase B Top 3: [('L2', '100.00%'), ('Cosine', '100.00%'), ('NormL2', '100.00%')]
+Phase C Top 3: [('LDA', '100.00%'), ('RidgeClassifier', '100.00%'), ('LinearSVM', '100.00%')]
+========== routing_flan-t5-xl_SuperNI_whitened.json ==========
+Phase B Top 3: [('L2', '100.00%'), ('Cosine', '100.00%'), ('NormL2', '100.00%')]
+Phase C Top 3: [('LDA', '100.00%'), ('RidgeClassifier', '100.00%'), ('LinearSVM', '99.92%')]
+========== theory_Llama-2-7b-hf_Long_Sequence.json ==========
+========== theory_Llama-2-7b-hf_Long_Sequence_whitened.json ==========
+========== theory_Llama-2-7b-hf_SuperNI.json ==========
+========== theory_Llama-2-7b-hf_SuperNI_whitened.json ==========
+========== theory_flan-t5-large_Long_Sequence copy.json ==========
+========== theory_flan-t5-large_Long_Sequence.json ==========
+========== theory_flan-t5-large_Long_Sequence_whitened copy.json ==========
+========== theory_flan-t5-large_Long_Sequence_whitened.json ==========
+========== theory_flan-t5-large_SuperNI.json ==========
+========== theory_flan-t5-large_SuperNI_whitened.json ==========
+========== theory_flan-t5-xl_Long_Sequence.json ==========
+========== theory_flan-t5-xl_Long_Sequence_whitened.json ==========
+========== theory_flan-t5-xl_SuperNI.json ==========
+========== theory_flan-t5-xl_SuperNI_whitened.json ==========

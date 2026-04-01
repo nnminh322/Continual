@@ -1,0 +1,329 @@
+{
+  "backbone": "Llama-2-7b-hf",
+  "benchmark": "SuperNI",
+  "k": 8,
+  "d_model": 4096,
+  "tasks": [
+    "task002_quoref_answer_generation",
+    "task073_commonsenseqa_answer_generation",
+    "task1290_xsum_summarization",
+    "task1510_evalution_relation_extraction",
+    "task1572_samsum_summary",
+    "task1590_diplomacy_text_generation",
+    "task1687_sentiment140_classification",
+    "task1729_personachat_generate_next",
+    "task181_outcome_extraction",
+    "task363_sst2_polarity_classification",
+    "task511_reddit_tifu_long_text_summarization",
+    "task591_sciq_answer_generation",
+    "task639_multi_woz_user_utterance_generation",
+    "task748_glucose_reverse_cause_event_detection",
+    "task875_emotion_classification"
+  ],
+  "phase_B_distance": {
+    "L2": {
+      "accuracy": 0.5004177109440268,
+      "per_task": {
+        "task002_quoref_answer_generation": 0.75,
+        "task073_commonsenseqa_answer_generation": 0.57,
+        "task1290_xsum_summarization": 0.24,
+        "task1510_evalution_relation_extraction": 0.78,
+        "task1572_samsum_summary": 0.25,
+        "task1590_diplomacy_text_generation": 0.5625,
+        "task1687_sentiment140_classification": 0.15,
+        "task1729_personachat_generate_next": 0.31,
+        "task181_outcome_extraction": 0.7209302325581395,
+        "task363_sst2_polarity_classification": 0.33,
+        "task511_reddit_tifu_long_text_summarization": 0.74,
+        "task591_sciq_answer_generation": 0.51,
+        "task639_multi_woz_user_utterance_generation": 0.7222222222222222,
+        "task748_glucose_reverse_cause_event_detection": 0.61,
+        "task875_emotion_classification": 0.42
+      }
+    },
+    "Cosine": {
+      "accuracy": 0.5071010860484545,
+      "per_task": {
+        "task002_quoref_answer_generation": 0.72,
+        "task073_commonsenseqa_answer_generation": 0.68,
+        "task1290_xsum_summarization": 0.21,
+        "task1510_evalution_relation_extraction": 0.79,
+        "task1572_samsum_summary": 0.3,
+        "task1590_diplomacy_text_generation": 0.5625,
+        "task1687_sentiment140_classification": 0.23,
+        "task1729_personachat_generate_next": 0.32,
+        "task181_outcome_extraction": 0.6976744186046512,
+        "task363_sst2_polarity_classification": 0.38,
+        "task511_reddit_tifu_long_text_summarization": 0.69,
+        "task591_sciq_answer_generation": 0.5,
+        "task639_multi_woz_user_utterance_generation": 0.7222222222222222,
+        "task748_glucose_reverse_cause_event_detection": 0.53,
+        "task875_emotion_classification": 0.44
+      }
+    },
+    "NormL2": {
+      "accuracy": 0.5071010860484545,
+      "per_task": {
+        "task002_quoref_answer_generation": 0.72,
+        "task073_commonsenseqa_answer_generation": 0.68,
+        "task1290_xsum_summarization": 0.21,
+        "task1510_evalution_relation_extraction": 0.79,
+        "task1572_samsum_summary": 0.3,
+        "task1590_diplomacy_text_generation": 0.5625,
+        "task1687_sentiment140_classification": 0.23,
+        "task1729_personachat_generate_next": 0.32,
+        "task181_outcome_extraction": 0.6976744186046512,
+        "task363_sst2_polarity_classification": 0.38,
+        "task511_reddit_tifu_long_text_summarization": 0.69,
+        "task591_sciq_answer_generation": 0.5,
+        "task639_multi_woz_user_utterance_generation": 0.7222222222222222,
+        "task748_glucose_reverse_cause_event_detection": 0.53,
+        "task875_emotion_classification": 0.44
+      }
+    },
+    "SpectralAffinity": {
+      "accuracy": 0.6750208855472013,
+      "per_task": {
+        "task002_quoref_answer_generation": 0.72,
+        "task073_commonsenseqa_answer_generation": 0.73,
+        "task1290_xsum_summarization": 0.59,
+        "task1510_evalution_relation_extraction": 0.64,
+        "task1572_samsum_summary": 0.4,
+        "task1590_diplomacy_text_generation": 0.5,
+        "task1687_sentiment140_classification": 0.84,
+        "task1729_personachat_generate_next": 0.54,
+        "task181_outcome_extraction": 0.7209302325581395,
+        "task363_sst2_polarity_classification": 0.62,
+        "task511_reddit_tifu_long_text_summarization": 0.61,
+        "task591_sciq_answer_generation": 0.83,
+        "task639_multi_woz_user_utterance_generation": 0.8333333333333334,
+        "task748_glucose_reverse_cause_event_detection": 0.73,
+        "task875_emotion_classification": 0.61
+      }
+    },
+    "SubspaceResidual": {
+      "accuracy": 0.6750208855472013,
+      "per_task": {
+        "task002_quoref_answer_generation": 0.72,
+        "task073_commonsenseqa_answer_generation": 0.73,
+        "task1290_xsum_summarization": 0.59,
+        "task1510_evalution_relation_extraction": 0.64,
+        "task1572_samsum_summary": 0.4,
+        "task1590_diplomacy_text_generation": 0.5,
+        "task1687_sentiment140_classification": 0.84,
+        "task1729_personachat_generate_next": 0.54,
+        "task181_outcome_extraction": 0.7209302325581395,
+        "task363_sst2_polarity_classification": 0.62,
+        "task511_reddit_tifu_long_text_summarization": 0.61,
+        "task591_sciq_answer_generation": 0.83,
+        "task639_multi_woz_user_utterance_generation": 0.8333333333333334,
+        "task748_glucose_reverse_cause_event_detection": 0.73,
+        "task875_emotion_classification": 0.61
+      }
+    },
+    "WeightedSpectral": {
+      "accuracy": 0.4277360066833751,
+      "per_task": {
+        "task002_quoref_answer_generation": 0.66,
+        "task073_commonsenseqa_answer_generation": 0.69,
+        "task1290_xsum_summarization": 0.18,
+        "task1510_evalution_relation_extraction": 0.85,
+        "task1572_samsum_summary": 0.4,
+        "task1590_diplomacy_text_generation": 0.375,
+        "task1687_sentiment140_classification": 0.46,
+        "task1729_personachat_generate_next": 0.4,
+        "task181_outcome_extraction": 0.37209302325581395,
+        "task363_sst2_polarity_classification": 0.11,
+        "task511_reddit_tifu_long_text_summarization": 0.66,
+        "task591_sciq_answer_generation": 0.19,
+        "task639_multi_woz_user_utterance_generation": 0.3888888888888889,
+        "task748_glucose_reverse_cause_event_detection": 0.27,
+        "task875_emotion_classification": 0.28
+      }
+    },
+    "PSR_full": {
+      "accuracy": 0.13283208020050125,
+      "per_task": {
+        "task002_quoref_answer_generation": 0.95,
+        "task073_commonsenseqa_answer_generation": 0.0,
+        "task1290_xsum_summarization": 0.03,
+        "task1510_evalution_relation_extraction": 0.0,
+        "task1572_samsum_summary": 0.0,
+        "task1590_diplomacy_text_generation": 0.0,
+        "task1687_sentiment140_classification": 0.0,
+        "task1729_personachat_generate_next": 0.0,
+        "task181_outcome_extraction": 0.0,
+        "task363_sst2_polarity_classification": 0.01,
+        "task511_reddit_tifu_long_text_summarization": 0.38,
+        "task591_sciq_answer_generation": 0.16,
+        "task639_multi_woz_user_utterance_generation": 0.0,
+        "task748_glucose_reverse_cause_event_detection": 0.06,
+        "task875_emotion_classification": 0.0
+      }
+    },
+    "PSR_no_mean": {
+      "accuracy": 0.07518796992481203,
+      "per_task": {
+        "task002_quoref_answer_generation": 0.88,
+        "task073_commonsenseqa_answer_generation": 0.0,
+        "task1290_xsum_summarization": 0.02,
+        "task1510_evalution_relation_extraction": 0.0,
+        "task1572_samsum_summary": 0.0,
+        "task1590_diplomacy_text_generation": 0.0,
+        "task1687_sentiment140_classification": 0.0,
+        "task1729_personachat_generate_next": 0.0,
+        "task181_outcome_extraction": 0.0,
+        "task363_sst2_polarity_classification": 0.0,
+        "task511_reddit_tifu_long_text_summarization": 0.0,
+        "task591_sciq_answer_generation": 0.0,
+        "task639_multi_woz_user_utterance_generation": 0.0,
+        "task748_glucose_reverse_cause_event_detection": 0.0,
+        "task875_emotion_classification": 0.0
+      }
+    },
+    "PSR_no_subspace": {
+      "accuracy": 0.3642439431913116,
+      "per_task": {
+        "task002_quoref_answer_generation": 0.98,
+        "task073_commonsenseqa_answer_generation": 0.21,
+        "task1290_xsum_summarization": 0.14,
+        "task1510_evalution_relation_extraction": 0.25,
+        "task1572_samsum_summary": 0.1,
+        "task1590_diplomacy_text_generation": 0.25,
+        "task1687_sentiment140_classification": 0.11,
+        "task1729_personachat_generate_next": 0.28,
+        "task181_outcome_extraction": 0.3023255813953488,
+        "task363_sst2_polarity_classification": 0.32,
+        "task511_reddit_tifu_long_text_summarization": 0.68,
+        "task591_sciq_answer_generation": 0.41,
+        "task639_multi_woz_user_utterance_generation": 0.3333333333333333,
+        "task748_glucose_reverse_cause_event_detection": 0.45,
+        "task875_emotion_classification": 0.28
+      }
+    },
+    "PSR_no_penalty": {
+      "accuracy": 0.0860484544695071,
+      "per_task": {
+        "task002_quoref_answer_generation": 1.0,
+        "task073_commonsenseqa_answer_generation": 0.0,
+        "task1290_xsum_summarization": 0.0,
+        "task1510_evalution_relation_extraction": 0.0,
+        "task1572_samsum_summary": 0.0,
+        "task1590_diplomacy_text_generation": 0.0,
+        "task1687_sentiment140_classification": 0.0,
+        "task1729_personachat_generate_next": 0.0,
+        "task181_outcome_extraction": 0.0,
+        "task363_sst2_polarity_classification": 0.0,
+        "task511_reddit_tifu_long_text_summarization": 0.02,
+        "task591_sciq_answer_generation": 0.01,
+        "task639_multi_woz_user_utterance_generation": 0.0,
+        "task748_glucose_reverse_cause_event_detection": 0.0,
+        "task875_emotion_classification": 0.0
+      }
+    },
+    "Mahalanobis": {
+      "accuracy": 0.9782790309106099,
+      "per_task": {
+        "task002_quoref_answer_generation": 0.94,
+        "task073_commonsenseqa_answer_generation": 0.97,
+        "task1290_xsum_summarization": 0.96,
+        "task1510_evalution_relation_extraction": 1.0,
+        "task1572_samsum_summary": 0.95,
+        "task1590_diplomacy_text_generation": 1.0,
+        "task1687_sentiment140_classification": 0.98,
+        "task1729_personachat_generate_next": 1.0,
+        "task181_outcome_extraction": 0.9302325581395349,
+        "task363_sst2_polarity_classification": 0.98,
+        "task511_reddit_tifu_long_text_summarization": 0.99,
+        "task591_sciq_answer_generation": 1.0,
+        "task639_multi_woz_user_utterance_generation": 1.0,
+        "task748_glucose_reverse_cause_event_detection": 0.99,
+        "task875_emotion_classification": 0.97
+      }
+    }
+  },
+  "phase_C_sklearn": {
+    "LDA": {
+      "accuracy": 0.9782790309106099,
+      "per_task": {
+        "task002_quoref_answer_generation": 0.94,
+        "task073_commonsenseqa_answer_generation": 0.97,
+        "task1290_xsum_summarization": 0.96,
+        "task1510_evalution_relation_extraction": 1.0,
+        "task1572_samsum_summary": 0.95,
+        "task1590_diplomacy_text_generation": 1.0,
+        "task1687_sentiment140_classification": 0.98,
+        "task1729_personachat_generate_next": 1.0,
+        "task181_outcome_extraction": 0.9302325581395349,
+        "task363_sst2_polarity_classification": 0.98,
+        "task511_reddit_tifu_long_text_summarization": 0.99,
+        "task591_sciq_answer_generation": 1.0,
+        "task639_multi_woz_user_utterance_generation": 1.0,
+        "task748_glucose_reverse_cause_event_detection": 0.99,
+        "task875_emotion_classification": 0.97
+      }
+    },
+    "RidgeClassifier": {
+      "accuracy": 0.9741019214703425,
+      "per_task": {
+        "task002_quoref_answer_generation": 0.91,
+        "task073_commonsenseqa_answer_generation": 0.98,
+        "task1290_xsum_summarization": 0.96,
+        "task1510_evalution_relation_extraction": 1.0,
+        "task1572_samsum_summary": 0.95,
+        "task1590_diplomacy_text_generation": 1.0,
+        "task1687_sentiment140_classification": 0.98,
+        "task1729_personachat_generate_next": 0.99,
+        "task181_outcome_extraction": 0.9302325581395349,
+        "task363_sst2_polarity_classification": 0.97,
+        "task511_reddit_tifu_long_text_summarization": 0.99,
+        "task591_sciq_answer_generation": 1.0,
+        "task639_multi_woz_user_utterance_generation": 1.0,
+        "task748_glucose_reverse_cause_event_detection": 0.98,
+        "task875_emotion_classification": 0.97
+      }
+    },
+    "LinearSVM": {
+      "accuracy": 0.9707602339181286,
+      "per_task": {
+        "task002_quoref_answer_generation": 0.96,
+        "task073_commonsenseqa_answer_generation": 0.97,
+        "task1290_xsum_summarization": 0.97,
+        "task1510_evalution_relation_extraction": 1.0,
+        "task1572_samsum_summary": 0.9,
+        "task1590_diplomacy_text_generation": 1.0,
+        "task1687_sentiment140_classification": 0.97,
+        "task1729_personachat_generate_next": 0.93,
+        "task181_outcome_extraction": 0.9534883720930233,
+        "task363_sst2_polarity_classification": 0.97,
+        "task511_reddit_tifu_long_text_summarization": 1.0,
+        "task591_sciq_answer_generation": 0.99,
+        "task639_multi_woz_user_utterance_generation": 1.0,
+        "task748_glucose_reverse_cause_event_detection": 0.98,
+        "task875_emotion_classification": 0.95
+      }
+    }
+  },
+  "top5": [
+    [
+      "Mahalanobis",
+      0.9782790309106099
+    ],
+    [
+      "LDA",
+      0.9782790309106099
+    ],
+    [
+      "RidgeClassifier",
+      0.9741019214703425
+    ],
+    [
+      "LinearSVM",
+      0.9707602339181286
+    ],
+    [
+      "SpectralAffinity",
+      0.6750208855472013
+    ]
+  ]
+}
