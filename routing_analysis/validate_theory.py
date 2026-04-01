@@ -478,16 +478,27 @@ def e2_grassmann_bound(train_embs, tasks, k, device='cpu'):
                 min_geo = min(min_geo, geo)
             geodesic_nn.append(min_geo)
 
+    # Compute delta_max, delta_mean, T_max from the overlap matrix
+    # overlap[i,j] = ||V_i^T V_j||_F^2 / k  (normalized: ∈ [0,1])
+    np.fill_diagonal(overlap, 0)
+    overlap_norm = overlap / max(k, 1)  # normalize to [0,1]
+    delta_max  = float(overlap_norm.max())
+    # Mean over off-diagonal entries
+    off_diag_mask = ~np.eye(n, dtype=bool)
+    delta_mean = float(overlap_norm[off_diag_mask].mean()) if n > 1 else 0.0
+    # Grassmannian bound: T_max = d / (k * (1 - delta_max))
+    denom = k * (1.0 - delta_max)
+    T_max = float(d / denom) if denom > 1e-12 else float('inf')
+
     return {
         "d": d, "k": k, "T_actual": n,
-        "T_max_bound": float(T_max),
+        "T_max_bound": T_max,
         "delta_max": delta_max, "delta_mean": delta_mean,
         "overlap_matrix": overlap.tolist(),
         "geodesic_to_nearest": {tasks[i]: geodesic_nn[i] for i in range(n)},
         "mean_geodesic_nn": float(np.mean(geodesic_nn)),
         "bound_satisfied": n <= T_max,
     }
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # E3 — RMT / Marchenko-Pastur Prediction
