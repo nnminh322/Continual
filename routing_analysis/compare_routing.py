@@ -292,6 +292,55 @@ def _build_Xy(task_embs_train: dict[str, np.ndarray]):
     return np.vstack(Xs), np.concatenate(ys), tasks
 
 
+class _GPULinearSVM:
+    """GPU-accelerated linear SVM via multiclass hinge loss + SGD."""
+    def __init__(self, C=1.0, lr=0.01, epochs=20, batch_size=2048, device='cuda'):
+        self.C = C
+        self.lr = lr
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.device = device
+        self.W = None  # (d, n_cls)
+        self.b = None  # (n_cls,)
+        self.classes_ = None
+
+    def fit(self, X, y):
+        dev = torch.device(self.device)
+        self.classes_ = np.unique(y)
+        n_cls = len(self.classes_)
+        N, d = X.shape
+        X_t = torch.tensor(X, dtype=torch.float32, device=dev)
+        y_t = torch.tensor(y, dtype=torch.long, device=dev)
+        W = torch.randn(d, n_cls, device=dev, dtype=torch.float32) * 0.01
+        b = torch.zeros(n_cls, device=dev, dtype=torch.float32)
+        W.requires_grad_(True)
+        b.requires_grad_(True)
+        optimizer = torch.optim.Adam([W, b], lr=self.lr, weight_decay=1.0 / (self.C * N))
+        bs = self.batch_size
+        for epoch in range(self.epochs):
+            perm = torch.randperm(N, device=dev)
+            for start in range(0, N, bs):
+                idx = perm[start:start + bs]
+                xb = X_t[idx]
+                yb = y_t[idx]
+                scores = xb @ W + b                    # (B, n_cls)
+                loss = torch.nn.functional.multi_margin_loss(scores, yb)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+        self.W = W.detach()
+        self.b = b.detach()
+        del X_t, y_t
+
+    def predict(self, X):
+        dev = torch.device(self.device)
+        X_t = torch.tensor(X, dtype=torch.float32, device=dev)
+        scores = X_t @ self.W + self.b
+        pred_idx = scores.argmax(dim=1).cpu().numpy()
+        del X_t, scores
+        return self.classes_[pred_idx]
+
+
 class _GPURidgeClassifier:
     """GPU-accelerated Ridge classifier: W = (X^TX + αI)^{-1} X^T Y."""
     def __init__(self, alpha=1.0, device='cuda'):
@@ -420,8 +469,11 @@ def train_sklearn_classifiers(X_train, y_train, tasks, device='cpu'):
     else:
         print(f"  [SKIP] QDA: d={d} too large (>2048), O(d³) per class would hang")
 
-    from sklearn.svm import LinearSVC
-    models["LinearSVM"] = LinearSVC(max_iter=5000, dual="auto")
+    if use_gpu:
+        models["LinearSVM"] = _GPULinearSVM(C=1.0, device=device)
+    else:
+        from sklearn.svm import LinearSVC
+        models["LinearSVM"] = LinearSVC(max_iter=5000, dual="auto")
 
     trained = {}
     for name, clf in models.items():
