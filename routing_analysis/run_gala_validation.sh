@@ -37,7 +37,7 @@ usage() {
   echo "Usage: $0 [OPTIONS]"
   echo ""
   echo "  --phase N       Run only phase N (1=TARA, 2=GGI, 3=SGR, 4=BNG). 0=all."
-  echo "  --backbone B    Run only this backbone (T5EncoderModel|LlamaForCausalLM)"
+  echo "  --backbone B    Run only this backbone (flan-t5-large|flan-t5-xl|Llama-2-7b-hf)"
   echo "  --benchmark B   Run only this benchmark (Long_Sequence|SuperNI)"
   echo "  --whiten        Apply ZCA whitening"
   echo "  --rank R        Subspace rank (default: 8)"
@@ -64,7 +64,7 @@ done
 if [[ -n "$BACKBONE" ]]; then
   BACKBONES=("$BACKBONE")
 else
-  BACKBONES=(T5EncoderModel LlamaForCausalLM)
+  BACKBONES=(flan-t5-large flan-t5-xl Llama-2-7b-hf)
 fi
 
 if [[ -n "$BENCHMARK" ]]; then
