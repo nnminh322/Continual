@@ -78,7 +78,8 @@ def load_task_data_simple(data_dir, benchmark, task, max_samples=2000):
         data = json.load(f)
 
     instances = data.get("Instances", [])
-    definition = data.get("Definition", [""])[0]
+    defn_list = data.get("Definition", [])
+    definition = defn_list[0] if defn_list else ""
 
     samples = []
     for inst in instances[:max_samples]:
