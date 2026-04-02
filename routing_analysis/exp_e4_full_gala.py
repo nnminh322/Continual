@@ -196,7 +196,7 @@ def inject_lora(model, r, alpha=1.0, target_modules=None):
 # ═══════════════════════════════════════════════════════════════════════
 
 def probe_task(model, tokenizer, samples, device, target_layer_idx=0,
-               n_batches=50, batch_size=8):
+               n_batches=20, batch_size=4):
     """
     Unified probing: computes both gradient and activation covariance
     for TARA rank selection, GGI init, and BNG preconditioning.
@@ -257,7 +257,7 @@ def probe_task(model, tokenizer, samples, device, target_layer_idx=0,
         batch_labels = [samples[j]["label"] for j in batch_idx]
 
         inputs = tokenizer(batch_texts, return_tensors="pt", padding=True,
-                          truncation=True, max_length=256).to(device)
+                          truncation=True, max_length=probe_max_length).to(device)
         if is_t5:
             labels = tokenizer(batch_labels, return_tensors="pt", padding=True,
                              truncation=True, max_length=50).input_ids.to(device)
@@ -856,7 +856,8 @@ def run_gala_cl_pipeline(model_name, tokenizer, tasks, data_dir, benchmark,
                          device, config: GALAConfig, default_rank=8,
                          lora_alpha=1.0, n_epochs=3, batch_size=8, lr=1e-4,
                          max_train_samples=2000, probe_layer_idx=0,
-                         grad_accum=4, use_fp16=False, max_source_length=256):
+                         grad_accum=4, use_fp16=False, max_source_length=256,
+                         skip_tasks=None):
     """
     Run a full CL sequence with a given GALA configuration.
 
@@ -875,6 +876,8 @@ def run_gala_cl_pipeline(model_name, tokenizer, tasks, data_dir, benchmark,
     from transformers import AutoModelForSeq2SeqLM, AutoModelForCausalLM
 
     is_t5 = "t5" in model_name.lower()
+    # Reduce max length for probe to save VRAM
+    probe_max_length = 128
 
     # --- Load model & inject LoRA ---
     # Use default_rank for initial injection; may be overridden per-task if TARA is on
@@ -935,6 +938,14 @@ def run_gala_cl_pipeline(model_name, tokenizer, tasks, data_dir, benchmark,
             probe_model = AutoModelForCausalLM.from_pretrained(
                 model_name, torch_dtype=torch.float32).to(device)
         probe_model.eval()
+        # Enable gradient checkpointing to save VRAM during probing
+        if hasattr(probe_model, 'enable_input_require_grads'):
+            probe_model.enable_input_require_grads()
+        for block in (probe_model.encoder.block if is_t5 else probe_model.model.layers):
+            if hasattr(block, 'gradient_checkpointing_enable'):
+                block.gradient_checkpointing_enable()
+            elif hasattr(block, 'gradient_checkpointing'):
+                block.gradient_checkpointing = True
 
     # --- CL Training Loop ---
     n_tasks = len(tasks)
@@ -942,6 +953,33 @@ def run_gala_cl_pipeline(model_name, tokenizer, tasks, data_dir, benchmark,
     loss_curves = {}
     task_diagnostics = {}
     collate = partial(collate_fn_t5, tokenizer=tokenizer)
+
+    # Pre-load acc_matrix / loss_curves / diagnostics from disk for resumed tasks
+    skip_tasks = set(skip_tasks) if skip_tasks else set()
+    if skip_tasks:
+        # Try to load partial results for this config from disk
+        _out_dir = os.path.join("results_con2")
+        _model_short = model_name.split("/")[-1]
+        out_path_resume = os.path.join(_out_dir, f"e4_full_gala_{_model_short}_{benchmark}.json")
+        if os.path.exists(out_path_resume):
+            try:
+                with open(out_path_resume) as f:
+                    prev_run = json.load(f)
+                prev_cfg = prev_run.get("configs", {}).get(config.name, {})
+                prev_acc = prev_cfg.get("acc_matrix", [])
+                if prev_acc:
+                    for i, row in enumerate(prev_acc):
+                        for j, val in enumerate(row):
+                            acc_matrix[i][j] = val
+                    print(f"  [RESUME] Loaded acc_matrix from previous run for {config.name}")
+                prev_diag = prev_cfg.get("task_diagnostics", {})
+                if prev_diag:
+                    task_diagnostics.update(prev_diag)
+                prev_curves = prev_cfg.get("loss_curves", {})
+                if prev_curves:
+                    loss_curves.update(prev_curves)
+            except (json.JSONDecodeError, IOError):
+                pass
 
     for task_idx, task_name in enumerate(tasks):
         print(f"\n  --- Task {task_idx + 1}/{n_tasks}: {task_name} ---")
@@ -952,6 +990,15 @@ def run_gala_cl_pipeline(model_name, tokenizer, tasks, data_dir, benchmark,
         print(f"  Loaded {len(train_samples)} train samples")
 
         diag = {"task": task_name}
+
+        # ── Skip completed tasks ────────────────────────────────────────
+        if task_name in skip_tasks:
+            print(f"\n  --- Task {task_idx + 1}/{n_tasks}: {task_name} ---")
+            print(f"  [RESUME] Skipping — task already completed (acc={acc_matrix[task_idx].round(4)})")
+            # Restore diagnostics from loaded data if available
+            if task_name in task_diagnostics and "time" not in task_diagnostics[task_name]:
+                task_diagnostics[task_name]["time"] = 0.0
+            continue
 
         # Step 1: Probe (if needed)
         if probe_model is not None:
@@ -1142,6 +1189,8 @@ def main():
     parser.add_argument("--output_dir", default="results_con2")
     parser.add_argument("--quick", action="store_true",
                        help="Quick mode: only run standard_lora, inflora, gala_full")
+    parser.add_argument("--resume", action="store_true",
+                       help="Resume from previous run: skip completed configs and tasks")
     args = parser.parse_args()
 
     device = torch.device(
@@ -1207,6 +1256,29 @@ def main():
         fixed_rank=args.lora_r)
 
     # --- Run all configurations ---
+    os.makedirs(args.output_dir, exist_ok=True)
+    model_short = args.model_name.split("/")[-1]
+    out_path = os.path.join(args.output_dir, f"e4_full_gala_{model_short}_{args.benchmark}.json")
+
+    # ── Resume logic ──────────────────────────────────────────────────────
+    # If resuming: read existing results to skip completed configs
+    # and within the in-progress config, skip tasks already done.
+    resume_completed_tasks = {}   # cfg_name → list of tasks already done
+    if args.resume and os.path.exists(out_path):
+        try:
+            with open(out_path, 'r') as f:
+                prev_results = json.load(f)
+            prev_configs = prev_results.get("configs", {})
+            for cfg_name in configs:
+                if cfg_name in prev_configs and "task_diagnostics" in prev_configs[cfg_name]:
+                    done = list(prev_configs[cfg_name]["task_diagnostics"].keys())
+                    if done:
+                        resume_completed_tasks[cfg_name] = done
+                        print(f"  [RESUME] {cfg_name}: tasks already done = {done}")
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"  [RESUME] Could not read previous results ({e}), starting fresh.")
+            resume_completed_tasks = {}
+
     all_results = {
         "experiment": "E4_full_gala_vs_baselines",
         "model": args.model_name,
@@ -1220,10 +1292,33 @@ def main():
         "configs": {},
     }
 
+    # Restore previously completed configs from disk
+    for cfg_name, done_tasks in resume_completed_tasks.items():
+        prev_cfg = None
+        if os.path.exists(out_path):
+            try:
+                with open(out_path, 'r') as f:
+                    prev_cfg = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
+        if prev_cfg and cfg_name in prev_cfg.get("configs", {}):
+            all_results["configs"][cfg_name] = prev_cfg["configs"][cfg_name]
+            print(f"  [RESUME] Loaded previous results for {cfg_name}")
+
     for cfg_name, config in configs.items():
+        # ── Skip fully-completed configs ───────────────────────────────
+        skip_tasks_for_cfg = resume_completed_tasks.get(cfg_name, [])
+        if skip_tasks_for_cfg and set(skip_tasks_for_cfg) >= set(tasks):
+            print(f"\n{'='*70}")
+            print(f"  Configuration: {cfg_name.upper()} — SKIPPED (all tasks already done)")
+            print(f"{'='*70}")
+            continue
+
         print(f"\n{'='*70}")
         print(f"  Configuration: {cfg_name.upper()}")
         print(f"  {config}")
+        if skip_tasks_for_cfg:
+            print(f"  [RESUME] Will skip completed tasks: {skip_tasks_for_cfg}")
         print(f"{'='*70}")
 
         t0 = time.time()
@@ -1236,9 +1331,14 @@ def main():
             probe_layer_idx=args.probe_layer,
             grad_accum=args.grad_accum, use_fp16=args.fp16,
             max_source_length=args.max_length,
+            skip_tasks=skip_tasks_for_cfg,
         )
         results["total_time"] = round(time.time() - t0, 1)
         all_results["configs"][cfg_name] = results
+
+        # Save after each config so partial progress survives a crash
+        with open(out_path, 'w') as f:
+            json.dump(all_results, f, indent=2, default=str)
 
         print(f"\n  AP={results['ap']:.4f}  FT={results['ft']:.4f}  "
               f"BWT={results['bwt']:+.4f}  Time={results['total_time']:.0f}s")
@@ -1330,12 +1430,6 @@ def main():
     print(f"    GainLoRA beats InfLoRA? {'YES' if verdict.get('gainlora_beats_inflora') else 'NO'}")
     print(f"    GALA beats Standard? {'YES' if verdict.get('gala_beats_standard') else 'NO'}")
 
-    # Save
-    os.makedirs(args.output_dir, exist_ok=True)
-    model_short = args.model_name.split("/")[-1]
-    out_path = os.path.join(args.output_dir, f"e4_full_gala_{model_short}_{args.benchmark}.json")
-    with open(out_path, 'w') as f:
-        json.dump(all_results, f, indent=2, default=str)
     print(f"\n  Results saved to {out_path}")
 
 
