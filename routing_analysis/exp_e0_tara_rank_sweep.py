@@ -241,7 +241,8 @@ def probe_gradient_covariance(model, tokenizer, samples, device,
 # ═══════════════════════════════════════════════════════════════════════
 
 def train_with_rank(model_name, tokenizer, samples, eval_samples, device,
-                    rank, n_epochs=3, batch_size=8, lr=1e-4):
+                    rank, n_epochs=3, batch_size=8, lr=1e-4,
+                    grad_accum=4, use_fp16=False):
     """Train LoRA with a specific rank and return metrics."""
     from transformers import AutoModelForSeq2SeqLM, AutoModelForCausalLM
 
@@ -488,7 +489,8 @@ def main():
         result = train_with_rank(
             args.model_name, tokenizer, samples, eval_samples, device,
             rank=rank, n_epochs=args.n_epochs,
-            batch_size=args.batch_size, lr=args.lr
+            batch_size=args.batch_size, lr=args.lr,
+            grad_accum=args.grad_accum, use_fp16=args.fp16,
         )
         result["time"] = round(time.time() - t0, 1)
         rank_results[str(rank)] = result
