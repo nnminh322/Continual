@@ -217,7 +217,7 @@ $$\tilde{g}_A = F_A^{-1} \, \text{vec}(g_A) \;\Leftrightarrow\; \tilde{G}_A = (B
 | Mahalanobis = Fisher-Rao first-order | Natural gradient = Fisher-Rao gradient | Fisher information geometry |
 | PaR = effective dimensionality cho routing | PaR = effective rank budget cho training | Participation ratio |
 
-**Theorem 2.1 (Duality Routing–Training).** Dưới Gaussian model cho activations:
+**Theorem 2.1 (Routing–Training Alignment).** Dưới Gaussian model cho activations:
 - **Routing** tối ưu khi dùng $\Sigma_{\text{pool}}^{-1}$-weighted distance (Contribution 1, Theorem 4)
 - **Training** tối ưu khi dùng $\Sigma_x^{-1}$-weighted gradient (natural gradient)
 - Khi $\Sigma_{\text{pool}} \approx \Sigma_x$ (frozen backbone, activations ≈ stationary):
@@ -226,7 +226,9 @@ $$\text{Routing metric} \propto \text{Training preconditioning}$$
 
 *Proof.* Routing dùng Fisher-Rao distance trên statistical manifold $\{P_\theta\}$ induced bởi biến đổi $h \mapsto \theta(h)$. Training dùng Fisher information matrix of same manifold $\{P_\theta\}$ as preconditioner for gradient. Cả hai xuất phát từ cùng Fisher metric tensor $g_{ij}(\theta) = \mathbb{E}[\partial_i \log p \cdot \partial_j \log p]$; routing dùng nó làm distance, training dùng nó làm gradient rescaling. $\square$
 
-> **Ý nghĩa**: Contribution 1 và 2 chia sẻ cùng nền tảng information-geometric. Cải thiện routing (C1) và cải thiện training (C2) đều đi qua cùng cấu trúc — $\Sigma_x^{-1}$ preconditioning. Đây là **duality**, không phải trùng lặp.
+> **Ý nghĩa**: Contribution 1 và 2 chia sẻ cùng nền tảng information-geometric. Cải thiện routing (C1) và cải thiện training (C2) đều đi qua cùng cấu trúc — $\Sigma_x^{-1}$ preconditioning. Đây là **alignment** (cùng Fisher metric tensor, khác vai trò: distance vs preconditioner), không phải "duality" theo nghĩa toán học chặt chẽ (LP duality, Poincaré duality, etc.), và cũng không phải trùng lặp.
+
+> **Ghi chú terminological**: Phiên bản trước dùng "Duality" — thay đổi thành "Alignment" vì (1) formal duality yêu cầu structural bijection giữa primal/dual spaces mà ta không chứng minh, (2) "alignment" chính xác hơn: cùng mathematical object (Fisher tensor) được dùng cho hai mục đích khác nhau.
 
 ## 2.3 Hệ quả cho Anisotropic Embeddings
 
@@ -403,9 +405,11 @@ $$w_s = \frac{\text{tr}(\Sigma_s^{(\text{top-}r)})}{\sum_{s'} \text{tr}(\Sigma_{
 
 **Proposition 3.1 (Gradient of Grassmannian penalty).**
 
-$$\frac{\partial}{\partial A} \|V_t^\top V_s\|_F^2 = 2 (A^\dagger)^\top V_t V_t^\top V_s V_s^\top$$
+$$\frac{\partial}{\partial A} \|V_t^\top V_s\|_F^2 = 2 (A^\dagger_\epsilon)^\top V_t V_t^\top V_s V_s^\top$$
 
-trong đó $A^\dagger = A^\top(AA^\top)^{-1}$ là right pseudoinverse. Continuous và differentiable khi $A$ full rank.
+trong đó $A^\dagger_\epsilon = A^\top(AA^\top + \epsilon I)^{-1}$ là **regularized** right pseudoinverse ($\epsilon > 0$ nhỏ, e.g., $\epsilon = 10^{-6}$). Continuous và differentiable $\forall A$ (không cần full rank assumption).
+
+**Lý do regularization**: Raw pseudoinverse $A^\top(AA^\top)^{-1}$ unstable khi $\sigma_{\min}(A) \to 0$ — gradient explodes. Tikhonov regularization $\epsilon I$ bounds $\|A^\dagger_\epsilon\| \leq 1/\epsilon$, đảm bảo numerical stability mà không thay đổi gradient direction khi $A$ well-conditioned.
 
 *Proof.* Dùng chain rule qua QR decomposition: $A = RV_t^\top$ → $V_t = (A^\top R^{-\top})[:, 1:r]$. Xem Absil & Malick, "Projection-like Retractions on Matrix Manifolds", SIAM J. Optim., 2012. $\square$
 
@@ -443,9 +447,13 @@ $$\|\nabla_A L\| = \|B^\top (\partial L/\partial h) \cdot x^\top\| \propto \|B\|
 Khi $B^{(0)} = 0$: $\|\nabla_A L\|^{(0)} = 0$ (vấn đề P2). Khi $B \neq 0$ nhưng nhỏ: $\|\nabla_A L\| \ll \|\nabla_B L\|$.
 
 **Đề xuất**:
-$$\eta_A = \eta \cdot \beta, \quad \eta_B = \eta / \beta, \quad \beta = \sqrt{\|B\|_F / \|A\|_F}$$
+$$\eta_A = \eta \cdot \beta, \quad \eta_B = \eta / \beta, \quad \beta = \sqrt{\|B\|_F / \max(\|A\|_F, \epsilon)}$$
 
 Balance factor $\beta$ adaptively equalizes gradient scales. Khi balanced ($\|B\|_F = \|A\|_F$): $\beta = 1$, same LR. Khi unbalanced: tăng LR cho factor nhỏ, giảm cho factor lớn.
+
+**β-EMA smoothing (optional, recommended)**: Instantaneous $\beta$ có thể dao động khi norms thay đổi nhanh đầu training. Dùng exponential moving average để ổn định:
+$$\beta_t = \alpha \cdot \beta_{t-1} + (1-\alpha) \cdot \sqrt{\|B\|_F / \max(\|A\|_F, \epsilon)}, \quad \alpha = 0.99$$
+Với balance regularization $\mathcal{L}_{\text{bal}}$ đã ép $\|B\| \approx \|A\|$, β tự hội tụ về ~1 nên EMA chủ yếu giúp ổn định giai đoạn đầu training.
 
 **3.3b — Activation-Preconditioned Gradient cho A (KF-Fisher Insight).**
 
@@ -565,7 +573,9 @@ GALA_Train(task t, frozen W_0, previous subspaces {V_s}_{s<t}, activation covari
       g_B = ∂L/∂B
 
       # Balanced Natural Gradient (BNG)
-      β = sqrt(||B||_F / max(||A||_F, ε))
+      β_raw = sqrt(||B||_F / max(||A||_F, ε))
+      β = α_ema · β_prev + (1 - α_ema) · β_raw   # EMA smoothing, α_ema=0.99
+      β_prev = β
       
       # Precondition g_A by Σ_x^{-1/2} (low-rank approx from Phase 3)
       g_A_precond = g_A · Σ_x_inv_sqrt   # activation-aware
@@ -727,7 +737,7 @@ Same as Contribution 1 experiments:
 
 **N2 — Soft Grassmannian Regularization (SGR):** Thay hard orthogonal projection bằng differentiable penalty trên Grassmannian. Novel cho CL-LoRA: existing CL methods (GPM, InfLoRA, O-LoRA) đều dùng hard constraint. SGR cho phép controlled overlap and provides convergence guarantees.
 
-**N3 — Routing-Training Duality (Theorem 2.1):** Chứng minh routing metric (Mahalanobis) và training preconditioner (natural gradient) chia sẻ cùng Fisher metric tensor. Liên kết Contribution 1 và 2 qua information geometry — chưa có work nào kết nối hai hướng này.
+**N3 — Routing-Training Alignment (Theorem 2.1):** Chứng minh routing metric (Mahalanobis) và training preconditioner (natural gradient) chia sẻ cùng Fisher metric tensor. Liên kết Contribution 1 và 2 qua information geometry — chưa có work nào kết nối hai hướng này.
 
 **N4 — Balanced Natural Gradient (BNG) with KF-Fisher insight:** Kết hợp activation preconditioning ($\Sigma_x^{-1/2}$) với adaptive balanced LR ($\beta = \sqrt{\|B\|_F/\|A\|_F}$). Key insight: preconditioning A by $\Sigma_x^{-1/2}$ reduces KF-Fisher to output-only inversion (size $r \times r$) — lý giải TẠI SAO activation whitening giúp cả routing (C1) lẫn training (C2). Individually: LoRA+ có asymmetric LR, K-FAC có activation preconditioning, GLA có KF-Fisher analysis. GALA combines + provides unified justification.
 
@@ -748,7 +758,7 @@ Same as Contribution 1 experiments:
 | Hard orthogonal projection | InfLoRA (Liang 2024), GPM (Saha 2021) | CL via subspace protection |
 | Effective rank via PaR | Roy & Bhatt 2007, C1 (SRT) | Participation ratio definition |
 
-**Framing**: "We combine classical tools from Riemannian geometry, information theory, and optimization theory into a coherent framework specifically designed for CL-LoRA training. The individual tools are known; their combination, motivation from embedding geometry analysis, and the routing-training duality are novel."
+**Framing**: "We combine classical tools from Riemannian geometry, information theory, and optimization theory into a coherent framework specifically designed for CL-LoRA training. The individual tools are known; their combination, motivation from embedding geometry analysis, and the routing-training alignment are novel."
 
 ## 7.3 Limitations
 
@@ -759,7 +769,7 @@ Same as Contribution 1 experiments:
 5. **Single-task focus**: Contribution 2 chỉ cải thiện training per task. CL performance phụ thuộc interaction giữa training quality (C2) và routing quality (C1).
 6. **Layer-wise vs global whitening**: §1.6 chỉ ra $\Sigma_x^{(l)} \neq \Sigma_{\text{pool}}$ ở intermediate layers. BNG's preconditioning quality phụ thuộc vào accuracy of per-layer $\Sigma_x$ estimate — cần enough probing samples.
 7. **TARA estimates need empirical validation**: Gradient PaR as proxy for optimal rank is theoretically motivated nhưng chưa verified. Gap giữa gradient PaR và true optimal rank có thể non-trivial cho specific architectures.
-8. **Grassmannian manifold structure**: SGR gradient (Proposition 3.1) involves pseudoinverse $A^\dagger$ — numerically unstable khi $\sigma_{\min}(A)$ nhỏ. Cần regularization or clamping.
+8. **Grassmannian manifold structure**: SGR gradient (Proposition 3.1) involves pseudoinverse $A^\dagger$ — numerically unstable khi $\sigma_{\min}(A)$ nhỏ. **Mitigated**: Proposition 3.1 (v2) dùng regularized pseudoinverse $A^\dagger_\epsilon = A^\top(AA^\top + \epsilon I)^{-1}$ với $\epsilon = 10^{-6}$, bounding gradient norm by $1/\epsilon$.
 
 ## 7.4 Lessons from Cross-Critique with GLA (con2_cl.md)
 
@@ -849,7 +859,16 @@ $\hat{\Sigma}_x$ from GALA's probing ≈ $\hat{\Sigma}_{\text{pool}}$ from SRT �
 
 7. **TARA interaction with CL budget**: Khi task số lượng lớn ($T \gg d_{in}/r$), subspace budget cạn kiệt. TARA nên giảm rank của later tasks (conserve budget) hay giữ (maintain quality)? Tradeoff cần information-theoretic analysis.
 
+   **Possible mitigation** (chưa implement): Khi remaining budget $d_{\text{avail}} = d_{in} - \sum_{s<t} r_s$ nhỏ hơn $\text{TGC}_t^{\text{eff}}$, hai strategy:
+   - **(a) Rank compression**: SVD lại previous subspaces, loại bỏ directions có importance thấp nhất (small singular values trong $\Sigma_s$). Giải phóng budget cho tasks mới. Risk: tăng forgetting cho old tasks.
+   - **(b) Controlled overlap**: Cho phép SGR $\lambda_1$ giảm dần → later tasks được overlap vào previous subspace (trade forgetting lấy quality). Kết hợp với replay/distillation nếu cần.
+   - **(c) Rank throttling**: TARA set $r_t = \min(\text{TGC}_t^{\text{eff}}, d_{\text{avail}})$ — graceful degradation.
+   
+   Strategy (c) đơn giản nhất và đã implicit trong algorithm ($r_t = \min(r_{\max}, \text{ceil}(\text{TGC}), \text{available\_dims})$). Strategy (a) và (b) là extensions cho extreme long CL (T > 50).
+
 8. **Layer-wise vs uniform TARA**: Hiện tại TARA dùng cùng rank cho tất cả layers. Gradient PaR có thể khác nhau giữa layers (attention vs MLP, shallow vs deep). Per-layer TARA có benefit nhưng thêm complexity.
+
+9. **Optimal Transport perspective**: Thay vì so sánh task distributions qua Fisher/Mahalanobis (second-order), có thể dùng Wasserstein/Sinkhorn distance (OT) để capture full distributional shift. OT có thể tốt hơn khi task distributions multimodal (không Gaussian) — nhưng chi phí tính toán cao hơn ($O(n^2 \log n)$ cho Sinkhorn vs $O(n^2)$ cho Mahalanobis). Có thể hữu ích cho routing (C1) hơn training (C2). *Open question: liệu OT-based routing có outperform Fisher-Rao routing cho non-Gaussian LLaMA embeddings?*
 
 ---
 

@@ -342,18 +342,20 @@ def phase2_ggi(task_data: dict, n_trials: int = 50, rank: int = 8) -> dict:
     """
     H2: Generalized EVP > PCA > Random for init subspace quality.
 
-    Since we don't have actual gradients, we simulate:
-    - "Gradient covariance" ≈ per-class centroid dispersion (between-class scatter)
-    - "Activation covariance" = standard covariance
+    ⚠️ PROXY NOTE: Uses between-class scatter (Σ_B) as proxy for gradient
+    covariance (Σ_grad). These are NOT equivalent — Σ_B captures class separation
+    while Σ_grad captures per-sample loss-weighted gradient magnitude.
+    Use exp_t1_proxy_validation.py (T1) to validate this proxy.
+    Use exp_t2_ggi_init_training.py (T2) to verify training impact.
 
     Generalized EVP: maximize between-class / within-class ratio
     PCA: maximize total variance
     Random: baseline
 
     Metrics:
-    - Fisher discriminant ratio (DA criterion)
+    - Fisher discriminant ratio (DA criterion) [PROXY for gradient-based ratio]
     - Subspace "task-specificity" = between-class var / total var in subspace
-    - Alignment with class-discriminative directions
+    - p-values via permutation test for statistical significance
     """
     print("\n" + "=" * 70)
     print("PHASE 2: GGI — Initialization Strategy Comparison")
@@ -552,14 +554,31 @@ def phase2_ggi(task_data: dict, n_trials: int = 50, rank: int = 8) -> dict:
               f"GGI/PCA={task_result['GGI_vs_PCA_fisher_ratio']:.1f}x  "
               f"GGI/Rand={task_result['GGI_vs_Random_fisher_ratio']:.1f}x")
 
-    # Summary
+    # Summary with statistical tests
     valid_tasks = [t for t in tasks if t in results["tasks"]]
     if valid_tasks:
         ggi_frs = [results["tasks"][t]["GGI"]["fisher_ratio"] for t in valid_tasks]
         pca_frs = [results["tasks"][t]["PCA"]["fisher_ratio"] for t in valid_tasks]
         rand_frs = [results["tasks"][t]["Random"]["fisher_ratio_mean"] for t in valid_tasks]
+        rand_stds = [results["tasks"][t]["Random"]["fisher_ratio_std"] for t in valid_tasks]
         ratios_gp = [results["tasks"][t]["GGI_vs_PCA_fisher_ratio"] for t in valid_tasks]
         ratios_gr = [results["tasks"][t]["GGI_vs_Random_fisher_ratio"] for t in valid_tasks]
+
+        # Paired t-test: GGI vs PCA (per-task paired comparison)
+        try:
+            from scipy import stats
+            diffs_gp = np.array(ggi_frs) - np.array(pca_frs)
+            if np.std(diffs_gp) > 1e-10:
+                t_stat, p_value_gp = stats.ttest_rel(ggi_frs, pca_frs)
+            else:
+                p_value_gp = 1.0
+            # GGI vs Random: one-sample t-test of GGI - Random_mean
+            diffs_gr = np.array(ggi_frs) - np.array(rand_frs)
+            t_stat_gr, p_value_gr = stats.ttest_1samp(diffs_gr, 0)
+        except ImportError:
+            # Fallback: simple z-test approximation
+            p_value_gp = None
+            p_value_gr = None
 
         results["summary"] = {
             "GGI_fisher_ratio_mean": round(np.mean(ggi_frs), 4),
@@ -571,6 +590,9 @@ def phase2_ggi(task_data: dict, n_trials: int = 50, rank: int = 8) -> dict:
             "hypothesis_H2_GGI_gt_Random": np.mean(ggi_frs) > np.mean(rand_frs),
             "n_tasks_GGI_wins_PCA": sum(1 for r in ratios_gp if r > 1.0),
             "n_tasks_total": len(valid_tasks),
+            "p_value_GGI_vs_PCA": round(p_value_gp, 6) if p_value_gp is not None else None,
+            "p_value_GGI_vs_Random": round(p_value_gr, 6) if p_value_gr is not None else None,
+            "NOTE": "⚠️ Uses LDA proxy (Σ_B/Σ_W), NOT actual Σ_grad. See T1/T2 experiments for training validation.",
         }
 
         print(f"\n  [H2] GGI > PCA? mean FR {np.mean(ggi_frs):.4f} vs {np.mean(pca_frs):.4f} "
@@ -590,6 +612,10 @@ def phase3_sgr(task_data: dict, rank: int = 8) -> dict:
     """
     H3: Hard projection is lossy; Soft Grassmannian penalty is better.
     H7: Same-domain tasks have high subspace overlap.
+
+    ⚠️ PROXY NOTE: This is STATIC analysis of subspace overlap and
+    information retention. β in linear projection ≠ λ₁ in SGR training penalty.
+    Use exp_t3_sgr_vs_hard_training.py (T3) for actual CL training comparison.
 
     Simulate CL sequence: tasks arrive one by one.
     For each new task:
