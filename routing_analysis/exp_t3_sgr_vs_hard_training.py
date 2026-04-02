@@ -90,7 +90,7 @@ class SimpleTextDataset(Dataset):
         return self.samples[idx]
 
 
-def collate_fn_t5(batch, tokenizer, max_source_length=512, max_target_length=50):
+def collate_fn_t5(batch, tokenizer, max_source_length=256, max_target_length=50):
     inputs_text = [s["input"] for s in batch]
     labels_text = [s["label"] for s in batch]
     model_inputs = tokenizer(inputs_text, return_tensors="pt", padding=True,
@@ -331,7 +331,8 @@ class NoConstraint:
 def train_cl_sequence(model_name, tokenizer, tasks, data_dir, benchmark,
                       device, constraint_strategy_class, constraint_kwargs,
                       lora_r=8, lora_alpha=1.0, n_epochs=3, batch_size=8,
-                      lr=1e-4, max_train_samples=2000):
+                      lr=1e-4, max_train_samples=2000,
+                      grad_accum=4, use_fp16=False, max_source_length=256):
     """
     Train a CL sequence with a given constraint strategy.
     Returns accuracy matrix A[i][j] = accuracy on task j after training task i.
@@ -398,7 +399,7 @@ def train_cl_sequence(model_name, tokenizer, tasks, data_dir, benchmark,
 
         dataset = SimpleTextDataset(samples)
         collate = partial(collate_fn_t5, tokenizer=tokenizer,
-                         max_source_length=512, max_target_length=50)
+                         max_source_length=256, max_target_length=50)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
                               collate_fn=collate, drop_last=True)
 
@@ -407,30 +408,30 @@ def train_cl_sequence(model_name, tokenizer, tasks, data_dir, benchmark,
         for epoch in range(n_epochs):
             epoch_loss = 0.0
             epoch_steps = 0
-            for batch in dataloader:
+            optimizer.zero_grad()
+            for _ai, batch in enumerate(dataloader):
                 batch = {k: v.to(device) for k, v in batch.items()}
-                optimizer.zero_grad()
-
-                outputs = model(**batch)
-                loss = outputs.loss
-
-                # Add SGR penalty
-                cl_penalty = constraint.get_loss_penalty(lora_modules)
-                if isinstance(cl_penalty, torch.Tensor):
-                    total_loss = loss + cl_penalty
-                else:
-                    total_loss = loss
-
+                _last = (_ai + 1 == len(dataloader))
+                _do_step = ((_ai + 1) % grad_accum == 0) or _last
+                _ac = (torch.autocast("cuda", dtype=torch.float16)
+                       if use_fp16 and device.type == "cuda"
+                       else torch.autocast("cpu", enabled=False))
+                with _ac:
+                    outputs = model(**batch)
+                    loss = outputs.loss
+                    cl_penalty = constraint.get_loss_penalty(lora_modules)
+                    if isinstance(cl_penalty, torch.Tensor):
+                        total_loss = (loss + cl_penalty) / grad_accum
+                    else:
+                        total_loss = loss / grad_accum
                 total_loss.backward()
-                torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
-
-                # Pre-step: project gradient for Hard constraint (before optimizer updates weights)
-                constraint.pre_step()
-
-                optimizer.step()
-
-                epoch_loss += loss.item()
-                epoch_steps += 1
+                if _do_step:
+                    torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
+                    constraint.pre_step()
+                    optimizer.step()
+                    optimizer.zero_grad()
+                    epoch_loss += loss.item()
+                    epoch_steps += 1
 
             avg_loss = epoch_loss / max(epoch_steps, 1)
             task_losses.append(round(avg_loss, 4))
@@ -487,7 +488,7 @@ def evaluate_accuracy(model, tokenizer, eval_samples, device, batch_size=8, is_t
         inputs_text = [s["input"] for s in batch_data]
         gold_labels = [s["label"].strip().lower() for s in batch_data]
         inputs = tokenizer(inputs_text, return_tensors="pt", padding=True,
-                          truncation=True, max_length=512).to(device)
+                          truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
         with torch.no_grad():
             if is_t5:
                 outputs = model.generate(
@@ -521,7 +522,13 @@ def main():
     parser.add_argument("--lora_r", type=int, default=8)
     parser.add_argument("--lora_alpha", type=float, default=1.0)
     parser.add_argument("--n_epochs", type=int, default=3)
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--grad_accum", type=int, default=4,
+                       help="Gradient accumulation steps (reduces VRAM, effective_bs = batch_size × grad_accum)")
+    parser.add_argument("--fp16", action="store_true",
+                       help="Use fp16 mixed precision (recommended for T4/V100)")
+    parser.add_argument("--max_length", type=int, default=256,
+                       help="Max source sequence length (reduce to 128 for tight VRAM)") 
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--sgr_lambda", type=float, default=0.1,
                        help="SGR penalty strength λ₁")
@@ -602,6 +609,8 @@ def main():
             lora_r=args.lora_r, lora_alpha=args.lora_alpha,
             n_epochs=args.n_epochs, batch_size=args.batch_size,
             lr=args.lr, max_train_samples=args.max_train_samples,
+            grad_accum=args.grad_accum, use_fp16=args.fp16,
+            max_source_length=args.max_length,
         )
         t_total = time.time() - t0
         results["time"] = round(t_total, 1)

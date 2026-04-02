@@ -99,7 +99,7 @@ class SimpleTextDataset(Dataset):
         return self.samples[idx]
 
 
-def collate_fn_t5(batch, tokenizer, max_source_length=512, max_target_length=50):
+def collate_fn_t5(batch, tokenizer, max_source_length=256, max_target_length=50):
     inputs_text = [s["input"] for s in batch]
     labels_text = [s["label"] for s in batch]
     model_inputs = tokenizer(inputs_text, return_tensors="pt", padding=True,
@@ -212,7 +212,7 @@ def probe_gradient_covariance(model, tokenizer, samples, device,
         batch_labels = [samples[j]["label"] for j in batch_idx]
 
         inputs = tokenizer(batch_texts, return_tensors="pt", padding=True,
-                          truncation=True, max_length=512).to(device)
+                          truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
         if is_t5:
             labels = tokenizer(batch_labels, return_tensors="pt", padding=True,
                              truncation=True, max_length=50).input_ids.to(device)
@@ -282,16 +282,24 @@ def train_with_rank(model_name, tokenizer, samples, eval_samples, device,
     for epoch in range(n_epochs):
         epoch_loss = 0.0
         epoch_steps = 0
-        for batch in dataloader:
+        optimizer.zero_grad()
+        for _si, batch in enumerate(dataloader):
             batch = {k: v.to(device) for k, v in batch.items()}
-            optimizer.zero_grad()
-            outputs = model(**batch)
-            loss = outputs.loss
+            _last = (_si + 1 == len(dataloader))
+            _do_step = ((_si + 1) % grad_accum == 0) or _last
+            _ac = (torch.autocast("cuda", dtype=torch.float16)
+                   if use_fp16 and device.type == "cuda"
+                   else torch.autocast("cpu", enabled=False))
+            with _ac:
+                outputs = model(**batch)
+                loss = outputs.loss / grad_accum
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
-            optimizer.step()
-            epoch_loss += loss.item()
-            epoch_steps += 1
+            if _do_step:
+                torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
+                optimizer.step()
+                optimizer.zero_grad()
+                epoch_loss += (loss * grad_accum).item()
+                epoch_steps += 1
 
         avg_loss = epoch_loss / max(epoch_steps, 1)
         loss_curve.append(round(avg_loss, 4))
@@ -310,7 +318,7 @@ def train_with_rank(model_name, tokenizer, samples, eval_samples, device,
             inputs_text = [s["input"] for s in batch_data]
             labels_text = [s["label"] for s in batch_data]
             inputs = tokenizer(inputs_text, return_tensors="pt", padding=True,
-                              truncation=True, max_length=512).to(device)
+                              truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
             if is_t5:
                 labels = tokenizer(labels_text, return_tensors="pt", padding=True,
                                  truncation=True, max_length=50).input_ids.to(device)
@@ -335,7 +343,7 @@ def train_with_rank(model_name, tokenizer, samples, eval_samples, device,
             inputs_text = [s["input"] for s in batch_data]
             gold_labels = [s["label"].strip().lower() for s in batch_data]
             inputs = tokenizer(inputs_text, return_tensors="pt", padding=True,
-                              truncation=True, max_length=512).to(device)
+                              truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
             with torch.no_grad():
                 if is_t5:
                     outputs = model.generate(
@@ -389,7 +397,13 @@ def main():
     parser.add_argument("--ranks", default="2,4,8,16,32",
                        help="Comma-separated LoRA ranks to sweep")
     parser.add_argument("--n_epochs", type=int, default=3)
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--grad_accum", type=int, default=4,
+                       help="Gradient accumulation steps (reduces VRAM, effective_bs = batch_size × grad_accum)")
+    parser.add_argument("--fp16", action="store_true",
+                       help="Use fp16 mixed precision (recommended for T4/V100)")
+    parser.add_argument("--max_length", type=int, default=256,
+                       help="Max source sequence length (reduce to 128 for tight VRAM)") 
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--n_probe_batches", type=int, default=50)
     parser.add_argument("--target_layer", type=int, default=0)

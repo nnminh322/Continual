@@ -32,11 +32,14 @@ BENCHMARK=""
 DATA_DIR="../improve_gainlora/CL_Benchmark"
 LORA_R=8
 N_EPOCHS=3
-BATCH_SIZE=8
+BATCH_SIZE=4
 LR="1e-4"
 DEVICE="auto"
 QUICK=false
 OUTPUT_DIR="results_con2"
+GRAD_ACCUM=4
+FP16=false
+MAX_LENGTH=256
 
 # Phase-specific defaults
 T1_N_BATCHES=100
@@ -65,18 +68,22 @@ Usage: $0 [OPTIONS]
   --data_dir D       Path to CL_Benchmark/ (default: ../improve_gainlora/CL_Benchmark)
   --lora_r R         LoRA rank (default: 8)
   --n_epochs N       Training epochs (default: 3, E3 uses 5)
-  --batch_size B     Batch size (default: 8)
+  --batch_size B     Batch size per GPU (default: 4)
+  --grad_accum N     Gradient accumulation steps (default: 4, effective_bs=16)
+  --fp16             Enable fp16 mixed precision (strongly recommended for T4)
+  --max_length N     Max source sequence length (default: 256; use 128 for tight VRAM)
   --lr L             Learning rate (default: 1e-4)
   --device D         auto|cuda|cpu|mps (default: auto)
   --quick            Quick mode: T3 fewer lambdas, E0 fewer ranks
   --output_dir D     Output directory (default: results_con2/)
 
 Examples:
-  $0 --phase t1 --backbone google/flan-t5-large --benchmark Long_Sequence
-  $0 --phase t3 --quick
+  $0 --phase t2 --backbone google/flan-t5-large --benchmark Long_Sequence --fp16
+  $0 --phase t2 --fp16 --grad_accum 8 --max_length 128   # very tight VRAM
+  $0 --phase t3 --quick --fp16
   $0 --phase e4                             # Full GALA vs GainLoRA vs InfLoRA
-  $0 --backbone google/flan-t5-xl
-  $0                                       # everything
+  $0 --backbone google/flan-t5-xl --fp16
+  $0 --fp16                                # everything with fp16
 EOF
   exit 1
 }
@@ -90,6 +97,9 @@ while [[ $# -gt 0 ]]; do
     --lora_r)     LORA_R="$2"; shift 2 ;;
     --n_epochs)   N_EPOCHS="$2"; shift 2 ;;
     --batch_size) BATCH_SIZE="$2"; shift 2 ;;
+    --grad_accum) GRAD_ACCUM="$2"; shift 2 ;;
+    --fp16)       FP16=true; shift ;;
+    --max_length) MAX_LENGTH="$2"; shift 2 ;;
     --lr)         LR="$2"; shift 2 ;;
     --device)     DEVICE="$2"; shift 2 ;;
     --quick)      QUICK=true; shift ;;
@@ -166,10 +176,17 @@ echo "  Backbones:  ${BACKBONES[*]}"
 echo "  Benchmarks: ${BENCHMARKS[*]}"
 echo "  LoRA rank:  ${LORA_R}"
 echo "  Epochs:     ${N_EPOCHS} (E3: ${E3_N_EPOCHS})"
+echo "  Batch:      ${BATCH_SIZE} × grad_accum=${GRAD_ACCUM} (effective=$(( BATCH_SIZE * GRAD_ACCUM )))"
+echo "  fp16:       ${FP16}"
+echo "  max_length: ${MAX_LENGTH}"
 echo "  Device:     ${DEVICE}"
 echo "  Quick:      ${QUICK}"
 echo "  Output:     ${OUTPUT_DIR}"
 echo "════════════════════════════════════════════════════════════"
+
+# Build fp16 flag string
+FP16_FLAG=""
+if $FP16; then FP16_FLAG="--fp16"; fi
 
 N_COMBOS=$(( ${#PHASES[@]} * ${#BACKBONES[@]} * ${#BENCHMARKS[@]} ))
 echo "  Total combos: ${N_COMBOS}"
@@ -224,10 +241,13 @@ for PHASE_NAME in "${PHASES[@]}"; do
               --lora_r "$LORA_R" \
               --n_epochs "$N_EPOCHS" \
               --batch_size "$BATCH_SIZE" \
+              --grad_accum "$GRAD_ACCUM" \
+              --max_length "$MAX_LENGTH" \
               --lr "$LR" \
               --n_probe_batches "$T2_PROBE_BATCHES" \
               --device "$DEVICE" \
               --output_dir "$OUTPUT_DIR" \
+              $FP16_FLAG \
               || { echo "  ✗ FAILED: T2 $(basename "$BB") ${BM} ${T}"; FAILED=$((FAILED+1)); }
           done
           ;;
@@ -246,11 +266,14 @@ for PHASE_NAME in "${PHASES[@]}"; do
             --lora_r "$LORA_R" \
             --n_epochs "$N_EPOCHS" \
             --batch_size "$BATCH_SIZE" \
+            --grad_accum "$GRAD_ACCUM" \
+            --max_length "$MAX_LENGTH" \
             --lr "$LR" \
             --sgr_lambdas "$T3_SGR_LAMBDAS" \
             --soft_init_strength "$T3_SOFT_INIT" \
             --device "$DEVICE" \
             --output_dir "$OUTPUT_DIR" \
+            $FP16_FLAG \
             $QUICK_FLAG_T3 \
             || { echo "  ✗ FAILED: T3 $(basename "$BB") ${BM}"; FAILED=$((FAILED+1)); }
           ;;
@@ -266,10 +289,13 @@ for PHASE_NAME in "${PHASES[@]}"; do
             --ranks "$E0_RANKS" \
             --n_epochs "$N_EPOCHS" \
             --batch_size "$BATCH_SIZE" \
+            --grad_accum "$GRAD_ACCUM" \
+            --max_length "$MAX_LENGTH" \
             --lr "$LR" \
             --n_probe_batches "$T2_PROBE_BATCHES" \
             --device "$DEVICE" \
             --output_dir "$OUTPUT_DIR" \
+            $FP16_FLAG \
             || { echo "  ✗ FAILED: E0 $(basename "$BB") ${BM}"; FAILED=$((FAILED+1)); }
           ;;
 
@@ -284,6 +310,8 @@ for PHASE_NAME in "${PHASES[@]}"; do
             --lora_r "$LORA_R" \
             --n_epochs "$E3_N_EPOCHS" \
             --batch_size "$BATCH_SIZE" \
+            --grad_accum "$GRAD_ACCUM" \
+            --max_length "$MAX_LENGTH" \
             --lr "$LR" \
             --lr_ratio "$E3_LR_RATIO" \
             --beta_ema "$E3_BETA_EMA" \
@@ -291,6 +319,7 @@ for PHASE_NAME in "${PHASES[@]}"; do
             --n_probe_batches "$T2_PROBE_BATCHES" \
             --device "$DEVICE" \
             --output_dir "$OUTPUT_DIR" \
+            $FP16_FLAG \
             || { echo "  ✗ FAILED: E3 $(basename "$BB") ${BM}"; FAILED=$((FAILED+1)); }
           ;;
 
@@ -308,11 +337,14 @@ for PHASE_NAME in "${PHASES[@]}"; do
             --lora_r "$LORA_R" \
             --n_epochs "$N_EPOCHS" \
             --batch_size "$BATCH_SIZE" \
+            --grad_accum "$GRAD_ACCUM" \
+            --max_length "$MAX_LENGTH" \
             --lr "$LR" \
             --sgr_lambda 0.1 \
             --soft_init_strength 0.7 \
             --device "$DEVICE" \
             --output_dir "$OUTPUT_DIR" \
+            $FP16_FLAG \
             $QUICK_FLAG_E4 \
             || { echo "  ✗ FAILED: E4 $(basename "$BB") ${BM}"; FAILED=$((FAILED+1)); }
           ;;

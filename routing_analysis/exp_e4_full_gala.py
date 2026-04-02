@@ -111,7 +111,7 @@ class SimpleTextDataset(Dataset):
         return self.samples[idx]
 
 
-def collate_fn_t5(batch, tokenizer, max_source_length=512, max_target_length=50):
+def collate_fn_t5(batch, tokenizer, max_source_length=256, max_target_length=50):
     inputs_text = [s["input"] for s in batch]
     labels_text = [s["label"] for s in batch]
     model_inputs = tokenizer(inputs_text, return_tensors="pt", padding=True,
@@ -257,7 +257,7 @@ def probe_task(model, tokenizer, samples, device, target_layer_idx=0,
         batch_labels = [samples[j]["label"] for j in batch_idx]
 
         inputs = tokenizer(batch_texts, return_tensors="pt", padding=True,
-                          truncation=True, max_length=512).to(device)
+                          truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
         if is_t5:
             labels = tokenizer(batch_labels, return_tensors="pt", padding=True,
                              truncation=True, max_length=50).input_ids.to(device)
@@ -788,7 +788,7 @@ def evaluate_accuracy(model, tokenizer, eval_samples, device, batch_size=8, is_t
         inputs_text = [s["input"] for s in batch_data]
         gold_labels = [s["label"].strip().lower() for s in batch_data]
         inputs = tokenizer(inputs_text, return_tensors="pt", padding=True,
-                          truncation=True, max_length=512).to(device)
+                          truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
         with torch.no_grad():
             if is_t5:
                 outputs = model.generate(
@@ -855,7 +855,8 @@ class GALAConfig:
 def run_gala_cl_pipeline(model_name, tokenizer, tasks, data_dir, benchmark,
                          device, config: GALAConfig, default_rank=8,
                          lora_alpha=1.0, n_epochs=3, batch_size=8, lr=1e-4,
-                         max_train_samples=2000, probe_layer_idx=0):
+                         max_train_samples=2000, probe_layer_idx=0,
+                         grad_accum=4, use_fp16=False, max_source_length=256):
     """
     Run a full CL sequence with a given GALA configuration.
 
@@ -1015,37 +1016,32 @@ def run_gala_cl_pipeline(model_name, tokenizer, tasks, data_dir, benchmark,
         for epoch in range(n_epochs):
             epoch_loss = 0.0
             epoch_steps = 0
-            for batch in dataloader:
+            optimizer.zero_grad()
+            for _si, batch in enumerate(dataloader):
                 batch = {k: v.to(device) for k, v in batch.items()}
-                optimizer.zero_grad()
-
-                outputs = model(**batch)
-                loss = outputs.loss
-
-                # CL penalty
-                cl_penalty = constraint.get_loss_penalty(lora_modules)
-
-                # BNG balance loss
-                bal_loss = optimizer.get_balance_loss()
-
-                total_loss = loss + cl_penalty + bal_loss
+                _last = (_si + 1 == len(dataloader))
+                _do_step = ((_si + 1) % grad_accum == 0) or _last
+                _ac = (torch.autocast("cuda", dtype=torch.float16)
+                       if use_fp16 and device.type == "cuda"
+                       else torch.autocast("cpu", enabled=False))
+                with _ac:
+                    outputs = model(**batch)
+                    loss = outputs.loss
+                    cl_penalty = constraint.get_loss_penalty(lora_modules)
+                    bal_loss = optimizer.get_balance_loss()
+                    total_loss = (loss + cl_penalty + bal_loss) / grad_accum
                 total_loss.backward()
-
-                # Gradient clipping
-                trainable_params = []
-                for lm in lora_modules:
-                    trainable_params.extend([lm.lora_A, lm.lora_B])
-                torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
-
-                # CL constraint pre-step (hard projection)
-                constraint.pre_step()
-
-                # Optimizer pre-step (BNG preconditioning + LR scaling)
-                optimizer.pre_step()
-                optimizer.step()
-
-                epoch_loss += loss.item()
-                epoch_steps += 1
+                if _do_step:
+                    trainable_params = []
+                    for lm in lora_modules:
+                        trainable_params.extend([lm.lora_A, lm.lora_B])
+                    torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
+                    constraint.pre_step()
+                    optimizer.pre_step()
+                    optimizer.step()
+                    optimizer.zero_grad()
+                    epoch_loss += loss.item()
+                    epoch_steps += 1
 
             avg_loss = epoch_loss / max(epoch_steps, 1)
             task_losses.append(round(avg_loss, 4))
@@ -1125,7 +1121,13 @@ def main():
     parser.add_argument("--lora_r", type=int, default=8)
     parser.add_argument("--lora_alpha", type=float, default=1.0)
     parser.add_argument("--n_epochs", type=int, default=3)
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--grad_accum", type=int, default=4,
+                       help="Gradient accumulation steps (reduces VRAM, effective_bs = batch_size × grad_accum)")
+    parser.add_argument("--fp16", action="store_true",
+                       help="Use fp16 mixed precision (recommended for T4/V100)")
+    parser.add_argument("--max_length", type=int, default=256,
+                       help="Max source sequence length (reduce to 128 for tight VRAM)") 
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--sgr_lambda", type=float, default=0.1)
     parser.add_argument("--soft_init_strength", type=float, default=0.7)
@@ -1232,6 +1234,8 @@ def main():
             n_epochs=args.n_epochs, batch_size=args.batch_size, lr=args.lr,
             max_train_samples=args.max_train_samples,
             probe_layer_idx=args.probe_layer,
+            grad_accum=args.grad_accum, use_fp16=args.fp16,
+            max_source_length=args.max_length,
         )
         results["total_time"] = round(time.time() - t0, 1)
         all_results["configs"][cfg_name] = results

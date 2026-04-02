@@ -104,7 +104,7 @@ class SimpleTextDataset(Dataset):
         return self.samples[idx]
 
 
-def collate_fn_t5(batch, tokenizer, max_source_length=512, max_target_length=50):
+def collate_fn_t5(batch, tokenizer, max_source_length=256, max_target_length=50):
     inputs_text = [s["input"] for s in batch]
     labels_text = [s["label"] for s in batch]
     model_inputs = tokenizer(inputs_text, return_tensors="pt", padding=True,
@@ -233,7 +233,7 @@ def probe_activation_covariance(model, tokenizer, samples, device,
 
         batch_texts = [samples[j]["input"] for j in batch_idx]
         inputs = tokenizer(batch_texts, return_tensors="pt", padding=True,
-                          truncation=True, max_length=512).to(device)
+                          truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
 
         with torch.no_grad():
             act_cache.clear()
@@ -462,7 +462,8 @@ class BNGStrategy:
 
 def train_with_strategy(model_name, tokenizer, samples, eval_samples, device,
                         strategy_class, strategy_kwargs, lora_r=8, lora_alpha=1.0,
-                        n_epochs=5, batch_size=8, lr=1e-4):
+                        n_epochs=5, batch_size=8, lr=1e-4,
+                        grad_accum=4, use_fp16=False, max_source_length=256):
     """Train one task with a given optimizer strategy."""
     from transformers import AutoModelForSeq2SeqLM, AutoModelForCausalLM
 
@@ -504,31 +505,31 @@ def train_with_strategy(model_name, tokenizer, samples, eval_samples, device,
         epoch_loss = 0.0
         epoch_steps = 0
 
-        for batch in dataloader:
+        strategy.zero_grad()
+        for _si, batch in enumerate(dataloader):
             batch = {k: v.to(device) for k, v in batch.items()}
-            strategy.zero_grad()
-
-            outputs = model(**batch)
-            loss = outputs.loss
-
-            # Add balance loss for BNG
-            if is_bng:
-                bal_loss = strategy.get_balance_loss()
-                total_loss = loss + bal_loss
-            else:
-                total_loss = loss
-
+            _last = (_si + 1 == len(dataloader))
+            _do_step = ((_si + 1) % grad_accum == 0) or _last
+            _ac = (torch.autocast("cuda", dtype=torch.float16)
+                   if use_fp16 and device.type == "cuda"
+                   else torch.autocast("cpu", enabled=False))
+            with _ac:
+                outputs = model(**batch)
+                loss = outputs.loss
+                if is_bng:
+                    bal_loss = strategy.get_balance_loss()
+                    total_loss = (loss + bal_loss) / grad_accum
+                else:
+                    total_loss = loss / grad_accum
             total_loss.backward()
-
-            # Clip gradients
-            trainable_params = []
-            for lm in lora_modules:
-                trainable_params.extend([lm.lora_A, lm.lora_B])
-            torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
-
-            # Pre-step: preconditioning + LR scaling
-            strategy.pre_step()
-            strategy.step()
+            if _do_step:
+                trainable_params = []
+                for lm in lora_modules:
+                    trainable_params.extend([lm.lora_A, lm.lora_B])
+                torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
+                strategy.pre_step()
+                strategy.step()
+                strategy.zero_grad()
 
             loss_val = loss.item()
             epoch_loss += loss_val
@@ -557,7 +558,7 @@ def train_with_strategy(model_name, tokenizer, samples, eval_samples, device,
                 inp_text = [s["input"] for s in bd]
                 lab_text = [s["label"] for s in bd]
                 inp = tokenizer(inp_text, return_tensors="pt", padding=True,
-                               truncation=True, max_length=512).to(device)
+                               truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
                 if is_t5:
                     lab = tokenizer(lab_text, return_tensors="pt", padding=True,
                                   truncation=True, max_length=50).input_ids.to(device)
@@ -585,7 +586,7 @@ def train_with_strategy(model_name, tokenizer, samples, eval_samples, device,
             inp_text = [s["input"] for s in bd]
             gold = [s["label"].strip().lower() for s in bd]
             inp = tokenizer(inp_text, return_tensors="pt", padding=True,
-                           truncation=True, max_length=512).to(device)
+                           truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
             with torch.no_grad():
                 if is_t5:
                     out = model.generate(input_ids=inp["input_ids"],
@@ -642,7 +643,13 @@ def main():
     parser.add_argument("--lora_r", type=int, default=8)
     parser.add_argument("--lora_alpha", type=float, default=1.0)
     parser.add_argument("--n_epochs", type=int, default=5)
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--grad_accum", type=int, default=4,
+                       help="Gradient accumulation steps (reduces VRAM, effective_bs = batch_size × grad_accum)")
+    parser.add_argument("--fp16", action="store_true",
+                       help="Use fp16 mixed precision (recommended for T4/V100)")
+    parser.add_argument("--max_length", type=int, default=256,
+                       help="Max source sequence length (reduce to 128 for tight VRAM)") 
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--n_probe_batches", type=int, default=50)
     parser.add_argument("--target_layer", type=int, default=0)
@@ -749,7 +756,9 @@ def main():
             args.model_name, tokenizer, samples, eval_samples, device,
             cfg["class"], cfg["kwargs"],
             lora_r=args.lora_r, lora_alpha=args.lora_alpha,
-            n_epochs=args.n_epochs, batch_size=args.batch_size, lr=args.lr
+            n_epochs=args.n_epochs, batch_size=args.batch_size, lr=args.lr,
+            grad_accum=args.grad_accum, use_fp16=args.fp16,
+            max_source_length=args.max_length,
         )
         result["time"] = round(time.time() - t0, 1)
         all_results["strategies"][name] = result

@@ -93,7 +93,7 @@ def load_eval_data(data_dir, benchmark, task, max_samples=500):
 
 
 class SimpleTextDataset(Dataset):
-    def __init__(self, samples, tokenizer, max_source_length=512, max_target_length=50, is_t5=True):
+    def __init__(self, samples, tokenizer, max_source_length=256, max_target_length=50, is_t5=True):
         self.samples = samples
         self.tokenizer = tokenizer
         self.max_source_length = max_source_length
@@ -107,7 +107,7 @@ class SimpleTextDataset(Dataset):
         return self.samples[idx]
 
 
-def collate_fn_t5(batch, tokenizer, max_source_length=512, max_target_length=50):
+def collate_fn_t5(batch, tokenizer, max_source_length=256, max_target_length=50):
     inputs_text = [s["input"] for s in batch]
     labels_text = [s["label"] for s in batch]
 
@@ -267,7 +267,7 @@ def probe_gradient_and_activation(model, tokenizer, samples, device,
         batch_labels = [samples[j]["label"] for j in batch_idx]
 
         inputs = tokenizer(batch_texts, return_tensors="pt", padding=True,
-                          truncation=True, max_length=512).to(device)
+                          truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
         if is_t5:
             labels = tokenizer(batch_labels, return_tensors="pt", padding=True,
                              truncation=True, max_length=50).input_ids.to(device)
@@ -383,8 +383,9 @@ def apply_init_to_lora(lora_modules, init_matrix, init_type, target_layer_idx=0)
 # ═══════════════════════════════════════════════════════════════════════
 
 def train_one_task(model, tokenizer, samples, device, lora_modules,
-                   n_epochs=3, batch_size=8, lr=1e-4, max_source_length=512,
-                   eval_samples=None, log_every=50):
+                   n_epochs=3, batch_size=8, lr=1e-4, max_source_length=256,
+                   eval_samples=None, log_every=50,
+                   grad_accum=4, use_fp16=False):
     """Train LoRA parameters on a single task. Returns loss curve and metrics."""
     model.train()
     model.to(device)
@@ -424,22 +425,28 @@ def train_one_task(model, tokenizer, samples, device, lora_modules,
         epoch_loss = 0.0
         epoch_steps = 0
 
-        for batch in dataloader:
+        optimizer.zero_grad()
+        for _ai, batch in enumerate(dataloader):
             batch = {k: v.to(device) for k, v in batch.items()}
-            optimizer.zero_grad()
-            outputs = model(**batch)
-            loss = outputs.loss
+            _last = (_ai + 1 == len(dataloader))
+            _do_step = ((_ai + 1) % grad_accum == 0) or _last
+            _ac = (torch.autocast("cuda", dtype=torch.float16)
+                   if use_fp16 and device.type == "cuda"
+                   else torch.autocast("cpu", enabled=False))
+            with _ac:
+                outputs = model(**batch)
+                loss = outputs.loss / grad_accum
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
-            optimizer.step()
-
-            loss_val = loss.item()
-            epoch_loss += loss_val
-            epoch_steps += 1
-            step += 1
-
-            if step % log_every == 0:
-                loss_curve.append({"step": step, "loss": round(loss_val, 4)})
+            loss_val = (loss * grad_accum).item()
+            if _do_step:
+                torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
+                optimizer.step()
+                optimizer.zero_grad()
+                epoch_steps += 1
+                step += 1
+                epoch_loss += loss_val
+                if step % log_every == 0:
+                    loss_curve.append({"step": step, "loss": round(loss_val, 4)})
 
         avg_loss = epoch_loss / max(epoch_steps, 1)
         loss_curve.append({"step": step, "epoch": epoch, "avg_loss": round(avg_loss, 4)})
@@ -485,7 +492,7 @@ def evaluate(model, tokenizer, eval_samples, device, batch_size=8, is_t5=True):
         labels_text = [s["label"] for s in batch_data]
 
         inputs = tokenizer(inputs_text, return_tensors="pt", padding=True,
-                          truncation=True, max_length=512).to(device)
+                          truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
         if is_t5:
             labels = tokenizer(labels_text, return_tensors="pt", padding=True,
                              truncation=True, max_length=50).input_ids.to(device)
@@ -516,7 +523,7 @@ def evaluate_accuracy(model, tokenizer, eval_samples, device, batch_size=8, is_t
         gold_labels = [s["label"].strip().lower() for s in batch_data]
 
         inputs = tokenizer(inputs_text, return_tensors="pt", padding=True,
-                          truncation=True, max_length=512).to(device)
+                          truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
 
         with torch.no_grad():
             if is_t5:
@@ -558,7 +565,13 @@ def main():
     parser.add_argument("--lora_r", type=int, default=8)
     parser.add_argument("--lora_alpha", type=float, default=1.0)
     parser.add_argument("--n_epochs", type=int, default=3)
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--grad_accum", type=int, default=4,
+                       help="Gradient accumulation steps (reduces VRAM, effective_bs = batch_size × grad_accum)")
+    parser.add_argument("--fp16", action="store_true",
+                       help="Use fp16 mixed precision (recommended for T4/V100)")
+    parser.add_argument("--max_length", type=int, default=256,
+                       help="Max source sequence length (reduce to 128 for tight VRAM)") 
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--n_probe_batches", type=int, default=50,
                        help="Batches for gradient probing (Phase 0)")
@@ -672,7 +685,9 @@ def main():
         train_results = train_one_task(
             model, tokenizer, samples, device, lora_modules,
             n_epochs=args.n_epochs, batch_size=args.batch_size, lr=args.lr,
-            eval_samples=eval_samples, log_every=50
+            eval_samples=eval_samples, log_every=50,
+            grad_accum=args.grad_accum, use_fp16=args.fp16,
+            max_source_length=args.max_length,
         )
         t_train = time.time() - t0
 
