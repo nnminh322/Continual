@@ -214,6 +214,10 @@ for PHASE_NAME in "${PHASES[@]}"; do
         # ─── T1: Proxy Validation ───
         t1)
           for LAYER in $T1_LAYERS; do
+            if [ -s "${OUTPUT_DIR}/t1_proxy_$(basename "$BB")_${TASK}_layer${LAYER}.json" ]; then
+              echo "  ✓ Skip T1 Layer ${LAYER} (already completed)"
+              continue
+            fi
             echo "  → T1: Layer ${LAYER}"
             python3 exp_t1_proxy_validation.py \
               --model_name "$BB" \
@@ -232,6 +236,10 @@ for PHASE_NAME in "${PHASES[@]}"; do
         # ─── T2: GGI Init Training ───
         t2)
           for T in $(get_t2_tasks "$BM"); do
+            if [ -s "${OUTPUT_DIR}/t2_ggi_init_$(basename "$BB")_${T}.json" ]; then
+              echo "  ✓ Skip T2 Task ${T} (already completed)"
+              continue
+            fi
             echo "  → T2: Task=${T}"
             python3 exp_t2_ggi_init_training.py \
               --model_name "$BB" \
@@ -254,6 +262,10 @@ for PHASE_NAME in "${PHASES[@]}"; do
 
         # ─── T3: SGR vs Hard CL Sequence ───
         t3)
+          if [ -s "${OUTPUT_DIR}/t3_sgr_vs_hard_$(basename "$BB")_${BM}.json" ]; then
+            echo "  ✓ Skip T3 (already completed)"
+            continue
+          fi
           CL_TASKS="$(get_t3_tasks "$BM")"
           echo "  → T3: CL sequence=${CL_TASKS}"
           QUICK_FLAG_T3=""
@@ -280,6 +292,10 @@ for PHASE_NAME in "${PHASES[@]}"; do
 
         # ─── E0: TARA Rank Sweep ───
         e0)
+          if [ -s "${OUTPUT_DIR}/e0_tara_rank_$(basename "$BB")_${TASK}.json" ]; then
+            echo "  ✓ Skip E0 (already completed)"
+            continue
+          fi
           echo "  → E0: Task=${TASK}, Ranks=${E0_RANKS}"
           python3 exp_e0_tara_rank_sweep.py \
             --model_name "$BB" \
@@ -301,6 +317,10 @@ for PHASE_NAME in "${PHASES[@]}"; do
 
         # ─── E3: BNG vs AdamW ───
         e3)
+          if [ -s "${OUTPUT_DIR}/e3_bng_vs_adamw_$(basename "$BB")_${TASK}.json" ]; then
+            echo "  ✓ Skip E3 (already completed)"
+            continue
+          fi
           echo "  → E3: Task=${TASK}"
           python3 exp_e3_bng_vs_adamw.py \
             --model_name "$BB" \
@@ -325,6 +345,10 @@ for PHASE_NAME in "${PHASES[@]}"; do
 
         # ─── E4: Full GALA vs Baselines (capstone) ───
         e4)
+          if [ -s "${OUTPUT_DIR}/e4_full_gala_$(basename "$BB")_${BM}.json" ]; then
+            echo "  ✓ Skip E4 (already completed)"
+            continue
+          fi
           CL_TASKS="$(get_t3_tasks "$BM")"
           echo "  → E4: Full GALA pipeline, tasks=${CL_TASKS}"
           QUICK_FLAG_E4=""
