@@ -36,7 +36,7 @@ BATCH_SIZE=8
 LR="1e-4"
 DEVICE="auto"
 QUICK=false
-OUTPUT_DIR="results"
+OUTPUT_DIR="results_con2"
 
 # Phase-specific defaults
 T1_N_BATCHES=100
@@ -57,7 +57,7 @@ usage() {
   cat <<EOF
 Usage: $0 [OPTIONS]
 
-  --phase P          Run only phase P (t1|t2|t3|e0|e3). Default: all.
+  --phase P          Run only phase P (t1|t2|t3|e0|e3|e4). Default: all.
   --backbone B       Run only this backbone. Default: all 3.
                      Options: google/flan-t5-large, google/flan-t5-xl, meta-llama/Llama-2-7b-hf
   --benchmark B      Run only this benchmark. Default: both.
@@ -69,11 +69,12 @@ Usage: $0 [OPTIONS]
   --lr L             Learning rate (default: 1e-4)
   --device D         auto|cuda|cpu|mps (default: auto)
   --quick            Quick mode: T3 fewer lambdas, E0 fewer ranks
-  --output_dir D     Output directory (default: results/)
+  --output_dir D     Output directory (default: results_con2/)
 
 Examples:
   $0 --phase t1 --backbone google/flan-t5-large --benchmark Long_Sequence
   $0 --phase t3 --quick
+  $0 --phase e4                             # Full GALA vs GainLoRA vs InfLoRA
   $0 --backbone google/flan-t5-xl
   $0                                       # everything
 EOF
@@ -116,7 +117,7 @@ fi
 if [[ -n "$PHASE" ]]; then
   PHASES=("$PHASE")
 else
-  PHASES=(t1 t2 e0 e3 t3)
+  PHASES=(t1 t2 e0 e3 t3 e4)  # ordered by dependency: t1 first, t3/e4 last
 fi
 
 if $QUICK; then
@@ -293,6 +294,29 @@ for PHASE_NAME in "${PHASES[@]}"; do
             || { echo "  ✗ FAILED: E3 $(basename "$BB") ${BM}"; FAILED=$((FAILED+1)); }
           ;;
 
+        # ─── E4: Full GALA vs Baselines (capstone) ───
+        e4)
+          CL_TASKS="$(get_t3_tasks "$BM")"
+          echo "  → E4: Full GALA pipeline, tasks=${CL_TASKS}"
+          QUICK_FLAG_E4=""
+          if $QUICK; then QUICK_FLAG_E4="--quick"; fi
+          python3 exp_e4_full_gala.py \
+            --model_name "$BB" \
+            --data_dir "$DATA_DIR" \
+            --benchmark "$BM" \
+            --tasks "$CL_TASKS" \
+            --lora_r "$LORA_R" \
+            --n_epochs "$N_EPOCHS" \
+            --batch_size "$BATCH_SIZE" \
+            --lr "$LR" \
+            --sgr_lambda 0.1 \
+            --soft_init_strength 0.7 \
+            --device "$DEVICE" \
+            --output_dir "$OUTPUT_DIR" \
+            $QUICK_FLAG_E4 \
+            || { echo "  ✗ FAILED: E4 $(basename "$BB") ${BM}"; FAILED=$((FAILED+1)); }
+          ;;
+
         *)
           echo "  Unknown phase: ${PHASE_NAME}"
           ;;
@@ -320,4 +344,5 @@ echo "    ls ${OUTPUT_DIR}/t1_proxy_*.json       # Proxy validation"
 echo "    ls ${OUTPUT_DIR}/t2_ggi_init_*.json    # GGI init training"
 echo "    ls ${OUTPUT_DIR}/t3_sgr_vs_hard_*.json # SGR vs Hard CL"
 echo "    ls ${OUTPUT_DIR}/e0_tara_rank_*.json   # TARA rank sweep"
-echo "    ls ${OUTPUT_DIR}/e3_bng_vs_adamw_*.json # BNG vs AdamW"
+echo "    ls ${OUTPUT_DIR}/e3_bng_vs_adamw_*.json   # BNG vs AdamW
+    ls ${OUTPUT_DIR}/e4_full_gala_*.json      # Full GALA vs baselines"

@@ -417,7 +417,7 @@ def main():
     parser.add_argument("--target_layer", type=int, default=0,
                        help="Encoder layer index to probe (0 = first layer)")
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--output_dir", default="results")
+    parser.add_argument("--output_dir", default="results_con2")
     parser.add_argument("--ranks", default="4,8,16,32", help="Ranks to compare subspace alignment at")
     args = parser.parse_args()
 

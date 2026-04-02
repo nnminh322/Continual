@@ -531,7 +531,7 @@ def main():
                        help="Fraction of overlap to remove in SGR soft init (0=none, 1=full)")
     parser.add_argument("--max_train_samples", type=int, default=2000)
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--output_dir", default="results")
+    parser.add_argument("--output_dir", default="results_con2")
     parser.add_argument("--quick", action="store_true",
                        help="Quick mode: only run hard, soft(0.1), no_constraint")
     args = parser.parse_args()

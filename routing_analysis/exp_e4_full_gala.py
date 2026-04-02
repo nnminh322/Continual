@@ -8,10 +8,11 @@ into a single pipeline and compares against baselines on a multi-task CL sequenc
 Strategies compared:
 (a) Standard LoRA     — Kaiming init, AdamW, no CL constraint
 (b) InfLoRA-style     — Hard projection, AdamW
-(c) GALA (full)       — TARA rank + GGI init + SGR penalty + BNG optimizer
-(d) GALA w/o BNG      — TARA + GGI + SGR + AdamW (ablation: optimizer contribution)
-(e) GALA w/o SGR      — TARA + GGI + NoConstraint + BNG (ablation: CL constraint)
-(f) GALA w/o GGI      — TARA + Kaiming + SGR + BNG (ablation: init contribution)
+(c) GainLoRA-style    — Chunked GPM (adaptive per-chunk SVD), AdamW
+(d) GALA (full)       — TARA rank + GGI init + SGR penalty + BNG optimizer
+(e) GALA w/o BNG      — TARA + GGI + SGR + AdamW (ablation: optimizer contribution)
+(f) GALA w/o SGR      — TARA + GGI + NoConstraint + BNG (ablation: CL constraint)
+(g) GALA w/o GGI      — TARA + Kaiming + SGR + BNG (ablation: init contribution)
 
 Protocol:
 1. Per-task gradient probing → TARA rank selection (or fixed rank for baselines)
@@ -28,7 +29,7 @@ Usage:
     --tasks sst2,imdb,yelp,amazon,agnews \
     --n_epochs 3
 
-Output: results/e4_full_gala_<model>_<benchmark>.json
+Output: results_con2/e4_full_gala_<model>_<benchmark>.json
 """
 from __future__ import annotations
 import argparse, json, os, sys, time, math, copy, warnings
@@ -66,7 +67,8 @@ def load_task_data(data_dir, benchmark, task, max_samples=5000):
     with open(json_path, 'r') as f:
         data = json.load(f)
     instances = data.get("Instances", [])
-    definition = data.get("Definition", [""])[0]
+    defn_list = data.get("Definition", [])
+    definition = defn_list[0] if defn_list else ""
     samples = []
     for inst in instances[:max_samples]:
         text = inst.get("input", "")
@@ -85,7 +87,8 @@ def load_eval_data(data_dir, benchmark, task, max_samples=300):
             with open(json_path, 'r') as f:
                 data = json.load(f)
             instances = data.get("Instances", [])
-            definition = data.get("Definition", [""])[0]
+            defn_list = data.get("Definition", [])
+            definition = defn_list[0] if defn_list else ""
             samples = []
             for inst in instances[:max_samples]:
                 text = inst.get("input", "")
@@ -508,6 +511,156 @@ class NoConstraint:
         return 0.0
 
 
+class GainLoRAProjection:
+    """
+    GainLoRA-style: chunked GPM (Gradient Projection Memory) gradient projection.
+
+    Key difference from InfLoRA (HardProjection):
+    - Splits d_in into n_chunks, computes SVD per chunk independently
+    - Adaptive threshold: rank chosen by cumulative singular value ratio >= threshold
+    - Per-chunk projection: each chunk of grad_A is projected separately
+
+    Faithful standalone adaptation of root_gainlora's chunked GPM mechanism.
+    Note: GainLoRA's Trans_input gain module requires deep T5 architecture
+    integration and is excluded here; only the chunked GPM projection is implemented.
+
+    Reference: root_gainlora/src/cl_trainer_gainlora_inflora.py (get_repsentation,
+    training_step gradient projection blocks)
+    """
+    name = "gainlora"
+
+    def __init__(self, lora_modules, n_chunks=4, threshold=0.98, **kwargs):
+        self.lora_modules = lora_modules
+        self.n_chunks = n_chunks
+        self.threshold = threshold
+        # prev_bases[i][c] = (step, k_c) tensor — per-module, per-chunk basis
+        self.prev_bases = [{} for _ in lora_modules]
+        # Chunked activation covariances set per-task via update_chunk_cov()
+        self._chunk_covs = [None] * len(lora_modules)
+
+    def update_chunk_cov(self, cov_act_np):
+        """
+        Extract diagonal block covariances from full activation covariance.
+        cov_act_np: (d_in, d_in) numpy array from probe_task().
+        Stores per-chunk (step, step) blocks, mirroring GainLoRA's
+        matrix[index] = E[x_chunk^T x_chunk] from t5_gainlora_inflora.py.
+        Applied to all lora_modules (they share the same input dimension).
+        """
+        d_in = cov_act_np.shape[0]
+        step = d_in // self.n_chunks
+        chunk_covs = [
+            cov_act_np[c * step:(c + 1) * step, c * step:(c + 1) * step].copy()
+            for c in range(self.n_chunks)
+        ]
+        for i in range(len(self.lora_modules)):
+            self._chunk_covs[i] = chunk_covs
+
+    def _svd_adaptive_rank(self, cov):
+        """SVD of chunk covariance; select rank by cumulative singular value ratio."""
+        U, S, _ = np.linalg.svd(cov, full_matrices=False)
+        sval_total = float((S ** 2).sum())
+        if sval_total < 1e-15:
+            return torch.tensor(U[:, :1], dtype=torch.float32)
+        sval_ratio = (S ** 2) / sval_total
+        cumul = 0.0
+        r = 1
+        for sv in sval_ratio:
+            if cumul < self.threshold:
+                cumul += float(sv)
+                r += 1
+            else:
+                break
+        r = max(1, min(r, U.shape[1]))
+        return torch.tensor(U[:, :r], dtype=torch.float32)  # (step, r)
+
+    def accumulate_subspace(self):
+        """
+        Update per-chunk bases with GPM incremental rule (Eq-8, Eq-9 of GainLoRA).
+        First task:  U_c = SVD(Σ_chunk_c)[:, :r_c]
+        Later tasks: project residual, SVD, add novel directions.
+        """
+        for i, lm in enumerate(self.lora_modules):
+            d_in = lm.lora_A.shape[1]
+            step = d_in // self.n_chunks
+            chunk_covs = self._chunk_covs[i]
+
+            for c in range(self.n_chunks):
+                if chunk_covs is not None:
+                    cov_c = chunk_covs[c]  # (step, step)
+                else:
+                    # Fallback: covariance from current A chunk rows
+                    A_chunk = lm.lora_A.detach()[:, c * step:(c + 1) * step]  # (r, step)
+                    A_np = A_chunk.cpu().numpy()
+                    cov_c = A_np.T @ A_np
+
+                if c not in self.prev_bases[i]:
+                    # First task: direct adaptive SVD
+                    self.prev_bases[i][c] = self._svd_adaptive_rank(cov_c)
+                else:
+                    # Subsequent tasks: GPM incremental update
+                    prev_np = self.prev_bases[i][c].numpy()  # (step, k_prev)
+                    sval_full = np.linalg.svd(cov_c, compute_uv=False)
+                    sval_total = float((sval_full ** 2).sum())
+                    if sval_total < 1e-15:
+                        continue
+                    # Projected residual: remove already-covered space (Eq-8)
+                    cov_residual = cov_c - prev_np @ (prev_np.T @ cov_c)
+                    U_res, S_res, _ = np.linalg.svd(cov_residual, full_matrices=False)
+                    sval_hat = float((S_res ** 2).sum())
+                    coverage = (sval_total - sval_hat) / sval_total
+                    # Count new directions needed (Eq-9)
+                    sval_ratio = (sval_full ** 2) / sval_total
+                    r = 0
+                    cumul = coverage
+                    for sv in sval_ratio:
+                        if cumul < self.threshold:
+                            cumul += float(sv)
+                            r += 1
+                        else:
+                            break
+                    if r == 0:
+                        continue
+                    r = min(r, U_res.shape[1])
+                    new_U = torch.tensor(U_res[:, :r], dtype=torch.float32)
+                    combined = torch.cat([self.prev_bases[i][c], new_U], dim=1)
+                    Q, _ = torch.linalg.qr(combined)  # re-orthonormalize
+                    self.prev_bases[i][c] = Q
+
+    def project_init(self, soft_strength=None):
+        """Project A init chunkwise into null space of accumulated subspaces."""
+        for i, lm in enumerate(self.lora_modules):
+            if not self.prev_bases[i]:
+                continue
+            d_in = lm.lora_A.shape[1]
+            step = d_in // self.n_chunks
+            with torch.no_grad():
+                for c, U_c in self.prev_bases[i].items():
+                    U_c = U_c.to(lm.lora_A.device)
+                    P_c = U_c @ U_c.T  # (step, step)
+                    chunk = lm.lora_A.data[:, c * step:(c + 1) * step]
+                    lm.lora_A.data[:, c * step:(c + 1) * step] -= chunk @ P_c
+                # Re-normalize rows after chunkwise projection
+                row_norms = lm.lora_A.data.norm(dim=1, keepdim=True).clamp(min=1e-8)
+                target_norm = math.sqrt(2.0 / lm.d_in)
+                lm.lora_A.data *= target_norm / row_norms
+
+    def pre_step(self):
+        """Project A gradients chunkwise before optimizer step."""
+        for i, lm in enumerate(self.lora_modules):
+            if not self.prev_bases[i] or lm.lora_A.grad is None:
+                continue
+            d_in = lm.lora_A.shape[1]
+            step = d_in // self.n_chunks
+            for c, U_c in self.prev_bases[i].items():
+                U_c = U_c.to(lm.lora_A.device)
+                P_c = U_c @ U_c.T  # (step, step)
+                g_chunk = lm.lora_A.grad.data[:, c * step:(c + 1) * step]
+                lm.lora_A.grad.data[:, c * step:(c + 1) * step] -= g_chunk @ P_c
+
+    def get_loss_penalty(self, lora_modules):
+        return 0.0
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Optimizer Strategies (for BNG ablation)
 # ═══════════════════════════════════════════════════════════════════════
@@ -663,7 +816,8 @@ class GALAConfig:
     """Configuration for a single GALA pipeline variant."""
     def __init__(self, name, use_tara=False, use_ggi=False, use_sgr=False,
                  use_bng=False, sgr_lambda=0.1, soft_init_strength=0.7,
-                 use_hard_projection=False, fixed_rank=None):
+                 use_hard_projection=False, use_gainlora=False,
+                 gainlora_n_chunks=4, gainlora_threshold=0.98, fixed_rank=None):
         self.name = name
         self.use_tara = use_tara
         self.use_ggi = use_ggi
@@ -672,6 +826,9 @@ class GALAConfig:
         self.sgr_lambda = sgr_lambda
         self.soft_init_strength = soft_init_strength
         self.use_hard_projection = use_hard_projection
+        self.use_gainlora = use_gainlora
+        self.gainlora_n_chunks = gainlora_n_chunks
+        self.gainlora_threshold = gainlora_threshold
         self.fixed_rank = fixed_rank  # None means use TARA; int means override
 
     def __repr__(self):
@@ -686,6 +843,8 @@ class GALAConfig:
             components.append("BNG")
         if self.use_hard_projection:
             components.append("Hard")
+        if self.use_gainlora:
+            components.append(f"GainLoRA(c={self.gainlora_n_chunks},t={self.gainlora_threshold})")
         return f"GALAConfig({self.name}: {'+'.join(components) or 'baseline'})"
 
 
@@ -744,6 +903,10 @@ def run_gala_cl_pipeline(model_name, tokenizer, tasks, data_dir, benchmark,
         constraint = SoftGrassmannianRegularization(
             lora_modules, lambda1=config.sgr_lambda,
             soft_init_strength=config.soft_init_strength)
+    elif config.use_gainlora:
+        constraint = GainLoRAProjection(
+            lora_modules, n_chunks=config.gainlora_n_chunks,
+            threshold=config.gainlora_threshold)
     elif config.use_hard_projection:
         constraint = HardProjection(lora_modules)
     else:
@@ -763,7 +926,7 @@ def run_gala_cl_pipeline(model_name, tokenizer, tasks, data_dir, benchmark,
     # --- We need a separate probe model (without LoRA) for gradient probing ---
     # Gradient probing must happen on clean model to avoid LoRA interference
     probe_model = None
-    if config.use_tara or config.use_ggi or config.use_bng:
+    if config.use_tara or config.use_ggi or config.use_bng or config.use_gainlora:
         if is_t5:
             probe_model = AutoModelForSeq2SeqLM.from_pretrained(
                 model_name, torch_dtype=torch.float32).to(device)
@@ -796,6 +959,9 @@ def run_gala_cl_pipeline(model_name, tokenizer, tasks, data_dir, benchmark,
                 probe_model, tokenizer, train_samples, device,
                 target_layer_idx=probe_layer_idx)
             diag["par"] = round(par, 2)
+            # GainLoRA: extract chunked covariances from full activation cov
+            if isinstance(constraint, GainLoRAProjection) and cov_act is not None:
+                constraint.update_chunk_cov(cov_act)
         else:
             cov_grad, cov_act, par = None, None, None
 
@@ -963,11 +1129,15 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--sgr_lambda", type=float, default=0.1)
     parser.add_argument("--soft_init_strength", type=float, default=0.7)
+    parser.add_argument("--gainlora_chunks", type=int, default=4,
+                       help="Number of chunks for GainLoRA chunked GPM (default: 4)")
+    parser.add_argument("--gainlora_threshold", type=float, default=0.98,
+                       help="Cumulative SVD energy threshold for GainLoRA rank selection")
     parser.add_argument("--probe_layer", type=int, default=0,
                        help="Which encoder layer to probe for gradient/activation")
     parser.add_argument("--max_train_samples", type=int, default=2000)
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--output_dir", default="results")
+    parser.add_argument("--output_dir", default="results_con2")
     parser.add_argument("--quick", action="store_true",
                        help="Quick mode: only run standard_lora, inflora, gala_full")
     args = parser.parse_args()
@@ -1000,6 +1170,12 @@ def main():
     # (b) InfLoRA-style — Hard projection, AdamW
     configs["inflora"] = GALAConfig(
         "inflora", use_hard_projection=True, fixed_rank=args.lora_r)
+
+    # (c) GainLoRA-style — Chunked GPM, AdamW (Trans_input excluded: needs custom T5)
+    configs["gainlora"] = GALAConfig(
+        "gainlora", use_gainlora=True, fixed_rank=args.lora_r,
+        gainlora_n_chunks=args.gainlora_chunks,
+        gainlora_threshold=args.gainlora_threshold)
 
     if not args.quick:
         # (d) GALA w/o BNG — TARA + GGI + SGR + AdamW
@@ -1080,6 +1256,7 @@ def main():
     # Verdict: Does full GALA beat baselines?
     standard = all_results["configs"].get("standard_lora", {})
     inflora = all_results["configs"].get("inflora", {})
+    gainlora_res = all_results["configs"].get("gainlora", {})
     gala = all_results["configs"].get("gala_full", {})
 
     verdict = {}
@@ -1089,6 +1266,12 @@ def main():
     if inflora and gala:
         verdict["gala_vs_inflora_ap"] = round(gala["ap"] - inflora["ap"], 4)
         verdict["gala_vs_inflora_bwt"] = round(gala["bwt"] - inflora["bwt"], 4)
+    if gainlora_res and gala:
+        verdict["gala_vs_gainlora_ap"] = round(gala["ap"] - gainlora_res["ap"], 4)
+        verdict["gala_vs_gainlora_bwt"] = round(gala["bwt"] - gainlora_res["bwt"], 4)
+    if inflora and gainlora_res:
+        verdict["gainlora_vs_inflora_ap"] = round(gainlora_res["ap"] - inflora["ap"], 4)
+        verdict["gainlora_vs_inflora_bwt"] = round(gainlora_res["bwt"] - inflora["bwt"], 4)
 
     # Ablation analysis: which component contributes most?
     if not args.quick:
@@ -1117,21 +1300,30 @@ def main():
     gala_wins_ap = verdict.get("gala_vs_inflora_ap", 0) > 0
     gala_wins_bwt = verdict.get("gala_vs_inflora_bwt", 0) > 0
     verdict["gala_beats_inflora"] = gala_wins_ap or gala_wins_bwt
+    verdict["gala_beats_gainlora"] = verdict.get("gala_vs_gainlora_ap", 0) > 0
+    verdict["gainlora_beats_inflora"] = verdict.get("gainlora_vs_inflora_ap", 0) > 0
     verdict["gala_beats_standard"] = verdict.get("gala_vs_standard_ap", 0) > 0
 
     all_results["verdict"] = verdict
 
     print(f"\n  VERDICT:")
     if "gala_vs_inflora_ap" in verdict:
-        print(f"    GALA vs InfLoRA: AP {verdict['gala_vs_inflora_ap']:+.4f}, "
+        print(f"    GALA vs InfLoRA:    AP {verdict['gala_vs_inflora_ap']:+.4f}, "
               f"BWT {verdict['gala_vs_inflora_bwt']:+.4f}")
+    if "gala_vs_gainlora_ap" in verdict:
+        print(f"    GALA vs GainLoRA:   AP {verdict['gala_vs_gainlora_ap']:+.4f}, "
+              f"BWT {verdict['gala_vs_gainlora_bwt']:+.4f}")
+    if "gainlora_vs_inflora_ap" in verdict:
+        print(f"    GainLoRA vs InfLoRA: AP {verdict['gainlora_vs_inflora_ap']:+.4f}, "
+              f"BWT {verdict['gainlora_vs_inflora_bwt']:+.4f}")
     if "gala_vs_standard_ap" in verdict:
-        print(f"    GALA vs Standard: AP {verdict['gala_vs_standard_ap']:+.4f}, "
+        print(f"    GALA vs Standard:   AP {verdict['gala_vs_standard_ap']:+.4f}, "
               f"BWT {verdict['gala_vs_standard_bwt']:+.4f}")
     if not args.quick and "most_important_component" in verdict:
         print(f"    Most important component: {verdict['most_important_component']} "
               f"(AP drop when removed: {verdict['most_important_ap_drop']:+.4f})")
-    print(f"    GALA beats InfLoRA? {'YES' if verdict.get('gala_beats_inflora') else 'NO'}")
+    print(f"    GALA beats GainLoRA? {'YES' if verdict.get('gala_beats_gainlora') else 'NO'}")
+    print(f"    GainLoRA beats InfLoRA? {'YES' if verdict.get('gainlora_beats_inflora') else 'NO'}")
     print(f"    GALA beats Standard? {'YES' if verdict.get('gala_beats_standard') else 'NO'}")
 
     # Save

@@ -647,7 +647,7 @@ def main():
     parser.add_argument("--n_probe_batches", type=int, default=50)
     parser.add_argument("--target_layer", type=int, default=0)
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--output_dir", default="results")
+    parser.add_argument("--output_dir", default="results_con2")
     parser.add_argument("--max_train_samples", type=int, default=5000)
     parser.add_argument("--lr_ratio", type=float, default=4.0,
                        help="B/A LR ratio for asymmetric strategy (LoRA+)")

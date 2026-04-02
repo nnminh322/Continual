@@ -564,7 +564,7 @@ def main():
                        help="Batches for gradient probing (Phase 0)")
     parser.add_argument("--target_layer", type=int, default=0)
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--output_dir", default="results")
+    parser.add_argument("--output_dir", default="results_con2")
     parser.add_argument("--max_train_samples", type=int, default=5000)
     args = parser.parse_args()
 
