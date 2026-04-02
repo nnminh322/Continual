@@ -233,7 +233,7 @@ def probe_activation_covariance(model, tokenizer, samples, device,
 
         batch_texts = [samples[j]["input"] for j in batch_idx]
         inputs = tokenizer(batch_texts, return_tensors="pt", padding=True,
-                          truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
+                          truncation=True, max_length=256).to(device)
 
         with torch.no_grad():
             act_cache.clear()
@@ -558,7 +558,7 @@ def train_with_strategy(model_name, tokenizer, samples, eval_samples, device,
                 inp_text = [s["input"] for s in bd]
                 lab_text = [s["label"] for s in bd]
                 inp = tokenizer(inp_text, return_tensors="pt", padding=True,
-                               truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
+                               truncation=True, max_length=256).to(device)
                 if is_t5:
                     lab = tokenizer(lab_text, return_tensors="pt", padding=True,
                                   truncation=True, max_length=50).input_ids.to(device)
@@ -586,7 +586,7 @@ def train_with_strategy(model_name, tokenizer, samples, eval_samples, device,
             inp_text = [s["input"] for s in bd]
             gold = [s["label"].strip().lower() for s in bd]
             inp = tokenizer(inp_text, return_tensors="pt", padding=True,
-                           truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
+                           truncation=True, max_length=256).to(device)
             with torch.no_grad():
                 if is_t5:
                     out = model.generate(input_ids=inp["input_ids"],

@@ -488,7 +488,7 @@ def evaluate_accuracy(model, tokenizer, eval_samples, device, batch_size=8, is_t
         inputs_text = [s["input"] for s in batch_data]
         gold_labels = [s["label"].strip().lower() for s in batch_data]
         inputs = tokenizer(inputs_text, return_tensors="pt", padding=True,
-                          truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
+                          truncation=True, max_length=256).to(device)
         with torch.no_grad():
             if is_t5:
                 outputs = model.generate(

@@ -257,7 +257,7 @@ def probe_task(model, tokenizer, samples, device, target_layer_idx=0,
         batch_labels = [samples[j]["label"] for j in batch_idx]
 
         inputs = tokenizer(batch_texts, return_tensors="pt", padding=True,
-                          truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
+                          truncation=True, max_length=256).to(device)
         if is_t5:
             labels = tokenizer(batch_labels, return_tensors="pt", padding=True,
                              truncation=True, max_length=50).input_ids.to(device)
@@ -788,7 +788,7 @@ def evaluate_accuracy(model, tokenizer, eval_samples, device, batch_size=8, is_t
         inputs_text = [s["input"] for s in batch_data]
         gold_labels = [s["label"].strip().lower() for s in batch_data]
         inputs = tokenizer(inputs_text, return_tensors="pt", padding=True,
-                          truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
+                          truncation=True, max_length=256).to(device)
         with torch.no_grad():
             if is_t5:
                 outputs = model.generate(

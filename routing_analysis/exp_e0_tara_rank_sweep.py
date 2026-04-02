@@ -212,7 +212,7 @@ def probe_gradient_covariance(model, tokenizer, samples, device,
         batch_labels = [samples[j]["label"] for j in batch_idx]
 
         inputs = tokenizer(batch_texts, return_tensors="pt", padding=True,
-                          truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
+                          truncation=True, max_length=256).to(device)
         if is_t5:
             labels = tokenizer(batch_labels, return_tensors="pt", padding=True,
                              truncation=True, max_length=50).input_ids.to(device)
@@ -318,7 +318,7 @@ def train_with_rank(model_name, tokenizer, samples, eval_samples, device,
             inputs_text = [s["input"] for s in batch_data]
             labels_text = [s["label"] for s in batch_data]
             inputs = tokenizer(inputs_text, return_tensors="pt", padding=True,
-                              truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
+                              truncation=True, max_length=256).to(device)
             if is_t5:
                 labels = tokenizer(labels_text, return_tensors="pt", padding=True,
                                  truncation=True, max_length=50).input_ids.to(device)
@@ -343,7 +343,7 @@ def train_with_rank(model_name, tokenizer, samples, eval_samples, device,
             inputs_text = [s["input"] for s in batch_data]
             gold_labels = [s["label"].strip().lower() for s in batch_data]
             inputs = tokenizer(inputs_text, return_tensors="pt", padding=True,
-                              truncation=True, max_length=getattr(args, "max_length", 256)).to(device)
+                              truncation=True, max_length=256).to(device)
             with torch.no_grad():
                 if is_t5:
                     outputs = model.generate(
