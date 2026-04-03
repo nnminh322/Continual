@@ -397,10 +397,14 @@ class HardProjection:
                 self.prev_subspaces[i] = V_new
             else:
                 combined = torch.cat([self.prev_subspaces[i], V_new], dim=1)
-                U, S, _ = torch.linalg.svd(combined, full_matrices=False)
-                threshold = S.max() * 1e-5
-                k = (S > threshold).sum().item()
-                self.prev_subspaces[i] = U[:, :k]
+                try:
+                    U, S, _ = torch.linalg.svd(combined, full_matrices=False)
+                    threshold = S.max() * 1e-5
+                    k = (S > threshold).sum().item()
+                    self.prev_subspaces[i] = U[:, :k]
+                except RuntimeError:
+                    Q, _ = torch.linalg.qr(combined)
+                    self.prev_subspaces[i] = Q
 
     def project_init(self, soft_strength=None):
         for i, lm in enumerate(self.lora_modules):
@@ -444,10 +448,14 @@ class SoftGrassmannianRegularization:
                 self.prev_subspaces[i] = V_new.detach()
             else:
                 combined = torch.cat([self.prev_subspaces[i], V_new.detach()], dim=1)
-                U, S, _ = torch.linalg.svd(combined, full_matrices=False)
-                threshold = S.max() * 1e-5
-                k = (S > threshold).sum().item()
-                self.prev_subspaces[i] = U[:, :k].detach()
+                try:
+                    U, S, _ = torch.linalg.svd(combined, full_matrices=False)
+                    threshold = S.max() * 1e-5
+                    k = (S > threshold).sum().item()
+                    self.prev_subspaces[i] = U[:, :k].detach()
+                except RuntimeError:
+                    Q, _ = torch.linalg.qr(combined)
+                    self.prev_subspaces[i] = Q.detach()
 
     def project_init(self, soft_strength=None):
         """Soft: bias init towards null space, parameterized strength."""
@@ -496,10 +504,16 @@ class NoConstraint:
                 self.prev_subspaces[i] = V_new.detach()
             else:
                 combined = torch.cat([self.prev_subspaces[i], V_new.detach()], dim=1)
-                U, S, _ = torch.linalg.svd(combined, full_matrices=False)
-                threshold = S.max() * 1e-5
-                k = (S > threshold).sum().item()
-                self.prev_subspaces[i] = U[:, :k].detach()
+                # Guard against ill-conditioned SVD (repeated / near-zero singular values)
+                try:
+                    U, S, _ = torch.linalg.svd(combined, full_matrices=False)
+                    threshold = S.max() * 1e-5
+                    k = (S > threshold).sum().item()
+                    self.prev_subspaces[i] = U[:, :k].detach()
+                except RuntimeError:
+                    # Fallback: QR-based orthonormalization when SVD misbehaves
+                    Q, _ = torch.linalg.qr(combined)
+                    self.prev_subspaces[i] = Q.detach()
 
     def project_init(self, soft_strength=None):
         pass
