@@ -1,0 +1,447 @@
+════════════════════════════════════════════════════════════
+  GALA (Contribution 2) — Tier-1 Training Experiments
+════════════════════════════════════════════════════════════
+  Phases:     t1 t2 e0 e3 t3 e4
+  Backbones:  google/flan-t5-large
+  Benchmarks: Long_Sequence
+  LoRA rank:  8
+  Epochs:     3 (E3: 5)
+  Batch:      4 × grad_accum=4 (effective=16)
+  fp16:       false
+  max_length: 256
+  Device:     auto
+  Quick:      false
+  Output:     results_con2
+════════════════════════════════════════════════════════════
+  Total combos: 6
+
+
+──────────────────────────────────────────────────────────
+  [1/6] Phase=t1  Backbone=flan-t5-large  Benchmark=Long_Sequence
+──────────────────────────────────────────────────────────
+  ✓ Skip T1 Layer 0 (already completed)
+  ✓ Skip T1 Layer 6 (already completed)
+  ✓ Skip T1 Layer 12 (already completed)
+
+──────────────────────────────────────────────────────────
+  [2/6] Phase=t2  Backbone=flan-t5-large  Benchmark=Long_Sequence
+──────────────────────────────────────────────────────────
+  ✓ Skip T2 Task sst2 (already completed)
+  ✓ Skip T2 Task mnli (already completed)
+  ✓ Skip T2 Task dbpedia (already completed)
+
+──────────────────────────────────────────────────────────
+  [3/6] Phase=e0  Backbone=flan-t5-large  Benchmark=Long_Sequence
+──────────────────────────────────────────────────────────
+  ✓ Skip E0 (already completed)
+
+──────────────────────────────────────────────────────────
+  [4/6] Phase=e3  Backbone=flan-t5-large  Benchmark=Long_Sequence
+──────────────────────────────────────────────────────────
+  ✓ Skip E3 (already completed)
+
+──────────────────────────────────────────────────────────
+  [5/6] Phase=t3  Backbone=flan-t5-large  Benchmark=Long_Sequence
+──────────────────────────────────────────────────────────
+  ✓ Skip T3 (already completed)
+
+──────────────────────────────────────────────────────────
+  [6/6] Phase=e4  Backbone=flan-t5-large  Benchmark=Long_Sequence
+──────────────────────────────────────────────────────────
+  → E4: Full GALA pipeline, tasks=sst2,imdb,yelp,amazon,agnews
+Device: cuda
+/usr/local/lib/python3.12/dist-packages/huggingface_hub/file_download.py:949: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+
+Device: cuda
+/usr/local/lib/python3.12/dist-packages/huggingface_hub/file_download.py:949: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+
+E4: Full GALA Pipeline — End-to-End CL Comparison
+CL Sequence: ['sst2', 'imdb', 'yelp', 'amazon', 'agnews']
+Model: google/flan-t5-large
+Benchmark: Long_Sequence
+LoRA rank: 8
+
+======================================================================
+  Configuration: GAINLORA
+  GALAConfig(gainlora: GainLoRA(c=4,t=0.98))
+======================================================================
+/usr/local/lib/python3.12/dist-packages/huggingface_hub/file_download.py:949: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+  1,572,864 trainable LoRA params (r=8)
+
+  --- Task 1/5: sst2 ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 2738 tokens, d=1024, PaR=2.4
+    Epoch 1/3: loss=5.8179
+    Epoch 2/3: loss=1.6231
+    Epoch 3/3: loss=0.7276
+    Eval sst2: 0.9400
+
+  --- Task 2/5: imdb ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 17623 tokens, d=1024, PaR=6.8
+    Epoch 1/3: loss=4.4304
+    Epoch 2/3: loss=1.5832
+    Epoch 3/3: loss=0.6379
+    Eval sst2: 0.0000
+    Eval imdb: 0.9367
+
+  --- Task 3/5: yelp ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 14678 tokens, d=1024, PaR=10.3
+    Epoch 1/3: loss=0.7302
+    Epoch 2/3: loss=0.5104
+    Epoch 3/3: loss=0.4793
+    Eval sst2: 0.0000
+    Eval imdb: 0.0000
+    Eval yelp: 0.6067
+
+  --- Task 4/5: amazon ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 13511 tokens, d=1024, PaR=6.4
+    Epoch 1/3: loss=0.6806
+    Epoch 2/3: loss=0.5004
+    Epoch 3/3: loss=0.5088
+    Eval sst2: 0.0000
+    Eval imdb: 0.0000
+    Eval yelp: 0.5467
+    Eval amazon: 0.5933
+
+  --- Task 5/5: agnews ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 6755 tokens, d=1024, PaR=8.7
+    Epoch 1/3: loss=1.3093
+    Epoch 2/3: loss=0.6138
+    Epoch 3/3: loss=0.1823
+    Eval sst2: 0.0000
+    Eval imdb: 0.0000
+    Eval yelp: 0.4500
+    Eval amazon: 0.5533
+    Eval agnews: 0.9300
+
+  AP=0.3867  FT=0.8013  BWT=-0.5183  Time=4090s
+
+Device: cuda
+/usr/local/lib/python3.12/dist-packages/huggingface_hub/file_download.py:949: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+
+E4: Full GALA Pipeline — End-to-End CL Comparison
+CL Sequence: ['sst2', 'imdb', 'yelp', 'amazon', 'agnews']
+Model: google/flan-t5-large
+Benchmark: Long_Sequence
+LoRA rank: 8
+
+
+======================================================================
+  Configuration: GALA_NO_BNG
+  GALAConfig(gala_no_bng: TARA+GGI+SGR(λ=0.1))
+======================================================================
+/usr/local/lib/python3.12/dist-packages/huggingface_hub/file_download.py:949: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+  1,572,864 trainable LoRA params (r=8)
+
+  --- Task 1/5: sst2 ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 2738 tokens, d=1024, PaR=2.4
+  TARA: PaR=2.4 → rank=2
+  Applied GGI init
+    Epoch 1/3: loss=5.7458
+    Epoch 2/3: loss=1.6325
+    Epoch 3/3: loss=0.7480
+    Eval sst2: 0.9400
+
+  --- Task 2/5: imdb ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 17623 tokens, d=1024, PaR=6.8
+  TARA: PaR=6.8 → rank=8
+  Applied GGI init
+    Epoch 1/3: loss=4.2387
+    Epoch 2/3: loss=1.5405
+    Epoch 3/3: loss=0.6303
+    Eval sst2: 0.0000
+    Eval imdb: 0.9367
+
+  --- Task 3/5: yelp ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 14678 tokens, d=1024, PaR=10.3
+  TARA: PaR=10.3 → rank=8
+  Applied GGI init
+    Epoch 1/3: loss=0.7478
+    Epoch 2/3: loss=0.5442
+    Epoch 3/3: loss=0.4514
+    Eval sst2: 0.0000
+    Eval imdb: 0.0000
+    Eval yelp: 0.6333
+
+  --- Task 4/5: amazon ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 13511 tokens, d=1024, PaR=6.4
+  TARA: PaR=6.4 → rank=4
+  Applied GGI init
+    Epoch 1/3: loss=0.7769
+    Epoch 2/3: loss=0.5525
+    Epoch 3/3: loss=0.4869
+    Eval sst2: 0.0000
+    Eval imdb: 0.0000
+    Eval yelp: 0.5400
+    Eval amazon: 0.5833
+
+  --- Task 5/5: agnews ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 6755 tokens, d=1024, PaR=8.7
+  TARA: PaR=8.7 → rank=8
+  Applied GGI init
+    Epoch 1/3: loss=1.2974
+    Epoch 2/3: loss=0.5777
+    Epoch 3/3: loss=0.1863
+    Eval sst2: 0.0000
+    Eval imdb: 0.0000
+    Eval yelp: 0.4467
+    Eval amazon: 0.5533
+    Eval agnews: 0.9267
+
+  AP=0.3853  FT=0.8040  BWT=-0.5233  Time=4108s
+
+======================================================================
+  Configuration: GALA_NO_SGR
+  GALAConfig(gala_no_sgr: TARA+GGI+BNG)
+======================================================================
+  1,572,864 trainable LoRA params (r=8)
+
+  --- Task 1/5: sst2 ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 2738 tokens, d=1024, PaR=2.4
+  TARA: PaR=2.4 → rank=2
+  Applied GGI init
+    Epoch 1/3: loss=6.5835
+    Epoch 2/3: loss=2.2429
+    Epoch 3/3: loss=1.6312
+    Eval sst2: 0.2900
+
+  --- Task 2/5: imdb ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 17623 tokens, d=1024, PaR=6.8
+  TARA: PaR=6.8 → rank=8
+  Applied GGI init
+    Epoch 1/3: loss=4.6549
+    Epoch 2/3: loss=1.9696
+    Epoch 3/3: loss=1.4654
+    Eval sst2: 0.0000
+    Eval imdb: 0.6200
+
+  --- Task 3/5: yelp ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 14678 tokens, d=1024, PaR=10.3
+  TARA: PaR=10.3 → rank=8
+  Applied GGI init
+    Epoch 1/3: loss=0.7713
+    Epoch 2/3: loss=0.6189
+    Epoch 3/3: loss=0.5407
+    Eval sst2: 0.0000
+    Eval imdb: 0.0000
+    Eval yelp: 0.6100
+
+  --- Task 4/5: amazon ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 13511 tokens, d=1024, PaR=6.4
+  TARA: PaR=6.4 → rank=4
+  Applied GGI init
+    Epoch 1/3: loss=0.7275
+    Epoch 2/3: loss=0.6406
+    Epoch 3/3: loss=0.5497
+    Eval sst2: 0.0000
+    Eval imdb: 0.0000
+    Eval yelp: 0.5033
+    Eval amazon: 0.5667
+
+  --- Task 5/5: agnews ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 6755 tokens, d=1024, PaR=8.7
+  TARA: PaR=8.7 → rank=8
+  Applied GGI init
+    Epoch 1/3: loss=1.3657
+    Epoch 2/3: loss=0.8581
+    Epoch 3/3: loss=0.6753
+    Eval sst2: 0.0000
+    Eval imdb: 0.0000
+    Eval yelp: 0.4467
+    Eval amazon: 0.5400
+    Eval agnews: 0.7033
+
+  AP=0.3380  FT=0.5580  BWT=-0.2750  Time=4204s
+
+======================================================================
+  Configuration: GALA_NO_GGI
+  GALAConfig(gala_no_ggi: TARA+SGR(λ=0.1)+BNG)
+======================================================================
+  1,572,864 trainable LoRA params (r=8)
+
+  --- Task 1/5: sst2 ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 2738 tokens, d=1024, PaR=2.4
+  TARA: PaR=2.4 → rank=2
+    Epoch 1/3: loss=6.9954
+    Epoch 2/3: loss=2.5852
+    Epoch 3/3: loss=1.7549
+    Eval sst2: 0.1967
+
+  --- Task 2/5: imdb ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 17623 tokens, d=1024, PaR=6.8
+  TARA: PaR=6.8 → rank=8
+    Epoch 1/3: loss=4.6913
+    Epoch 2/3: loss=2.0795
+    Epoch 3/3: loss=1.5654
+    Eval sst2: 0.0000
+    Eval imdb: 0.6233
+
+  --- Task 3/5: yelp ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 14678 tokens, d=1024, PaR=10.3
+  TARA: PaR=10.3 → rank=8
+    Epoch 1/3: loss=0.7549
+    Epoch 2/3: loss=0.6357
+    Epoch 3/3: loss=0.5570
+    Eval sst2: 0.0000
+    Eval imdb: 0.0000
+    Eval yelp: 0.6300
+
+  --- Task 4/5: amazon ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 13511 tokens, d=1024, PaR=6.4
+  TARA: PaR=6.4 → rank=4
+    Epoch 1/3: loss=0.6995
+    Epoch 2/3: loss=0.6717
+    Epoch 3/3: loss=0.5593
+    Eval sst2: 0.0000
+    Eval imdb: 0.0000
+    Eval yelp: 0.5133
+    Eval amazon: 0.6100
+
+  --- Task 5/5: agnews ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 6755 tokens, d=1024, PaR=8.7
+  TARA: PaR=8.7 → rank=8
+    Epoch 1/3: loss=1.5027
+    Epoch 2/3: loss=1.0577
+    Epoch 3/3: loss=0.6518
+    Eval sst2: 0.0000
+    Eval imdb: 0.0000
+    Eval yelp: 0.4467
+    Eval amazon: 0.5500
+    Eval agnews: 0.7033
+
+  AP=0.3400  FT=0.5527  BWT=-0.2658  Time=4430s
+
+======================================================================
+  Configuration: GALA_FULL
+  GALAConfig(gala_full: TARA+GGI+SGR(λ=0.1)+BNG)
+======================================================================
+  1,572,864 trainable LoRA params (r=8)
+
+  --- Task 1/5: sst2 ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 2738 tokens, d=1024, PaR=2.4
+  TARA: PaR=2.4 → rank=2
+  Applied GGI init
+    Epoch 1/3: loss=6.5907
+    Epoch 2/3: loss=2.2110
+    Epoch 3/3: loss=1.6213
+    Eval sst2: 0.2467
+
+  --- Task 2/5: imdb ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 17623 tokens, d=1024, PaR=6.8
+  TARA: PaR=6.8 → rank=8
+  Applied GGI init
+    Epoch 1/3: loss=4.7299
+    Epoch 2/3: loss=1.9645
+    Epoch 3/3: loss=1.4752
+    Eval sst2: 0.0000
+    Eval imdb: 0.6133
+
+  --- Task 3/5: yelp ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 14678 tokens, d=1024, PaR=10.3
+  TARA: PaR=10.3 → rank=8
+  Applied GGI init
+    Epoch 1/3: loss=0.7004
+    Epoch 2/3: loss=0.6545
+    Epoch 3/3: loss=0.5226
+    Eval sst2: 0.0000
+    Eval imdb: 0.0000
+    Eval yelp: 0.6100
+
+  --- Task 4/5: amazon ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 13511 tokens, d=1024, PaR=6.4
+  TARA: PaR=6.4 → rank=4
+  Applied GGI init
+    Epoch 1/3: loss=0.7973
+    Epoch 2/3: loss=0.6131
+    Epoch 3/3: loss=0.5592
+    Eval sst2: 0.0000
+    Eval imdb: 0.0000
+    Eval yelp: 0.5000
+    Eval amazon: 0.5800
+
+  --- Task 5/5: agnews ---
+  Loaded 2000 train samples
+  Probing gradient/activation covariance...
+  Probed 20 batches, 6755 tokens, d=1024, PaR=8.7
+  TARA: PaR=8.7 → rank=8
+  Applied GGI init
+    Epoch 1/3: loss=1.3384
+    Epoch 2/3: loss=1.0421
+    Epoch 3/3: loss=0.6947
+    Eval sst2: 0.0000
+    Eval imdb: 0.0000
+    Eval yelp: 0.4467
+    Eval amazon: 0.5500
+    Eval agnews: 0.7067
+
+  AP=0.3407  FT=0.5513  BWT=-0.2633  Time=4423s
+
+======================================================================
+  E4 SUMMARY: Full GALA vs Baselines
+======================================================================
+  Config               AP       FT       BWT        Time    
+  ------------------------------------------------------
+  gala_no_bng          0.3853   0.8040   -0.5233    4108s
+  gala_no_sgr          0.3380   0.5580   -0.2750    4204s
+  gala_no_ggi          0.3400   0.5527   -0.2658    4430s
+  gala_full            0.3407   0.5513   -0.2633    4423s
+
+  VERDICT:
+    Most important component: SGR constraint (AP drop when removed: +0.0027)
+    GALA beats GainLoRA? NO
+    GainLoRA beats InfLoRA? NO
+    GALA beats Standard? NO
+
+  Results saved to results_con2/e4_full_gala_flan-t5-large_Long_Sequence.json
