@@ -66,14 +66,15 @@ PHASE_DESCS = {
     "T1": "FSR vs GPM isolation (6 tasks)",
     "T2": "KF-FNG convergence (1 task)",
     "T3": "TAA vs SGR ablation (8 tasks)",
-    "T4": "Full comparison (15 tasks)",
+    "T4": "Full comparison (all tasks)",
 }
-PHASE_TASKS = {
-    "T1": ["sst2", "imdb", "yelp", "amazon", "agnews", "dbpedia"],
-    "T2": ["sst2"],
-    "T3": ["sst2", "imdb", "yelp", "amazon", "dbpedia", "mnli", "boolq", "rte"],
-    "T4": ["sst2", "imdb", "yelp", "amazon", "dbpedia", "agnews",
-            "yahoo", "mnli", "boolq", "wic", "cb", "copa", "qqp", "rte", "multirc"],
+# Task lists are DISCOVERED at runtime from the actual NPZ files available
+# for each (model_dir, benchmark) combo — no hardcoded names.
+PHASE_TASK_COUNTS = {
+    "T1": 6,
+    "T2": 1,
+    "T3": 8,
+    "T4": None,   # use all available tasks
 }
 
 # Default training hyperparams (sufficient for all phases)
@@ -134,7 +135,7 @@ class GPM:
         if h.dim() > 2:
             h = h.reshape(h.shape[0], -1)
         N, d = h.shape
-        self.cov[name] = self.cov.get(name, torch.zeros(d, d)) + h.T @ h
+        self.cov[name] = self.cov.get(name, torch.zeros(d, d, device=h.device)) + h.T @ h
         self.counts[name] = self.counts.get(name, 0) + N
 
     def compute_bases(self, min_var=0.99):
@@ -902,11 +903,10 @@ class EmbTrainer:
 
 def run_phase(
     phase: str, benchmark: str, model_dir: Path,
-    output_dir: Path,
+    tasks: List[str], output_dir: Path,
 ) -> Dict[str, Dict]:
     """Run a single phase for one model+benchmark combo."""
     methods = ALL_PHASE_METHODS[phase]
-    tasks = PHASE_TASKS[phase]
     epochs = DEFAULT_EPOCHS[phase]
 
     log.info(f"\n{'#'*70}")
@@ -1029,7 +1029,8 @@ def main():
                       "Use --model to specify path.")
             sys.exit(1)
 
-    # ── Build run matrix: (phase, model_dir, benchmark) ─────────────────
+    # ── Build run matrix: (phase, model_dir, benchmark, tasks) ──────────
+    # Tasks are DISCOVERED from filesystem: {model_dir}/{benchmark}/{task}/train.npz
     runs = []
     for model_dir in model_dirs:
         if args.benchmark:
@@ -1045,28 +1046,41 @@ def main():
             if not bm_path.exists():
                 log.warning(f"Benchmark dir not found: {bm_path}, skipping.")
                 continue
+
+            # Discover all task dirs under this benchmark
+            avail_tasks = sorted([
+                d.name for d in bm_path.iterdir()
+                if d.is_dir() and (d / "train.npz").exists()
+            ])
+            if not avail_tasks:
+                log.warning(f"No task .npz files found in {bm_path}, skipping.")
+                continue
+
             for phase in phases:
-                runs.append((phase, model_dir, bm))
+                n = PHASE_TASK_COUNTS[phase]
+                tasks = avail_tasks[:n] if n else avail_tasks  # T4=None → all
+                runs.append((phase, model_dir, bm, tasks))
 
     if not runs:
-        log.error("No valid (phase, model, benchmark) combos found.")
+        log.error("No valid (phase, model, benchmark, tasks) combos found.")
         sys.exit(1)
 
     log.info(f"Run matrix: {len(runs)} combos "
              f"({len(phases)} phases × {len(model_dirs)} models × benchmarks)")
-    for phase, md, bm in runs:
-        log.info(f"  {phase} | {md.name} | {bm}")
+    for phase, md, bm, tasks in runs:
+        log.info(f"  {phase} | {md.name} | {bm} | {len(tasks)} tasks")
 
     output_root = Path(args.output_dir)
     all_results = {}
 
-    for phase, model_dir, benchmark in runs:
+    for phase, model_dir, benchmark, tasks in runs:
         key = f"{model_dir.name}/{benchmark}/{phase}"
         out_dir = output_root / model_dir.name / benchmark
         results = run_phase(
             phase=phase,
             benchmark=benchmark,
             model_dir=model_dir,
+            tasks=tasks,
             output_dir=out_dir,
         )
         all_results[key] = results
