@@ -129,7 +129,8 @@ def collate_fn_t5(batch, tokenizer, max_source_length=256, max_target_length=50)
 # ═══════════════════════════════════════════════════════════════════════
 
 class LoRALinear(nn.Module):
-    def __init__(self, base_linear: nn.Linear, r: int, alpha: float = 1.0):
+    def __init__(self, base_linear: nn.Linear, r: int, alpha: float = 1.0,
+                 dtype=None):
         super().__init__()
         self.base = base_linear
         self.base.weight.requires_grad_(False)
@@ -140,8 +141,10 @@ class LoRALinear(nn.Module):
         self.d_out = d_out
         self.r = r
         self.scaling = alpha / r
-        self.lora_A = nn.Parameter(torch.zeros(r, d_in))
-        self.lora_B = nn.Parameter(torch.zeros(d_out, r))
+        # Match dtype of base linear so matmul with bf16 input works
+        param_dtype = dtype if dtype is not None else base_linear.weight.dtype
+        self.lora_A = nn.Parameter(torch.zeros(r, d_in, dtype=param_dtype))
+        self.lora_B = nn.Parameter(torch.zeros(d_out, r, dtype=param_dtype))
         nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
         nn.init.zeros_(self.lora_B)
 
@@ -157,7 +160,7 @@ class LoRALinear(nn.Module):
         return Q
 
 
-def inject_lora(model, r, alpha=1.0, target_modules=None):
+def inject_lora(model, r, alpha=1.0, target_modules=None, dtype=None):
     if target_modules is None:
         target_modules = ["q", "v"]
     lora_modules = []
@@ -168,7 +171,7 @@ def inject_lora(model, r, alpha=1.0, target_modules=None):
             for name in target_modules:
                 if hasattr(attn, name):
                     base_linear = getattr(attn, name)
-                    lora_linear = LoRALinear(base_linear, r, alpha)
+                    lora_linear = LoRALinear(base_linear, r, alpha, dtype=dtype)
                     setattr(attn, name, lora_linear)
                     lora_modules.append(lora_linear)
         for block in model.decoder.block:
@@ -176,7 +179,7 @@ def inject_lora(model, r, alpha=1.0, target_modules=None):
             for name in target_modules:
                 if hasattr(attn, name):
                     base_linear = getattr(attn, name)
-                    lora_linear = LoRALinear(base_linear, r, alpha)
+                    lora_linear = LoRALinear(base_linear, r, alpha, dtype=dtype)
                     setattr(attn, name, lora_linear)
                     lora_modules.append(lora_linear)
     else:
@@ -185,7 +188,7 @@ def inject_lora(model, r, alpha=1.0, target_modules=None):
             for name in ["q_proj", "v_proj"]:
                 if hasattr(attn, name):
                     base_linear = getattr(attn, name)
-                    lora_linear = LoRALinear(base_linear, r, alpha)
+                    lora_linear = LoRALinear(base_linear, r, alpha, dtype=dtype)
                     setattr(attn, name, lora_linear)
                     lora_modules.append(lora_linear)
     return lora_modules
@@ -905,7 +908,8 @@ def run_gala_cl_pipeline(model_name, tokenizer, tasks, data_dir, benchmark,
         model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=dtype)
 
     target_modules = ["q", "v"] if is_t5 else ["q_proj", "v_proj"]
-    lora_modules = inject_lora(model, initial_rank, lora_alpha, target_modules)
+    model_dtype = torch.bfloat16 if use_bf16 else torch.float32
+    lora_modules = inject_lora(model, initial_rank, lora_alpha, target_modules, dtype=model_dtype)
     model.to(device)
 
     # Freeze base
