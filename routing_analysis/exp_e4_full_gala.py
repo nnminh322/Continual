@@ -371,8 +371,9 @@ def compute_preconditioner(cov_act, k=None):
 
 def apply_preconditioner(grad_A, precond, device):
     """Apply Σ_x^{-1/2} preconditioning to gradient of A."""
-    V_k = precond["V_k"].to(device)
-    lam_inv = precond["lam_k_inv_sqrt"].to(device)
+    dtype = grad_A.dtype
+    V_k = precond["V_k"].to(device=device, dtype=dtype)
+    lam_inv = precond["lam_k_inv_sqrt"].to(device=device, dtype=dtype)
     lam_mean = precond["lam_mean_inv_sqrt"]
 
     proj = grad_A @ V_k
@@ -1214,6 +1215,8 @@ def main():
                        help="Resume from previous run: skip completed configs and tasks")
     parser.add_argument("--skip_baselines", action="store_true",
                        help="Skip standard_lora and inflora baselines")
+    parser.add_argument("--skip_configs", type=str, default="",
+                       help="Comma-separated config names to skip, e.g. 'gainlora,gala_no_bng'")
     args = parser.parse_args()
 
     device = torch.device(
@@ -1251,6 +1254,13 @@ def main():
         "gainlora", use_gainlora=True, fixed_rank=args.lora_r,
         gainlora_n_chunks=args.gainlora_chunks,
         gainlora_threshold=args.gainlora_threshold)
+
+    # Filter out explicitly skipped configs
+    if args.skip_configs:
+        skip_set = {s.strip() for s in args.skip_configs.split(",") if s.strip()}
+        for s in skip_set:
+            configs.pop(s, None)
+            print(f"  [SKIP] Skipping config: {s}")
 
     if not args.quick:
         # (d) GALA w/o BNG — TARA + GGI + SGR + AdamW
