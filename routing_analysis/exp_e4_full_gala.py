@@ -155,9 +155,9 @@ class LoRALinear(nn.Module):
 
     def get_subspace(self):
         """Return orthonormal basis for row space of A via QR."""
-        A = self.lora_A.detach()  # (r, d_in)
-        Q, R = torch.linalg.qr(A.T)  # Q: (d_in, r)
-        return Q
+        A = self.lora_A.detach().float()  # (r, d_in) — QR only supports float32 on CUDA
+        Q, R = torch.linalg.qr(A.T)        # Q: (d_in, r)
+        return Q.to(self.lora_A.dtype)      # cast back to original dtype
 
 
 def inject_lora(model, r, alpha=1.0, target_modules=None, dtype=None):
@@ -399,15 +399,15 @@ class HardProjection:
             if self.prev_subspaces[i] is None:
                 self.prev_subspaces[i] = V_new
             else:
-                combined = torch.cat([self.prev_subspaces[i], V_new], dim=1)
+                combined = torch.cat([self.prev_subspaces[i], V_new], dim=1).float()
                 try:
                     U, S, _ = torch.linalg.svd(combined, full_matrices=False)
                     threshold = S.max() * 1e-5
                     k = (S > threshold).sum().item()
-                    self.prev_subspaces[i] = U[:, :k]
+                    self.prev_subspaces[i] = U[:, :k].to(lm.lora_A.dtype)
                 except RuntimeError:
                     Q, _ = torch.linalg.qr(combined)
-                    self.prev_subspaces[i] = Q
+                    self.prev_subspaces[i] = Q.to(lm.lora_A.dtype)
 
     def project_init(self, soft_strength=None):
         for i, lm in enumerate(self.lora_modules):
@@ -450,15 +450,15 @@ class SoftGrassmannianRegularization:
             if self.prev_subspaces[i] is None:
                 self.prev_subspaces[i] = V_new.detach()
             else:
-                combined = torch.cat([self.prev_subspaces[i], V_new.detach()], dim=1)
+                combined = torch.cat([self.prev_subspaces[i], V_new.detach()], dim=1).float()
                 try:
                     U, S, _ = torch.linalg.svd(combined, full_matrices=False)
                     threshold = S.max() * 1e-5
                     k = (S > threshold).sum().item()
-                    self.prev_subspaces[i] = U[:, :k].detach()
+                    self.prev_subspaces[i] = U[:, :k].detach().to(lm.lora_A.dtype)
                 except RuntimeError:
                     Q, _ = torch.linalg.qr(combined)
-                    self.prev_subspaces[i] = Q.detach()
+                    self.prev_subspaces[i] = Q.detach().to(lm.lora_A.dtype)
 
     def project_init(self, soft_strength=None):
         """Soft: bias init towards null space, parameterized strength."""
@@ -481,9 +481,9 @@ class SoftGrassmannianRegularization:
             if self.prev_subspaces[i] is None:
                 continue
             V_prev = self.prev_subspaces[i].to(lm.lora_A.device)
-            A = lm.lora_A
+            A = lm.lora_A.detach().float()   # QR not supported for bf16 on CUDA
             Q, R = torch.linalg.qr(A.T)
-            V_current = Q
+            V_current = Q.to(lm.lora_A.dtype)
             overlap = V_current.T @ V_prev
             penalty += (overlap ** 2).sum()
             n_terms += 1
@@ -506,17 +506,17 @@ class NoConstraint:
             if self.prev_subspaces[i] is None:
                 self.prev_subspaces[i] = V_new.detach()
             else:
-                combined = torch.cat([self.prev_subspaces[i], V_new.detach()], dim=1)
+                combined = torch.cat([self.prev_subspaces[i], V_new.detach()], dim=1).float()
                 # Guard against ill-conditioned SVD (repeated / near-zero singular values)
                 try:
                     U, S, _ = torch.linalg.svd(combined, full_matrices=False)
                     threshold = S.max() * 1e-5
                     k = (S > threshold).sum().item()
-                    self.prev_subspaces[i] = U[:, :k].detach()
+                    self.prev_subspaces[i] = U[:, :k].detach().to(lm.lora_A.dtype)
                 except RuntimeError:
                     # Fallback: QR-based orthonormalization when SVD misbehaves
                     Q, _ = torch.linalg.qr(combined)
-                    self.prev_subspaces[i] = Q.detach()
+                    self.prev_subspaces[i] = Q.detach().to(lm.lora_A.dtype)
 
     def project_init(self, soft_strength=None):
         pass
