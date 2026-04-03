@@ -260,7 +260,7 @@ def probe_task(model, tokenizer, samples, device, target_layer_idx=0,
         batch_labels = [samples[j]["label"] for j in batch_idx]
 
         inputs = tokenizer(batch_texts, return_tensors="pt", padding=True,
-                          truncation=True, max_length=probe_max_length).to(device)
+                          truncation=True, max_length=256).to(device)
         if is_t5:
             labels = tokenizer(batch_labels, return_tensors="pt", padding=True,
                              truncation=True, max_length=50).input_ids.to(device)
@@ -1212,6 +1212,8 @@ def main():
                        help="Quick mode: only run standard_lora, inflora, gala_full")
     parser.add_argument("--resume", action="store_true",
                        help="Resume from previous run: skip completed configs and tasks")
+    parser.add_argument("--skip_baselines", action="store_true",
+                       help="Skip standard_lora and inflora baselines")
     args = parser.parse_args()
 
     device = torch.device(
@@ -1235,13 +1237,14 @@ def main():
     # Define pipeline configurations
     configs = OrderedDict()
 
-    # (a) Standard LoRA — Kaiming init, AdamW, no CL constraint
-    configs["standard_lora"] = GALAConfig(
-        "standard_lora", fixed_rank=args.lora_r)
+    if not args.skip_baselines:
+        # (a) Standard LoRA — Kaiming init, AdamW, no CL constraint
+        configs["standard_lora"] = GALAConfig(
+            "standard_lora", fixed_rank=args.lora_r)
 
-    # (b) InfLoRA-style — Hard projection, AdamW
-    configs["inflora"] = GALAConfig(
-        "inflora", use_hard_projection=True, fixed_rank=args.lora_r)
+        # (b) InfLoRA-style — Hard projection, AdamW
+        configs["inflora"] = GALAConfig(
+            "inflora", use_hard_projection=True, fixed_rank=args.lora_r)
 
     # (c) GainLoRA-style — Chunked GPM, AdamW (Trans_input excluded: needs custom T5)
     configs["gainlora"] = GALAConfig(
