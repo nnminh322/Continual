@@ -870,7 +870,7 @@ def run_gala_cl_pipeline(model_name, tokenizer, tasks, data_dir, benchmark,
                          device, config: GALAConfig, default_rank=8,
                          lora_alpha=1.0, n_epochs=3, batch_size=8, lr=1e-4,
                          max_train_samples=2000, probe_layer_idx=0,
-                         grad_accum=4, use_fp16=False, max_source_length=256,
+                         grad_accum=4, use_fp16=False, use_bf16=False, max_source_length=256,
                          skip_tasks=None):
     """
     Run a full CL sequence with a given GALA configuration.
@@ -898,9 +898,11 @@ def run_gala_cl_pipeline(model_name, tokenizer, tasks, data_dir, benchmark,
     initial_rank = config.fixed_rank if config.fixed_rank else default_rank
 
     if is_t5:
-        model = AutoModelForSeq2SeqLM.from_pretrained(model_name, torch_dtype=torch.float32)
+        dtype = torch.bfloat16 if use_bf16 else torch.float32
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_name, torch_dtype=dtype)
     else:
-        model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float32)
+        dtype = torch.bfloat16 if use_bf16 else torch.float32
+        model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=dtype)
 
     target_modules = ["q", "v"] if is_t5 else ["q_proj", "v_proj"]
     lora_modules = inject_lora(model, initial_rank, lora_alpha, target_modules)
@@ -945,12 +947,13 @@ def run_gala_cl_pipeline(model_name, tokenizer, tasks, data_dir, benchmark,
     # Gradient probing must happen on clean model to avoid LoRA interference
     probe_model = None
     if config.use_tara or config.use_ggi or config.use_bng or config.use_gainlora:
+        dtype = torch.bfloat16 if use_bf16 else torch.float32
         if is_t5:
             probe_model = AutoModelForSeq2SeqLM.from_pretrained(
-                model_name, torch_dtype=torch.float32).to(device)
+                model_name, torch_dtype=dtype).to(device)
         else:
             probe_model = AutoModelForCausalLM.from_pretrained(
-                model_name, torch_dtype=torch.float32).to(device)
+                model_name, torch_dtype=dtype).to(device)
         probe_model.eval()
         # Enable gradient checkpointing to save VRAM during probing
         if hasattr(probe_model, 'enable_input_require_grads'):
@@ -1082,8 +1085,8 @@ def run_gala_cl_pipeline(model_name, tokenizer, tasks, data_dir, benchmark,
                 batch = {k: v.to(device) for k, v in batch.items()}
                 _last = (_si + 1 == len(dataloader))
                 _do_step = ((_si + 1) % grad_accum == 0) or _last
-                _ac = (torch.autocast("cuda", dtype=torch.float16)
-                       if use_fp16 and device.type == "cuda"
+                _ac = (torch.autocast("cuda", dtype=torch.bfloat16)
+                       if use_bf16 and device.type == "cuda"
                        else torch.autocast("cpu", enabled=False))
                 with _ac:
                     outputs = model(**batch)
@@ -1185,8 +1188,8 @@ def main():
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--grad_accum", type=int, default=4,
                        help="Gradient accumulation steps (reduces VRAM, effective_bs = batch_size × grad_accum)")
-    parser.add_argument("--fp16", action="store_true",
-                       help="Use fp16 mixed precision (recommended for T4/V100)")
+    parser.add_argument("--bf16", action="store_true",
+                       help="Use bf16 mixed precision (recommended for T5-large, avoids fp16 NaN overflow)")
     parser.add_argument("--max_length", type=int, default=256,
                        help="Max source sequence length (reduce to 128 for tight VRAM)") 
     parser.add_argument("--lr", type=float, default=1e-4)
@@ -1343,7 +1346,7 @@ def main():
             n_epochs=args.n_epochs, batch_size=args.batch_size, lr=args.lr,
             max_train_samples=args.max_train_samples,
             probe_layer_idx=args.probe_layer,
-            grad_accum=args.grad_accum, use_fp16=args.fp16,
+            grad_accum=args.grad_accum, use_bf16=args.bf16,
             max_source_length=args.max_length,
             skip_tasks=skip_tasks_for_cfg,
         )
