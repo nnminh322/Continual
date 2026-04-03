@@ -652,7 +652,7 @@ class GainLoRAProjection:
             step = d_in // self.n_chunks
             with torch.no_grad():
                 for c, U_c in self.prev_bases[i].items():
-                    U_c = U_c.to(lm.lora_A.device)
+                    U_c = U_c.to(lm.lora_A.device).to(lm.lora_A.dtype)
                     P_c = U_c @ U_c.T  # (step, step)
                     chunk = lm.lora_A.data[:, c * step:(c + 1) * step]
                     lm.lora_A.data[:, c * step:(c + 1) * step] -= chunk @ P_c
@@ -669,7 +669,7 @@ class GainLoRAProjection:
             d_in = lm.lora_A.shape[1]
             step = d_in // self.n_chunks
             for c, U_c in self.prev_bases[i].items():
-                U_c = U_c.to(lm.lora_A.device)
+                U_c = U_c.to(lm.lora_A.device).to(lm.lora_A.dtype)
                 P_c = U_c @ U_c.T  # (step, step)
                 g_chunk = lm.lora_A.grad.data[:, c * step:(c + 1) * step]
                 lm.lora_A.grad.data[:, c * step:(c + 1) * step] -= g_chunk @ P_c
