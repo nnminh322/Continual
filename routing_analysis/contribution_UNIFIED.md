@@ -785,18 +785,4 @@ Storage: $O(dk)$ per task + $O(1)$ for $\sigma_t^2$.
 
 ---
 
-# PHẦN VIII: Open Questions
-
 ---
-
-1. **GMM extension**: Task distributions are multimodal (100% on LLaMA). Extend SRT to $\mathcal{P}_t = \sum_c \pi_{tc}\mathcal{N}(\mu_{tc}, \Sigma_{tc})$. Challenge: number of components $C_t$ unknown, estimation harder.
-
-2. **Decoder pooling**: Mean pooling on causal-attention LLaMA creates information bottleneck (hypothesis from PaR ≈ 9 vs 24). Test last-token and attention-weighted pooling.
-
-3. **Online metric selection**: Current incremental SRM re-evaluates all metrics each task. Can we warm-start from previous selection?
-
-4. **Tight capacity bound**: Theorem 6b is heuristic. Can we prove a matching lower bound?
-
-5. **Cross-layer routing**: Current analysis uses single-layer embeddings. Multi-layer features may increase PaR → better routing.
-
-6. **Non-Gaussian bounds**: Theorem 3 assumes Gaussian. Can we derive analogous bounds under sub-Gaussian or mixture assumptions?

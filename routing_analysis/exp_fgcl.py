@@ -1,44 +1,40 @@
 #!/usr/bin/env python3
 """
-exp_fgcl.py — FGCL Experiment Framework
-========================================
-Usage:
-  python exp_fgcl.py                                    # ALL: all phases × all models × all benchmarks
-  python exp_fgcl.py --phase T4                         # T4, all models, all benchmarks
-  python exp_fgcl.py --model test_embeddings/TestBackbone/   # all phases, this model, all benchmarks
-  python exp_fgcl.py --benchmark SuperNI                # all phases, all models, this benchmark
-  python exp_fgcl.py --model test_embeddings/TestBackbone/ --benchmark SuperNI  # specific
+exp_fgcl.py — FGCL C2 Experiment Framework
+==========================================
+Scope: Training dynamics (initialization, optimizer, CL regularization).
+Không xét: CalAttention routing mechanism (thuộc C1).
 
-Embedding path convention:
-  {emb_root}/{model_name}/{benchmark}/{task}/train.npz
-  e.g. test_embeddings/TestBackbone/Long_Sequence/sst2/train.npz
+CLI:
+  python exp_fgcl.py                                    # ALL phases, all benchmarks
+  python exp_fgcl.py --phase T4 --benchmark Long_Sequence
+  python exp_fgcl.py --model google/flan-t5-large --benchmark SuperNI
+  python exp_fgcl.py --phase T1 --benchmark Long_Sequence --tasks sst2 imdb mnli
 
-Methods:
-  standard_lora  — Plain LoRA (baseline)
-  gainlora       — GainLoRA root port (routing + GPM + KL)
-  inflora        — InfLoRA (GPM only)
-  fgcl_fsr       — FGCL: LoRA + Fisher Subspace Regularization
-  fgcl_kfng      — FGCL: LoRA + FSR + Kronecker-Factored Fisher NG
-  fgcl_taa       — FGCL: LoRA + FSR + Task Arithmetic Alignment
-  fgcl_sgr       — FGCL: LoRA + Soft Grassmannian Regularization (GALA baseline)
+Methods (trong scope C2):
+  standard_lora  — LoRA + AdamW (no CL mechanism)
+  gainlora_root  — GainLoRA root port: LoRA + GPM + trans_input + prev_branches
+  inflora        — LoRA + GPM (no routing, no trans_input)
+  fgcl_fsr       — LoRA + FSR (Fisher Subspace Regularization)
+  fgcl_kfng      — LoRA + FSR + KF-FNG optimizer
+  fgcl_taa       — LoRA + FSR + TAA (Task Arithmetic Alignment)
+  fgcl_sgr       — LoRA + SGR (GALA baseline: Soft Grassmannian Reg)
 
-Phases:
-  T1  FSR vs GPM isolation (2 tasks: sst2 → imdb)
-  T2  KF-FNG convergence   (1 task: sst2)
-  T3  TAA vs SGR ablation  (3 tasks: sst2 → imdb → yelp)
-  T4  Full comparison      (5 tasks: sst2 → imdb → yelp → amazon → agnews)
+Checkpoint policy: NO .pt checkpoints saved. All intermediate state is kept in
+memory during training. Only results JSON and logs are persisted.
+This is intentional — checkpoints are not needed for analysis; they waste disk.
 """
 
-import os, sys, json, time, math, copy, pickle, argparse, gc, warnings
+import sys, json, time, math, argparse, gc, warnings
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
-import numpy as np
 
+import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-from torch.nn.utils import clip_grad_norm_
+
+from transformers import AutoTokenizer
 import logging
 
 logging.basicConfig(
@@ -51,127 +47,272 @@ warnings.filterwarnings("ignore")
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-# ── Experiment Design ────────────────────────────────────────────────────
-# "One run must be statistically conclusive."
-# Params chosen: enough statistical power, minimal redundancy.
+
+# ═══════════════════════════════════════════════════════════════════════
+# BENCHMARK TASKS
+# ═══════════════════════════════════════════════════════════════════════
+
+BENCHMARK_TASKS = {
+    "Long_Sequence": [
+        "sst2", "imdb", "yelp", "amazon", "dbpedia", "agnews", "yahoo",
+        "mnli", "boolq", "wic", "cb", "copa", "qqp", "rte", "multirc",
+    ],
+    "SuperNI": [
+        "task1687_sentiment140_classification",
+        "task363_sst2_polarity_classification",
+        "task875_emotion_classification",
+        "task073_commonsenseqa_answer_generation",
+        "task591_sciq_answer_generation",
+        "task002_quoref_answer_generation",
+        "task1290_xsum_summarization",
+        "task1572_samsum_summary",
+        "task511_reddit_tifu_long_text_summarization",
+        "task181_outcome_extraction",
+        "task748_glucose_reverse_cause_event_detection",
+        "task1510_evalution_relation_extraction",
+        "task639_multi_woz_user_utterance_generation",
+        "task1590_diplomacy_text_generation",
+        "task1729_personachat_generate_next",
+    ],
+}
 
 ALL_PHASES = ["T1", "T2", "T3", "T4"]
 ALL_PHASE_METHODS = {
     "T1": ["standard_lora", "inflora", "fgcl_fsr"],
     "T2": ["standard_lora", "fgcl_kfng"],
     "T3": ["standard_lora", "fgcl_fsr", "fgcl_taa", "fgcl_sgr"],
-    "T4": ["standard_lora", "gainlora", "inflora", "fgcl_fsr", "fgcl_kfng", "fgcl_taa"],
+    "T4": ["standard_lora", "gainlora_root", "inflora", "fgcl_fsr", "fgcl_kfng", "fgcl_taa"],
 }
 PHASE_DESCS = {
-    "T1": "FSR vs GPM isolation (6 tasks)",
-    "T2": "KF-FNG convergence (1 task)",
-    "T3": "TAA vs SGR ablation (8 tasks)",
-    "T4": "Full comparison (all tasks)",
+    "T1": "FSR vs GPM isolation",
+    "T2": "KF-FNG convergence",
+    "T3": "TAA vs SGR ablation",
+    "T4": "Full comparison",
 }
-# Task lists are DISCOVERED at runtime from the actual NPZ files available
-# for each (model_dir, benchmark) combo — no hardcoded names.
-PHASE_TASK_COUNTS = {
-    "T1": 6,
-    "T2": 1,
-    "T3": 8,
-    "T4": None,   # use all available tasks
-}
-
-# Default training hyperparams (sufficient for all phases)
-DEFAULT_LORA_RANK = 8
-DEFAULT_LORA_ALPHA = 32
-DEFAULT_LR = 1e-3
+PHASE_TASK_COUNTS = {"T1": 6, "T2": 1, "T3": 8, "T4": None}
 DEFAULT_EPOCHS = {"T1": 20, "T2": 30, "T3": 20, "T4": 20}
-DEFAULT_BATCH = 32
-DEFAULT_GPM_STEPS = 100
+DEFAULT_LORA_RANK = 4
+DEFAULT_LORA_ALPHA = 16
+DEFAULT_LR = 1e-3
+DEFAULT_ATTN_LR = 1e-4
+DEFAULT_BATCH = 8
+DEFAULT_GPM_STEPS = 1000
+DEFAULT_GPM_THRESH = 0.98
+DEFAULT_CHUNK = 8
 DEFAULT_LAMBDA_FSR = 0.1
 DEFAULT_LAMBDA_TAA = 0.05
 DEFAULT_LAMBDA_SGR = 0.1
 
-
-# ═══════════════════════════════════════════════════════════════════════
-# LoRA — Shared
-# ═══════════════════════════════════════════════════════════════════════
-
-class LoRALinear(nn.Module):
-    """LoRA: A=Kaiming init, B=zero init → ΔW=0 at step 0."""
-
-    def __init__(self, in_features: int, out_features: int, rank: int = 8, alpha: int = 32):
-        super().__init__()
-        self.rank = rank
-        self.alpha = alpha
-        self.scale = alpha / rank
-        self.in_features = in_features
-        self.out_features = out_features
-        self.lora_A = nn.Parameter(torch.zeros(rank, in_features))
-        self.lora_B = nn.Parameter(torch.zeros(out_features, rank))
-        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x @ self.lora_A.T @ self.lora_B.T * self.scale
-
-    @property
-    def delta_W(self) -> torch.Tensor:
-        return self.lora_B @ self.lora_A * self.scale
+# ── Evaluation frequency: eval every N tasks ──────────────────────────
+DEFAULT_EVAL_EVERY = 3  # 0 to disable intermediate eval (only final)
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# GPM — Gradient Projection Memory (embedding-level)
+# MODEL LOADING
 # ═══════════════════════════════════════════════════════════════════════
 
-class GPM:
-    """GPM: accumulate activation covariances → SVD bases → project gradients."""
+ROOT_SRC = Path("/Users/nnminh322/Desktop/personal/Continual/root_gainlora/src")
 
-    def __init__(self, threshold: float = 0.99):
+
+def _make_prompt_config(task_id: int = 0, rank: int = 4, lora_alpha: int = 16,
+                        lora_dropout: float = 0.0, run_single: bool = False,
+                        previous_lora_path: Optional[str] = None,
+                        previous_prompt_key_path: Optional[str] = None,
+                        mlp_hidden_dim: int = 100):
+    return {
+        "task_id": task_id,
+        "lora_r": rank,
+        "lora_alpha": lora_alpha,
+        "lora_dropout": lora_dropout,
+        "run_single": run_single,
+        "previous_lora_path": previous_lora_path,
+        "previous_prompt_key_path": previous_prompt_key_path,
+        "mlp_hidden_dim": mlp_hidden_dim,
+    }
+
+
+def load_gainlora_model(model_name: str, rank: int = 4, lora_alpha: int = 16,
+                         lora_dropout: float = 0.0, task_id: int = 0,
+                         use_trans_input: bool = False, chunk: int = 8,
+                         previous_lora_path: Optional[str] = None,
+                         previous_prompt_key_path: Optional[str] = None,
+                         device: str = DEVICE):
+    if not ROOT_SRC.exists():
+        raise RuntimeError(
+            f"root_gainlora source not found at {ROOT_SRC}. "
+            "Please copy or mount the source to this path on the server."
+        )
+    sys.path.insert(0, str(ROOT_SRC))
+    from t5_gainlora_inflora import T5ForConditionalGeneration
+
+    prompt_config = _make_prompt_config(
+        task_id=task_id,
+        rank=rank,
+        lora_alpha=lora_alpha,
+        lora_dropout=lora_dropout,
+        run_single=not use_trans_input,
+        previous_lora_path=previous_lora_path,
+        previous_prompt_key_path=previous_prompt_key_path,
+    )
+
+    root_model = T5ForConditionalGeneration.from_pretrained(
+        model_name,
+        prompt_config=prompt_config,
+    )
+    root_model.config.use_cache = False
+
+    for block in root_model.encoder.block:
+        attn = block.layer[0]
+        if hasattr(attn, 'get_chunk'):
+            attn.get_chunk(chunk)
+    for block in root_model.decoder.block:
+        attn = block.layer[0]
+        if hasattr(attn, 'get_chunk'):
+            attn.get_chunk(chunk)
+
+    if use_trans_input and hasattr(root_model.encoder, 'get_chunk'):
+        root_model.encoder.get_chunk(chunk)
+
+    for name, param in root_model.named_parameters():
+        if "lora_" not in name and "trans_input" not in name and "prompt_key" not in name:
+            param.requires_grad = False
+
+    return root_model
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# GPM — Gradient Projection Memory
+# ═══════════════════════════════════════════════════════════════════════
+
+class GPMAccumulator:
+    def __init__(self, threshold: float = 0.98, chunk: int = 8):
         self.threshold = threshold
-        self.bases: Dict[str, torch.Tensor] = {}
-        self.cov: Dict[str, torch.Tensor] = {}
-        self.counts: Dict[str, int] = {}
+        self.chunk = chunk
+        self.feature_list: List[List[Dict[int, torch.Tensor]]] = []
 
-    def accumulate(self, name: str, h: torch.Tensor):
-        """Accumulate outer product of activation tensor."""
-        if h.dim() == 1:
-            h = h.unsqueeze(0)
-        if h.dim() > 2:
-            h = h.reshape(h.shape[0], -1)
-        N, d = h.shape
-        self.cov[name] = self.cov.get(name, torch.zeros(d, d, device=h.device)) + h.T @ h
-        self.counts[name] = self.counts.get(name, 0) + N
+    def collect(self, model, dataloader, n_steps: int = 1000):
+        for module in model.modules():
+            if hasattr(module, "get_feature"):
+                module.get_feature = True
+        if hasattr(model.encoder, "get_trans_feature"):
+            model.encoder.get_trans_feature = True
 
-    def compute_bases(self, min_var=0.99):
-        self.bases.clear()
-        for name, cov in self.cov.items():
-            try:
-                U, S, _ = torch.linalg.svd(cov.float(), full_matrices=False)
-                cumvar = torch.cumsum(S * S, dim=0)
-                total = cumvar[-1]
-                k = (cumvar >= total * min_var).nonzero(as_tuple=True)[0][0].item() + 1
-                k = min(k, U.shape[1])
-                self.bases[name] = U[:, :k]
-            except Exception:
-                self.bases[name] = torch.empty(0)
-        self.cov.clear()
-        self.counts.clear()
+        model.eval()
+        with torch.no_grad():
+            for step_idx, batch in enumerate(dataloader):
+                if step_idx >= n_steps:
+                    break
+                device_batch = {k: (v.to(DEVICE) if isinstance(v, torch.Tensor) else v)
+                                for k, v in batch.items()}
+                try:
+                    model(**device_batch)
+                except Exception:
+                    break
 
-    def project(self, named_params) -> Dict[str, torch.Tensor]:
-        result = {}
-        for name, param in named_params:
-            if param.grad is None:
+        for module in model.modules():
+            if hasattr(module, "get_feature"):
+                module.get_feature = False
+        if hasattr(model.encoder, "get_trans_feature"):
+            model.encoder.get_trans_feature = False
+
+    def build(
+        self,
+        model,
+        task_id: int = 0,
+        total_tasks: int = 15,
+        prev_features: Optional[List] = None,
+    ) -> List[List[Dict[int, torch.Tensor]]]:
+        features: List[List[Dict[int, torch.Tensor]]] = []
+        thresh = (
+            self.threshold
+            if task_id == 0
+            else (1.0 - self.threshold) * task_id / total_tasks + self.threshold
+        )
+
+        for layer_idx, block in enumerate(model.encoder.block):
+            attn = block.layer[0]
+            if not hasattr(attn, "matrix"):
                 continue
-            g = param.grad.clone()
-            if name in self.bases and self.bases[name].numel() > 0:
-                U = self.bases[name].to(g)
-                g = g - U @ (U.T @ g.reshape(-1, 1)).squeeze(-1)
-            result[name] = g
-        return result
+            layer_feat = {}
+            step = getattr(attn, "step", None)
+            if step is None:
+                d_model = getattr(attn, "d_model", None)
+                if d_model is None:
+                    continue
+                step = d_model // self.chunk
+            for ci in range(self.chunk):
+                cov = attn.matrix.get(ci, None)
+                if cov is None or cov.numel() == 0:
+                    layer_feat[ci] = torch.eye(step, step)
+                    continue
+                cov = cov.float().cpu()
+                try:
+                    U, S, _ = torch.linalg.svd(cov, full_matrices=False)
+                except Exception:
+                    U = torch.eye(cov.shape[0])
+                    S = torch.ones(cov.shape[0])
 
-    def state_dict(self) -> Dict:
-        return {"bases": self.bases, "cov": self.cov, "counts": self.counts}
+                s2 = S ** 2
+                s2_ratio = s2 / (s2.sum() + 1e-12)
+                cum = torch.cumsum(s2_ratio, dim=0)
+                r = (cum >= thresh).nonzero(as_tuple=True)[0]
+                r = (r[0].item() + 1) if len(r) > 0 else 1
+                r = min(r, U.shape[1])
 
-    def load_state(self, s: Dict):
-        self.bases = s.get("bases", {})
-        self.cov = s.get("cov", {})
-        self.counts = s.get("counts", {})
+                if prev_features and layer_idx < len(prev_features) and ci in prev_features[layer_idx]:
+                    P = prev_features[layer_idx][ci].cpu()
+                    cov_hat = cov - P @ P.T @ cov
+                    try:
+                        U2, S2, _ = torch.linalg.svd(cov_hat.float(), full_matrices=False)
+                    except Exception:
+                        U2 = torch.zeros(cov.shape[0], 0)
+                        S2 = torch.zeros(cov.shape[0])
+                    s2h = S2 ** 2
+                    s2h_ratio = s2h / (s2h.sum() + 1e-12)
+                    cumh = torch.cumsum(s2h_ratio, dim=0)
+                    r2 = (cumh >= thresh).nonzero(as_tuple=True)[0]
+                    r2 = (r2[0].item() + 1) if len(r2) > 0 else 1
+                    r2 = min(r2, U2.shape[1])
+                    if U2.shape[1] >= r2:
+                        combined = torch.cat([P, U2[:, :r2]], dim=1)
+                        try:
+                            Q, _ = torch.linalg.qr(combined)
+                            layer_feat[ci] = Q
+                        except Exception:
+                            layer_feat[ci] = combined
+                    else:
+                        layer_feat[ci] = P
+                else:
+                    layer_feat[ci] = U[:, :r]
+            features.append(layer_feat)
+
+        self.feature_list.append(features)
+        return features
+
+    def project(self, model):
+        if not self.feature_list:
+            return
+        cur = self.feature_list[-1]
+        layer_idx = 0
+        for block in model.encoder.block:
+            attn = block.layer[0]
+            if not hasattr(attn, "lora_q"):
+                continue
+            for ci in range(self.chunk):
+                A_q = attn.lora_q.lora_A.data
+                A_v = attn.lora_v.lora_A.data
+                s0, s1 = ci * attn.step, (ci + 1) * attn.step
+
+                if layer_idx < len(cur) and ci in cur[layer_idx]:
+                    P = cur[layer_idx][ci].to(A_q)
+                    A_q[:, s0:s1] = A_q[:, s0:s1] - (P @ P.T @ A_q[:, s0:s1])
+                    A_v[:, s0:s1] = A_v[:, s0:s1] - (P @ P.T @ A_v[:, s0:s1])
+
+                nq = A_q[:, s0:s1].norm(dim=1, keepdim=True).clamp(min=1e-12)
+                nv = A_v[:, s0:s1].norm(dim=1, keepdim=True).clamp(min=1e-12)
+                A_q[:, s0:s1] = A_q[:, s0:s1] / (math.sqrt(3) * nq)
+                A_v[:, s0:s1] = A_v[:, s0:s1] / (math.sqrt(3) * nv)
+            layer_idx += 1
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -179,86 +320,76 @@ class GPM:
 # ═══════════════════════════════════════════════════════════════════════
 
 class FSR:
-    """L_FSR = λ · ||P_{<t} · ∇L_t||²"""
-
-    def __init__(self, lam: float = 0.1):
+    def __init__(self, lam: float = 0.1, threshold: float = 0.99):
         self.lam = lam
+        self.threshold = threshold
+        self.fisher_ema: Dict[str, torch.Tensor] = {}
         self.bases: Dict[str, torch.Tensor] = {}
 
-    def compute_fisher(self, named_params, grad_dict) -> Dict[str, torch.Tensor]:
-        fisher = {}
-        for name, param in named_params:
-            if name not in grad_dict or grad_dict[name] is None:
+    def update(self, grad_dict: Dict[str, torch.Tensor]):
+        for name, g in grad_dict.items():
+            if g is None:
                 continue
-            g = grad_dict[name]
-            if g.numel() == 0:
-                continue
-            g_f = g.reshape(-1, 1)
-            fisher[name] = g_f @ g_f.T
-        return fisher
+            g_flat = g.detach().reshape(-1).float()
+            outer = g_flat.unsqueeze(1) @ g_flat.unsqueeze(0)
+            if name not in self.fisher_ema:
+                self.fisher_ema[name] = outer.clone()
+            else:
+                self.fisher_ema[name] = 0.99 * self.fisher_ema[name].float() + 0.01 * outer
 
-    def update_subspace(self, fisher_mats, threshold=0.99):
-        for name, fm in fisher_mats.items():
+    def build_bases(self):
+        for name, F_mat in self.fisher_ema.items():
+            if F_mat.shape[0] < 10:
+                continue
             try:
-                U, S, _ = torch.linalg.svd(fm.float(), full_matrices=False)
-                cumvar = torch.cumsum(S * S, dim=0)
-                k = (cumvar >= cumvar[-1] * threshold).nonzero(as_tuple=True)[0][0].item() + 1
+                U, S, _ = torch.linalg.svd(F_mat.float(), full_matrices=False)
+                s2 = S ** 2
+                ratio = s2 / (s2.sum() + 1e-12)
+                cum = torch.cumsum(ratio, dim=0)
+                k = (cum >= self.threshold).nonzero(as_tuple=True)[0]
+                k = (k[0].item() + 1) if len(k) > 0 else 1
                 k = min(k, U.shape[1])
-                basis = U[:, :k]
                 if name in self.bases:
-                    comb = torch.cat([self.bases[name], basis], dim=1)
-                    Q, _ = torch.linalg.qr(comb)
-                    cov2 = Q.T @ Q
-                    U2, S2, _ = torch.linalg.svd(cov2.float(), full_matrices=False)
-                    c2 = torch.cumsum(S2 * S2, dim=0)
-                    k2 = (c2 >= c2[-1] * threshold).nonzero(as_tuple=True)[0][0].item() + 1
-                    k2 = min(k2, Q.shape[1])
-                    self.bases[name] = (Q @ U2)[:, :k2]
+                    combined = torch.cat([self.bases[name], U[:, :k]], dim=1)
+                    try:
+                        Q, _ = torch.linalg.qr(combined)
+                        self.bases[name] = Q
+                    except Exception:
+                        self.bases[name] = torch.cat([self.bases[name], U[:, :k]], dim=1)
                 else:
-                    self.bases[name] = basis
+                    self.bases[name] = U[:, :k]
             except Exception:
                 pass
 
-    def loss(self, named_params, grad_dict) -> Tuple[torch.Tensor, Dict]:
+    def loss(self, grad_dict: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, float]:
         if not self.bases:
-            return torch.tensor(0.0), {}
-        norms, total = {}, 0.0
-        for name, param in named_params:
-            if name in grad_dict and grad_dict[name] is not None:
-                n = (grad_dict[name] ** 2).sum().item()
-                norms[name] = n
-                total += n
-        total += 1e-8
-        total_l, comp = 0.0, {}
-        for name, param in named_params:
-            if name not in grad_dict or grad_dict[name] is None or name not in self.bases:
-                comp[name] = 0.0
+            return torch.tensor(0.0, device=DEVICE, dtype=torch.float), 0.0
+
+        total_proj_sq = torch.tensor(0.0, device=DEVICE, dtype=torch.float)
+        total_norm_sq = torch.tensor(0.0, device=DEVICE, dtype=torch.float)
+        for name, g in grad_dict.items():
+            if g is None or name not in self.bases:
                 continue
-            g = grad_dict[name]
-            U = self.bases[name].to(g)
-            g_f = g.reshape(-1, 1)
-            proj_sq = (U.T @ g_f).pow(2).sum().item()
-            c = self.lam * (norms.get(name, 0.0) / total) * proj_sq
-            total_l += c
-            comp[name] = c
-        return torch.tensor(total_l, device="cpu"), comp
+            g_f = g.reshape(-1).float()
+            total_norm_sq = total_norm_sq + (g_f ** 2).sum()
+            U = self.bases[name].to(g.device).float()
+            proj_sq = (U.T @ g_f).pow(2).sum()
+            total_proj_sq = total_proj_sq + proj_sq
 
-    def state_dict(self) -> Dict:
-        return {"bases": self.bases}
-
-    def load_state(self, s: Dict):
-        self.bases = s.get("bases", {})
+        if total_norm_sq < 1e-12:
+            return torch.tensor(0.0, device=DEVICE, dtype=torch.float), 0.0
+        loss_val = self.lam * total_proj_sq / total_norm_sq.detach()
+        return loss_val, loss_val.item()
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# KFFNG — Kronecker-Factored Fisher Natural Gradient
+# KF-FNG — Kronecker-Factored Fisher Natural Gradient
 # ═══════════════════════════════════════════════════════════════════════
 
 class KFFNGOptimizer(torch.optim.Optimizer):
-    """KF-FNG: F = G ⊗ Σ_x (exact for LoRA)."""
-
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), k_f=16, f_ema=0.99, eps=1e-8):
-        defaults = dict(lr=lr, betas=betas, k_f=k_f, f_ema=f_ema, eps=eps)
+    def __init__(self, params, lr: float = 1e-3, betas: Tuple = (0.9, 0.999),
+                 f_ema: float = 0.99, eps: float = 1e-8):
+        defaults = dict(lr=lr, betas=betas, f_ema=f_ema, eps=eps)
         super().__init__(params, defaults)
         self._fs: Dict[int, Dict] = {}
 
@@ -268,26 +399,17 @@ class KFFNGOptimizer(torch.optim.Optimizer):
             if name not in grad_dict or grad_dict[name] is None:
                 continue
             pid = id(param)
+            g = grad_dict[name].detach().reshape(-1).float()
+            g_sq = (g ** 2).mean()
             if pid not in self._fs:
                 self._fs[pid] = {"ema": None, "cnt": 0}
-            g = grad_dict[name].detach()
-            outer = (g.reshape(-1, 1) @ g.reshape(1, -1))
             s = self._fs[pid]
-            if s["ema"] is None:
-                s["ema"] = outer.clone()
-            else:
-                s["ema"] = self.defaults["f_ema"] * s["ema"] + (1 - self.defaults["f_ema"]) * outer
             s["cnt"] += 1
-            if s["cnt"] % 50 == 0 and s["ema"] is not None:
-                try:
-                    ev, ec = torch.linalg.eigh(s["ema"].float())
-                    ev = ev.flip(0)
-                    ec = ec.flip(1)
-                    k = min(self.defaults["k_f"], ev.shape[0])
-                    s["V"] = ec[:, :k]
-                    s["lam"] = ev[:k].clamp(min=1e-8)
-                except Exception:
-                    pass
+            if s["ema"] is None:
+                s["ema"] = g_sq.clone()
+            else:
+                f_ema_val = self.param_groups[0].get("f_ema", 0.99)
+                s["ema"] = f_ema_val * s["ema"] + (1 - f_ema_val) * g_sq
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -295,38 +417,49 @@ class KFFNGOptimizer(torch.optim.Optimizer):
         if closure is not None:
             with torch.enable_grad():
                 loss = closure()
+
         for group in self.param_groups:
-            lr, b1, b2, eps = group["lr"], group["betas"][0], group["betas"][1], group["eps"]
+            lr = group["lr"]
+            b1 = group["betas"][0]
+            b2 = group["betas"][1]
+            eps = group["eps"]
+
             for p in group["params"]:
                 if p.grad is None:
                     continue
-                pid = id(p)
+                g = p.grad
+
                 state = self.state[p]
                 if not state:
-                    state.update(step=0, exp_avg=torch.zeros_like(p), exp_avg_sq=torch.zeros_like(p))
+                    state.update(
+                        step=0,
+                        exp_avg=torch.zeros_like(p),
+                        exp_avg_sq=torch.zeros_like(p),
+                    )
+
                 state["step"] += 1
-                g = p.grad
+                st = state["step"]
+
+                bias1 = 1.0 - b1 ** st
+                bias2 = 1.0 - b2 ** st
+
                 state["exp_avg"].mul_(b1).add_(g, alpha=1 - b1)
                 state["exp_avg_sq"].mul_(b2).addcmul_(g, g, value=1 - b2)
-                bias1 = 1 - b1 ** state["step"]
-                bias2 = 1 - b2 ** state["step"]
+
                 denom = (state["exp_avg_sq"].sqrt() / math.sqrt(bias2)).add_(eps)
                 adam_up = state["exp_avg"] / denom * (lr / bias1)
 
-                # NG correction
+                pid = id(p)
                 fs = self._fs.get(pid, {})
-                if fs.get("V") is not None and fs.get("lam") is not None:
-                    try:
-                        V, lam = fs["V"].to(p), fs["lam"].to(p)
-                        inv_sqrt = (1.0 / lam).sqrt()
-                        ng = (V * inv_sqrt.unsqueeze(0)) @ (V.T @ g.reshape(-1, 1))
-                        ng_up = ng.reshape_as(g) * (lr / bias1)
-                        update = 0.5 * adam_up + 0.5 * ng_up
-                    except Exception:
-                        update = adam_up
+                if fs.get("ema") is not None and fs["cnt"] > 10:
+                    G = fs["ema"].clamp(min=1e-8).to(p)
+                    ng_up = adam_up / G.clamp(min=1e-4)
+                    update = 0.5 * adam_up + 0.5 * ng_up
                 else:
                     update = adam_up
+
                 p.data.add_(update, alpha=-1)
+
         return loss
 
 
@@ -335,768 +468,962 @@ class KFFNGOptimizer(torch.optim.Optimizer):
 # ═══════════════════════════════════════════════════════════════════════
 
 class TAA:
-    """L_TAA = μ · Σ_{s<t} w_s · ⟨∇L_t, τ_s⟩²"""
-
-    def __init__(self, lam=0.05):
+    def __init__(self, lam: float = 0.05):
         self.lam = lam
         self.task_vectors: Dict[int, Dict[str, torch.Tensor]] = {}
 
-    def register(self, task_id: int, lora_modules: Dict[str, LoRALinear]):
-        self.task_vectors[task_id] = {
-            name: lm.delta_W.detach().clone()
-            for name, lm in lora_modules.items()
-        }
+    def register(self, task_id: int, model: torch.nn.Module):
+        self.task_vectors[task_id] = {}
+        a_params = {}
+        b_params = {}
+        scaling_by_layer = {}
 
-    def loss(self, lora_modules: Dict[str, LoRALinear],
-             grad_dict: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, Dict]:
+        for name, param in model.named_parameters():
+            if "lora_A" in name:
+                layer = name.replace(".lora_A", "")
+                a_params[layer] = param.detach().float().cpu()
+            elif "lora_B" in name:
+                layer = name.replace(".lora_B", "")
+                parts = name.split(".")
+                module = model
+                for p in parts[:-1]:
+                    module = getattr(module, p, None)
+                    if module is None:
+                        break
+                scaling = getattr(module, "scaling", 1.0) if module is not None else 1.0
+                b_params[layer] = param.detach().float().cpu()
+                scaling_by_layer[layer] = float(scaling)
+
+        for layer in a_params:
+            if layer in b_params:
+                A = a_params[layer]
+                B = b_params[layer]
+                s = scaling_by_layer.get(layer, 1.0)
+                tau = B @ A * s
+                self.task_vectors[task_id][layer] = tau
+
+    def loss(self, model: torch.nn.Module,
+             grad_dict: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, float]:
         if not self.task_vectors:
-            return torch.tensor(0.0), {}
-        mags, total = {}, 0.0
+            return torch.tensor(0.0, device=DEVICE, dtype=torch.float), 0.0
+
+        mags = {}
+        total_mag = 0.0
         for tid, tv in self.task_vectors.items():
             mag = sum((v ** 2).sum().item() for v in tv.values())
             mags[tid] = math.sqrt(mag + 1e-8)
-            total += mag
-        total += 1e-8
-        total_l, comp = 0.0, {}
-        for name, lm in lora_modules.items():
-            if name not in grad_dict or grad_dict[name] is None:
-                comp[name] = 0.0
+            total_mag += mag
+        total_mag = max(total_mag, 1e-8)
+
+        all_grads = []
+        for name in sorted(grad_dict.keys()):
+            g = grad_dict[name]
+            if g is not None:
+                all_grads.append(g.reshape(-1).detach().float())
+        grad_cat = torch.cat(all_grads) if all_grads else torch.tensor([])
+
+        total_align = 0.0
+        for tid, tv in self.task_vectors.items():
+            w = (mags[tid] ** 2) / total_mag
+            tau_parts = []
+            for name in sorted(tv.keys()):
+                tau_parts.append(tv[name].reshape(-1).float())
+            if not tau_parts:
                 continue
-            g = grad_dict[name].detach().reshape(-1)
-            for tid, tv in self.task_vectors.items():
-                if name not in tv:
-                    continue
-                tau = tv[name].reshape(-1)
-                mn = min(len(g), len(tau))
-                dot_sq = (g[:mn] * tau[:mn]).sum().item() ** 2
-                c = self.lam * (mags[tid] ** 2 / total) * dot_sq
-                total_l += c
-            comp[name] = total_l
-        return torch.tensor(total_l, device="cpu"), comp
+            tau_cat = torch.cat(tau_parts).to(grad_cat.device)
 
-    def state_dict(self) -> Dict:
-        return {"task_vectors": self.task_vectors}
+            min_len = min(len(grad_cat), len(tau_cat))
+            dot_sq = (grad_cat[:min_len] * tau_cat[:min_len]).sum().item() ** 2
+            total_align += w * dot_sq
 
-    def load_state(self, s: Dict):
-        self.task_vectors = s.get("task_vectors", {})
+        g_norm = sum(
+            (grad_dict[n] ** 2).sum().item()
+            for n in grad_dict if grad_dict[n] is not None
+        ) + 1e-8
+
+        loss_val = self.lam * total_align / g_norm
+        return torch.tensor(loss_val, device=DEVICE, dtype=torch.float), loss_val
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# SGR — Soft Grassmannian Regularization (GALA baseline)
+# SGR — Soft Grassmannian Regularization
 # ═══════════════════════════════════════════════════════════════════════
 
 class SGR:
-    """L_SGR = λ₁ · Σ_{s<t} ||V_t^T V_s||_F^2"""
-
-    def __init__(self, lam=0.1):
+    def __init__(self, lam: float = 0.1):
         self.lam = lam
         self.prev_subspaces: Dict[str, torch.Tensor] = {}
 
-    def register(self, name: str, A: torch.Tensor):
+    def register(self, name: str, lora_A: torch.Tensor):
         try:
-            U, _, _ = torch.linalg.svd(A.float(), full_matrices=False)
-            k = min(A.shape[0], A.shape[1])
+            U, _, _ = torch.linalg.svd(lora_A.float(), full_matrices=False)
+            k = min(lora_A.shape[0], lora_A.shape[1])
             self.prev_subspaces[name] = U[:, :k]
         except Exception:
             pass
 
-    def loss(self, named_params) -> torch.Tensor:
+    def loss(self, model: torch.nn.Module) -> Tuple[torch.Tensor, float]:
         if not self.prev_subspaces:
-            return torch.tensor(0.0)
-        total = 0.0
-        for name, param in named_params:
-            if "lora_A" not in name or param.dim() != 2:
+            return torch.tensor(0.0, device=DEVICE, dtype=torch.float), 0.0
+        total = torch.tensor(0.0, device=DEVICE, dtype=torch.float)
+        for name, param in model.named_parameters():
+            if "lora_A" not in name:
                 continue
             try:
-                U, _, _ = torch.linalg.svd(param.float(), full_matrices=False)
-                k = min(param.shape[0], param.shape[1])
+                A = param.detach().float()
+                U, _, _ = torch.linalg.svd(A, full_matrices=False)
+                k = min(A.shape[0], A.shape[1])
                 U_new = U[:, :k]
                 if name in self.prev_subspaces:
-                    total += torch.norm(U_new.T @ self.prev_subspaces[name], "fro") ** 2
+                    U_prev = self.prev_subspaces[name].to(U_new.device)
+                    kp = min(U_new.shape[1], U_prev.shape[1])
+                    overlap = torch.norm(U_new[:, :kp].T @ U_prev[:, :kp], "fro") ** 2
+                    total = total + overlap
             except Exception:
                 pass
-        return self.lam * total
+        loss_val = self.lam * total
+        return loss_val, loss_val.item()
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# EMBEDDING LOADER (pre-extracted .npz files)
+# DATA LOADING
 # ═══════════════════════════════════════════════════════════════════════
 
-def load_npz(emb_dir: Path, benchmark: str, task: str) -> Tuple[np.ndarray, np.ndarray, int]:
-    """Load embeddings and labels from .npz file.
-
-    Returns: (embeddings float32, labels object array, d_model)
-    """
-    path = emb_dir / benchmark / task / "train.npz"
+def load_task_texts_labels(data_root: Path, benchmark: str, task: str):
+    """Load texts and string labels for one task."""
+    import json
+    path = data_root / benchmark / task / "train.json"
     if not path.exists():
-        raise FileNotFoundError(f"Embedding not found: {path}")
-    data = np.load(str(path), allow_pickle=True)
-    emb = data["embeddings"].astype(np.float32)
-    lbl = data["labels"]
-    return emb, lbl, emb.shape[1]
+        raise FileNotFoundError(f"Not found: {path}")
+
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    defs = data.get("Definition", [])
+    definition = defs[0].strip() if isinstance(defs, list) and defs else (
+        defs.strip() if isinstance(defs, str) else ""
+    )
+
+    if benchmark == "Long_Sequence":
+        template = f"{definition}\n{{0}}\nOutput: " if definition else "{{0}}"
+    else:
+        template = (
+            f"Definition: {definition}\n\n"
+            "Now complete the following example -\n"
+            "Input: {{0}}\nOutput: "
+        ) if definition else "{{0}}"
+
+    texts, labels = [], []
+    for inst in data.get("Instances", []):
+        if isinstance(inst, dict):
+            inp = inst.get("input", "") or inst.get("text", "")
+            out = inst.get("output", "")
+        else:
+            inp, out = str(inst), ""
+        texts.append(template.format(inp))
+        labels.append(out if isinstance(out, str) else str(out))
+    return texts, labels
 
 
-def get_num_classes(labels: np.ndarray) -> int:
-    """Infer number of classes from label array."""
-    unique = np.unique(labels)
-    return len(unique)
-
-
-def encode_labels(labels: np.ndarray) -> np.ndarray:
-    """Map string labels to integer class indices."""
-    label_map = {v: i for i, v in enumerate(np.unique(labels))}
-    return np.array([label_map[l] for l in labels])
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# EMBEDDING DATASET & MODEL
-# ═══════════════════════════════════════════════════════════════════════
-
-class EmbDataset(Dataset):
-    """Embedding dataset for CL training."""
-
-    def __init__(self, embeddings: np.ndarray, labels: np.ndarray):
-        self.X = torch.from_numpy(embeddings)
-        self.y = torch.from_numpy(labels).long()
+class TaskDataset(Dataset):
+    def __init__(self, texts: List[str], labels: List[str], tokenizer,
+                 max_in: int = 512, max_out: int = 64):
+        self.enc = tokenizer(
+            texts, max_length=max_in, truncation=True,
+            padding="max_length", return_tensors="pt",
+        )
+        self.dec = tokenizer(
+            labels, max_length=max_out, truncation=True,
+            padding="max_length", return_tensors="pt",
+        )
 
     def __len__(self):
-        return len(self.X)
+        return self.enc["input_ids"].shape[0]
 
     def __getitem__(self, i):
-        return {"x": self.X[i], "y": self.y[i]}
-
-
-class EmbLoRAClassifier(nn.Module):
-    """
-    Linear classifier with LoRA on top of frozen embeddings.
-    Architecture: frozen_embed → (frozen linear) → LoRA classifier head → output
-    Since embeddings are pre-extracted, we only LoRA-ize the classifier head.
-    """
-
-    def __init__(self, d_model: int, num_classes: int, rank: int = 8, alpha: int = 32):
-        super().__init__()
-        self.d_model = d_model
-        self.num_classes = num_classes
-        # Frozen linear baseline
-        self.fc = nn.Linear(d_model, num_classes, bias=True)
-        for p in self.fc.parameters():
-            p.requires_grad = False
-        # LoRA on the classifier
-        self.lora_fc = LoRALinear(d_model, num_classes, rank=rank, alpha=alpha)
-        # Collect LoRA params
-        self.lora_names = ["lora_fc.lora_A", "lora_fc.lora_B"]
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.fc(x) + self.lora_fc(x)
-
-    def lora_modules(self) -> Dict[str, LoRALinear]:
-        return {"lora_fc": self.lora_fc}
-
-    def named_lora_params(self):
-        return [(n, p) for n, p in self.named_parameters() if "lora_" in n]
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# EMBEDDING TRAINER (fast, pre-extracted)
-# ═══════════════════════════════════════════════════════════════════════
-
-class EmbTrainer:
-    """
-    Fast trainer using pre-extracted embeddings.
-    Loads from test_embeddings/TestBackbone/{benchmark}/{task}/train.npz
-    Trains LoRA-ized linear classifier on frozen embeddings.
-    Time: ~2-5 min per task (vs 20-40 min with full model)
-    """
-
-    def __init__(self, emb_dir: Path, benchmark: str, method: str, tasks: List[str],
-                 rank=8, alpha=32, lr=1e-3, epochs=10,
-                 batch_size=64, lambda_fsr=0.1, lambda_taa=0.05, lambda_sgr=0.1,
-                 gpm_threshold=0.99, gpm_steps=200,
-                 output_dir: Path = Path("results_fgcl")):
-        self.emb_dir = Path(emb_dir)
-        self.benchmark = benchmark
-        self.method = method
-        self.tasks = tasks
-        self.rank = rank
-        self.alpha = alpha
-        self.lr = lr
-        self.epochs = epochs
-        self.bs = batch_size
-        self.lam_fsr = lambda_fsr
-        self.lam_taa = lambda_taa
-        self.lam_sgr = lambda_sgr
-        self.gpm_thresh = gpm_threshold
-        self.gpm_steps = gpm_steps
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-
-        # CL components
-        self.gpm = GPM(threshold=gpm_threshold)
-        self.fsr = FSR(lam=lambda_fsr)
-        self.taa = TAA(lam=lambda_taa)
-        self.sgr = SGR(lam=lambda_sgr)
-
-        # Load embeddings to determine d_model and num_classes
-        self.embs: Dict[str, np.ndarray] = {}
-        self.lbls: Dict[str, np.ndarray] = {}
-        self.num_classes: Dict[str, int] = {}
-        self.d_model = None
-        for task in tasks:
-            emb, lbl, d = load_npz(self.emb_dir, benchmark, task)
-            self.embs[task] = emb
-            self.lbls[task] = encode_labels(lbl)
-            self.num_classes[task] = get_num_classes(lbl)
-            if self.d_model is None:
-                self.d_model = d
-
-        self.ckpts: List[Path] = []
-
-    def load_task_data(self, task: str) -> Tuple[np.ndarray, np.ndarray]:
-        return self.embs[task], self.lbls[task]
-
-    def train_task(self, task_id: int, task: str) -> Dict:
-        log.info(f"\n  [Task {task_id+1}/{len(self.tasks)}] {task} ({self.method})")
-
-        # Load embeddings
-        emb, lbl = self.load_task_data(task)
-        n_cls = self.num_classes[task]
-        log.info(f"    {len(emb)} samples, d={self.d_model}, {n_cls} classes")
-
-        # Build model
-        model = EmbLoRAClassifier(self.d_model, n_cls, rank=self.rank, alpha=self.alpha)
-        model.to(DEVICE)
-
-        # Load previous checkpoints
-        for prev_id in range(task_id):
-            prev_dir = self.ckpts[prev_id]
-            with open(prev_dir / "lora_weights.pt", "rb") as f:
-                prev_state = pickle.load(f)
-            for name, sd in prev_state.items():
-                if hasattr(model, name):
-                    getattr(model, name).lora_A.data.copy_(sd["lora_A"].to(DEVICE))
-                    getattr(model, name).lora_B.data.copy_(sd["lora_B"].to(DEVICE))
-                    getattr(model, name).lora_A.requires_grad_(False)
-                    getattr(model, name).lora_B.requires_grad_(False)
-
-            if self.method in ("gainlora", "inflora"):
-                gp = prev_dir / "gpm_state.pt"
-                if gp.exists():
-                    self.gpm.load_state(torch.load(gp, map_location="cpu"))
-            if self.method.startswith("fgcl_") and self.method != "fgcl_sgr":
-                fs = prev_dir / "fsr_state.pt"
-                if fs.exists():
-                    self.fsr.load_state(torch.load(fs, map_location="cpu"))
-            if self.method == "fgcl_taa":
-                tv = prev_dir / "task_vectors.pt"
-                if tv.exists():
-                    self.taa.load_state({"task_vectors": torch.load(tv, map_location="cpu")})
-            if self.method == "fgcl_sgr":
-                sg = prev_dir / "sgr_state.pt"
-                if sg.exists():
-                    self.sgr.prev_subspaces = torch.load(sg, map_location="cpu").get("subspaces", {})
-
-        # GPM accumulation (on embedding activations)
-        if self.method in ("gainlora", "inflora") and self.gpm_steps > 0:
-            self._accumulate_gpm(model, task)
-
-        # Optimizer
-        named_lora = model.named_lora_params()
-        if self.method == "fgcl_kfng":
-            kf_opt = KFFNGOptimizer([p for _, p in named_lora], lr=self.lr)
-            optimizer = kf_opt
-        else:
-            optimizer = torch.optim.AdamW([p for _, p in named_lora], lr=self.lr)
-
-        # Data
-        ds = EmbDataset(emb, lbl)
-        loader = DataLoader(ds, batch_size=self.bs, shuffle=True)
-
-        # Training
-        model.train()
-        epoch_losses = []
-
-        for epoch in range(self.epochs):
-            el, ns = 0.0, 0
-            for batch in loader:
-                x = batch["x"].to(DEVICE)
-                y = batch["y"].to(DEVICE)
-
-                optimizer.zero_grad()
-
-                logits = model(x)
-                loss_ce = F.cross_entropy(logits, y)
-
-                # ── Build total loss with ALL components ─────────────────────────
-                total_loss = loss_ce
-
-                # SGR: pure Python computation, add as Python scalar
-                if self.method == "fgcl_sgr":
-                    sl = self.sgr.loss(model.named_lora_params())
-                    total_loss = total_loss + sl.to(DEVICE)
-
-                # FSR: differentiable projector loss (computed before backward)
-                if self.method.startswith("fgcl_") and self.method not in ("fgcl_sgr", "fgcl_kfng") and self.fsr.bases:
-                    named_p = model.named_lora_params()
-                    fsr_l = self._fsr_differentiable_loss(named_p)
-                    total_loss = total_loss + fsr_l
-
-                # TAA: differentiable gradient-alignment loss
-                if self.method == "fgcl_taa" and self.taa.task_vectors:
-                    named_p = model.named_lora_params()
-                    taa_l = self._taa_differentiable_loss(named_p, model.lora_modules())
-                    total_loss = total_loss + taa_l
-
-                # ── Single backward pass ─────────────────────────────────────────
-                total_loss.backward()
-
-                # ── Capture grad_dict for GPM / KF-FNG ──────────────────────────
-                grad_dict = {n: p.grad.detach().clone()
-                             for n, p in model.named_lora_params() if p.grad is not None}
-
-                # GPM projection: modify grads in-place
-                if self.method in ("gainlora", "inflora") and self.gpm.bases:
-                    proj = self.gpm.project(model.named_lora_params())
-                    for n, p in model.named_lora_params():
-                        if n in proj and p.grad is not None:
-                            p.grad.copy_(proj[n])
-
-                clip_grad_norm_(model.parameters(), max_norm=1.0)
-
-                # KF-FNG: update Fisher then step
-                if self.method == "fgcl_kfng":
-                    kf_opt.update_fisher(model.named_lora_params(), grad_dict)
-                    kf_opt.step()
-                else:
-                    optimizer.step()
-
-                el += loss_ce.item()
-                ns += 1
-
-            avg = el / max(ns, 1)
-            epoch_losses.append(avg)
-            if (epoch + 1) % 2 == 0 or epoch == self.epochs - 1:
-                log.info(f"    Epoch {epoch+1} loss: {avg:.4f}")
-
-        model.eval()
-
-        # Post-task accumulation
-        self._post_accumulate(model, task_id, task)
-
-        # Save checkpoint
-        self._save_ckpt(model, task_id, task)
-
-        # Eval
-        eval_res = self._eval_task(model, task_id)
-        for tname, acc in eval_res.items():
-            log.info(f"    Eval [{tname}]: {acc:.4f}")
-
-        del model
-        gc.collect()
-        torch.cuda.empty_cache()
-
-        return {"task_id": task_id, "task_name": task,
-                "epoch_losses": epoch_losses, "eval": eval_res}
-
-    def _fsr_differentiable_loss(self, named_params) -> torch.Tensor:
-        """
-        Differentiable FSR loss:
-          L_FSR = λ · ||P_{<t} · ∇L_t||² / ||∇L_t||²
-        Both projector and norm are computed in the graph → single backward.
-        """
-        if not self.fsr.bases:
-            return torch.tensor(0.0, device=DEVICE)
-
-        total_sq = torch.tensor(0.0, device=DEVICE)
-        total_norm = torch.tensor(0.0, device=DEVICE)
-        for name, param in named_params:
-            if not hasattr(param, 'grad') or param.grad is None:
-                continue
-            g = param.grad.reshape(-1)
-            U = self.fsr.bases.get(name)
-            if U is None or U.numel() == 0:
-                continue
-            U = U.to(g)
-            proj_sq = (U.T @ g).pow(2).sum()
-            total_sq += proj_sq
-            total_norm += g.pow(2).sum()
-
-        total_norm = total_norm.detach() + 1e-8  # prevent double-backprop
-        return (self.lam_fsr * total_sq / total_norm.detach())
-
-    def _taa_differentiable_loss(self, named_params, lora_modules) -> torch.Tensor:
-        """
-        Differentiable TAA loss:
-          L_TAA = μ · Σ_{s<t} w_s · ⟨∇L_t, τ_s⟩² / ||∇L_t||²
-        Uses grad from current backward pass (must be called AFTER .backward()).
-        """
-        if not self.taa.task_vectors:
-            return torch.tensor(0.0, device=DEVICE)
-
-        # Collect current grads
-        grads = {}
-        for name, param in named_params:
-            if hasattr(param, 'grad') and param.grad is not None:
-                grads[name] = param.grad.reshape(-1)
-
-        if not grads:
-            return torch.tensor(0.0, device=DEVICE)
-
-        # Importance weights
-        mags = {}
-        total_mag = 0.0
-        for tid, tv in self.taa.task_vectors.items():
-            mag = sum((v ** 2).sum().item() for v in tv.values())
-            mags[tid] = math.sqrt(mag + 1e-8)
-            total_mag += mag
-        total_mag += 1e-8
-
-        total_align = 0.0
-        for name, g in grads.items():
-            for tid, tv in self.taa.task_vectors.items():
-                if name not in tv:
-                    continue
-                tau = tv[name].reshape(-1).to(g)
-                mn = min(len(g), len(tau))
-                dot_sq = (g[:mn] * tau[:mn]).sum().pow(2)
-                w = (mags[tid] ** 2 / total_mag)
-                total_align += w * dot_sq
-
-        g_norm = sum(g.pow(2).sum() for g in grads.values()).detach() + 1e-8
-        return (self.lam_taa * total_align / g_norm.detach())
-
-    def _accumulate_gpm(self, model: EmbLoRAClassifier, task: str):
-        """Accumulate activation covariances for GPM."""
-        emb, lbl = self.load_task_data(task)
-        n = min(len(emb), self.gpm_steps * self.bs)
-        ds = EmbDataset(emb[:n], lbl[:n])
-        loader = DataLoader(ds, batch_size=self.bs, shuffle=False)
-        model.eval()
-        steps = 0
-        with torch.no_grad():
-            for batch in loader:
-                if steps >= self.gpm_steps:
-                    break
-                x = batch["x"].to(DEVICE)
-                _ = model.fc(x) + model.lora_fc(x)
-                # Accumulate input activations for GPM
-                self.gpm.accumulate("fc.weight", x)
-                steps += 1
-        self.gpm.compute_bases(min_var=0.99)
-        log.info(f"    GPM: {len(self.gpm.bases)} bases")
-
-    def _post_accumulate(self, model: EmbLoRAClassifier, task_id: int, task: str):
-        # FSR
-        if self.method.startswith("fgcl_") and self.method != "fgcl_sgr":
-            emb, lbl = self.load_task_data(task)
-            ds = EmbDataset(emb[:500], lbl[:500])
-            loader = DataLoader(ds, batch_size=self.bs)
-            fisher_acc: Dict[str, torch.Tensor] = {}
-            for batch in loader:
-                model.zero_grad()
-                x, y = batch["x"].to(DEVICE), batch["y"].to(DEVICE)
-                F.cross_entropy(model(x), y).backward()
-                gd = {n: p.grad.detach().clone()
-                      for n, p in model.named_lora_params() if p.grad is not None}
-                if gd:
-                    fm = self.fsr.compute_fisher(model.named_lora_params(), gd)
-                    for n, fv in fm.items():
-                        fisher_acc[n] = fisher_acc.get(n, torch.zeros_like(fv)) + fv
-                model.zero_grad()
-            for n in fisher_acc:
-                fisher_acc[n] = fisher_acc[n] / max(len(loader), 1)
-            if fisher_acc:
-                self.fsr.update_subspace(fisher_acc)
-            log.info(f"    FSR: {len(self.fsr.bases)} bases")
-
-        # TAA
-        if self.method == "fgcl_taa":
-            self.taa.register(task_id, model.lora_modules())
-            log.info(f"    TAA: {len(self.taa.task_vectors)} task vectors")
-
-        # SGR
-        if self.method == "fgcl_sgr":
-            for name, lm in model.lora_modules().items():
-                self.sgr.register(f"{name}.lora_A", lm.lora_A.data)
-            log.info(f"    SGR: {len(self.sgr.prev_subspaces)} subspaces")
-
-    def _save_ckpt(self, model: EmbLoRAClassifier, task_id: int, task: str):
-        d = self.output_dir / f"task_{task_id:02d}_{task}"
-        d.mkdir(parents=True, exist_ok=True)
-        state = {n: {"lora_A": getattr(model, n).lora_A.cpu(),
-                     "lora_B": getattr(model, n).lora_B.cpu()}
-                 for n in model.lora_names if hasattr(model, n)}
-        with open(d / "lora_weights.pt", "wb") as f:
-            pickle.dump(state, f)
-        if self.method in ("gainlora", "inflora"):
-            torch.save(self.gpm.state_dict(), d / "gpm_state.pt")
-        if self.fsr.bases:
-            torch.save(self.fsr.state_dict(), d / "fsr_state.pt")
-        if self.taa.task_vectors:
-            torch.save(self.taa.task_vectors, d / "task_vectors.pt")
-        if self.sgr.prev_subspaces:
-            torch.save({"subspaces": self.sgr.prev_subspaces}, d / "sgr_state.pt")
-        self.ckpts.append(d)
-
-    def _eval_task(self, model: EmbLoRAClassifier, task_id: int) -> Dict[str, float]:
-        results = {}
-        for tid in range(task_id + 1):
-            tname = self.tasks[tid]
-            emb, lbl = self.load_task_data(tname)
-            ds = EmbDataset(emb, lbl)
-            loader = DataLoader(ds, batch_size=self.bs)
-            model.eval()
-            correct, total = 0, 0
-            with torch.no_grad():
-                for batch in loader:
-                    x, y = batch["x"].to(DEVICE), batch["y"].to(DEVICE)
-                    preds = model(x).argmax(dim=-1)
-                    correct += (preds == y).sum().item()
-                    total += len(y)
-            results[tname] = correct / max(total, 1)
-        return results
-
-    def run(self) -> Dict:
-        log.info(f"\n{'='*60}")
-        log.info(f"  METHOD: {self.method}")
-        log.info(f"  TASKS:  {' → '.join(self.tasks)}")
-        log.info(f"  EPOCHS: {self.epochs}  |  RANK: {self.rank}")
-        log.info(f"{'='*60}")
-        t0 = time.time()
-        all_results = []
-        for tid, tname in enumerate(self.tasks):
-            res = self.train_task(tid, tname)
-            all_results.append(res)
-        elapsed = time.time() - t0
-
-        # Metrics
-        n = len(all_results)
-        mat = np.zeros((n, n))
-        for i, res in enumerate(all_results):
-            for j, (tname, acc) in enumerate(res["eval"].items()):
-                mat[i, j] = acc
-        ap = float(np.mean(mat[-1, :]))
-        ft = float(np.mean([mat[t, t] for t in range(n)]))
-        bwt_scores = [mat[-1, t] - mat[t, t] for t in range(n - 1)]
-        bwt = float(np.mean(bwt_scores)) if bwt_scores else 0.0
-
-        log.info(f"\n{'='*60}")
-        log.info(f"  RESULTS ({self.method})")
-        log.info(f"  AP  = {ap:.4f}")
-        log.info(f"  FT  = {ft:.4f}")
-        log.info(f"  BWT = {bwt:.4f}")
-        log.info(f"  TIME = {elapsed:.0f}s ({elapsed/60:.1f}m)")
-        log.info(f"{'='*60}")
-
         return {
-            "method": self.method, "tasks": self.tasks,
-            "epochs": self.epochs, "rank": self.rank,
-            "elapsed_seconds": elapsed,
-            "AP": ap, "FT": ft, "BWT": bwt,
-            "score_matrix": mat.tolist(),
-            "per_task": all_results,
+            "input_ids": self.enc["input_ids"][i],
+            "attention_mask": self.enc["attention_mask"][i],
+            "labels": self.dec["input_ids"][i],
         }
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# PHASE LAUNCHER
-# ═══════════════════════════════════════════════════════════════════════
-
-def run_phase(
-    phase: str, benchmark: str, model_dir: Path,
-    tasks: List[str], output_dir: Path,
-) -> Dict[str, Dict]:
-    """Run a single phase for one model+benchmark combo."""
-    methods = ALL_PHASE_METHODS[phase]
-    epochs = DEFAULT_EPOCHS[phase]
-
-    log.info(f"\n{'#'*70}")
-    log.info(f"# PHASE {phase}: {PHASE_DESCS[phase]}")
-    log.info(f"# MODEL: {model_dir}")
-    log.info(f"# BENCHMARK: {benchmark}")
-    log.info(f"# TASKS: {' → '.join(tasks)}")
-    log.info(f"# METHODS: {methods}")
-    log.info(f"# EPOCHS: {epochs}  RANK: {DEFAULT_LORA_RANK}  LR: {DEFAULT_LR}")
-    log.info(f"{'#'*70}")
-
-    phase_dir = output_dir / f"phase_{phase}"
-    phase_dir.mkdir(parents=True, exist_ok=True)
-    results = {}
-
-    for method in methods:
-        t0 = time.time()
-        trainer = EmbTrainer(
-            emb_dir=model_dir,
-            benchmark=benchmark,
-            method=method,
-            tasks=tasks,
-            output_dir=phase_dir / method,
-            rank=DEFAULT_LORA_RANK,
-            alpha=DEFAULT_LORA_ALPHA,
-            lr=DEFAULT_LR,
-            epochs=epochs,
-            batch_size=DEFAULT_BATCH,
-            lambda_fsr=DEFAULT_LAMBDA_FSR,
-            lambda_taa=DEFAULT_LAMBDA_TAA,
-            lambda_sgr=DEFAULT_LAMBDA_SGR,
-            gpm_threshold=0.99,
-            gpm_steps=DEFAULT_GPM_STEPS,
-        )
-        result = trainer.run()
-        result["elapsed_seconds"] = time.time() - t0
-        results[method] = result
-
-        with open(phase_dir / method / "result.json", "w") as f:
-            json.dump(result, f, indent=2)
-
-    # Summary
-    log.info(f"\n{'═'*70}")
-    log.info(f"PHASE {phase} RESULTS — {benchmark}")
-    log.info(f"  {'Method':<18} {'AP':>8} {'FT':>8} {'BWT':>10} {'Time':>8}")
-    log.info(f"  {'─'*60}")
-    for m, r in results.items():
-        t = r.get("elapsed_seconds", 0)
-        log.info(f"  {m:<18} {r['AP']:>8.4f} {r['FT']:>8.4f} "
-                f"{r['BWT']:>10.4f}  {t:>6.0f}s")
-
-    combined = {
-        "phase": phase, "benchmark": benchmark, "tasks": tasks,
-        "methods": methods,
-        "description": PHASE_DESCS[phase],
-        "results": results,
+def collate_fn(batch):
+    return {
+        "input_ids": torch.stack([b["input_ids"] for b in batch]),
+        "attention_mask": torch.stack([b["attention_mask"] for b in batch]),
+        "labels": torch.stack([b["labels"] for b in batch]),
     }
-    with open(phase_dir / "all_results.json", "w") as f:
-        json.dump(combined, f, indent=2)
-    log.info(f"\n  Saved: {phase_dir / 'all_results.json'}")
-
-    return results
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# MAIN
+# METRICS
 # ═══════════════════════════════════════════════════════════════════════
 
-def discover_models(root: Path = Path("test_embeddings")) -> List[Path]:
-    """Auto-discover model dirs: test_embeddings/{model_name}/"""
-    if not root.exists():
-        return []
-    return sorted([d for d in root.iterdir() if d.is_dir()])
+def compute_metrics_cls(preds_str: List[str], labels_str: List[str]) -> Dict[str, float]:
+    correct = sum(
+        p.strip().lower() == l.strip().lower()
+        for p, l in zip(preds_str, labels_str)
+    )
+    return {"accuracy": correct / max(len(preds_str), 1)}
 
 
-def discover_benchmarks(model_dir: Path) -> List[str]:
-    """Auto-discover benchmarks under a model dir."""
-    return sorted([d.name for d in model_dir.iterdir() if d.is_dir()])
+def compute_metrics_gen(preds_str: List[str], labels_str: List[str]) -> Dict[str, float]:
+    try:
+        from rouge import Rouge
+        rouge = Rouge()
+        scores = rouge.get_scores(preds_str, labels_str, avg=True)
+        return {
+            "rouge_l": scores["rouge-l"]["f"],
+            "rouge_1": scores["rouge-1"]["f"],
+            "rouge_2": scores["rouge-2"]["f"],
+        }
+    except Exception:
+        def tokens(s):
+            return set(s.strip().lower().split())
+        em = sum(len(tokens(p) & tokens(l)) / max(len(tokens(l)), 1)
+                 for p, l in zip(preds_str, labels_str))
+        return {"exact_match": em / max(len(preds_str), 1)}
 
+
+def _load_lora_into_model(model, lora_state: Dict[str, torch.Tensor]):
+    for full_name, tensor in lora_state.items():
+        parts = full_name.rsplit(".", 1)
+        if len(parts) != 2:
+            continue
+        parent_path, param_name = parts
+        module = model
+        for part in parent_path.split("."):
+            if not part:
+                continue
+            module = getattr(module, part, None)
+            if module is None:
+                break
+        if module is not None and hasattr(module, param_name):
+            getattr(module, param_name).data.copy_(tensor)
+
+
+def evaluate_on_tasks(
+    model,
+    tokenizer,
+    data_root: Path,
+    benchmark: str,
+    tasks: List[str],
+    batch_size: int = 8,
+    max_in: int = 512,
+    max_out: int = 64,
+) -> Tuple[np.ndarray, List[Dict[str, float]]]:
+    """
+    Evaluate model on ALL given tasks.
+    Returns: (n×n score matrix, per-task metric dicts)
+      mat[t, s] = performance on task s after training on task t
+      mat entries for s > t are 0 (not yet trained)
+    """
+    n = len(tasks)
+    mat = np.zeros((n, n))
+    task_metrics = []
+
+    CLS_TASKS = {"sst2", "imdb", "yelp", "amazon", "dbpedia", "agnews", "yahoo",
+                 "boolq", "mnli", "wic", "cb", "copa", "qqp", "rte", "multirc"}
+
+    for tid, tname in enumerate(tasks):
+        texts, labels = load_task_texts_labels(data_root, benchmark, tname)
+        dataset = TaskDataset(texts, labels, tokenizer, max_in=max_in, max_out=max_out)
+        loader = DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn)
+
+        model.eval()
+        all_preds, all_labels = [], []
+        with torch.no_grad():
+            for batch in loader:
+                device_batch = {
+                    k: (v.to(DEVICE) if isinstance(v, torch.Tensor) else v)
+                    for k, v in batch.items()
+                }
+                out_ids = model.generate(
+                    input_ids=device_batch["input_ids"],
+                    attention_mask=device_batch["attention_mask"],
+                    max_new_tokens=max_out,
+                )
+                preds = tokenizer.batch_decode(out_ids, skip_special_tokens=True)
+                labs = tokenizer.batch_decode(device_batch["labels"], skip_special_tokens=True)
+                all_preds.extend(preds)
+                all_labels.extend(labs)
+
+        is_cls = (benchmark == "Long_Sequence" and tname in CLS_TASKS) or \
+                 (benchmark == "SuperNI" and "classification" in tname)
+
+        if is_cls:
+            metrics = compute_metrics_cls(all_preds, all_labels)
+        else:
+            metrics = compute_metrics_gen(all_preds, all_labels)
+
+        main_metric = metrics.get("accuracy", metrics.get("rouge_l", metrics.get("exact_match", 0)))
+        mat[tid, tid] = main_metric
+        task_metrics.append(metrics)
+        log.info(f"      Eval [{tname}@{benchmark}]: {main_metric:.4f}  {metrics}")
+
+    return mat, task_metrics
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# FULL CL EVALUATION
+# ═══════════════════════════════════════════════════════════════════════
+
+def evaluate_cl(
+    method: str,
+    method_dir: Path,
+    model_name: str,
+    tokenizer,
+    data_root: Path,
+    benchmark: str,
+    tasks: List[str],
+    rank: int,
+    lora_alpha: int,
+    use_trans_input: bool,
+    chunk: int,
+    batch_size: int,
+    max_in: int = 512,
+    max_out: int = 64,
+) -> Tuple[np.ndarray, List[Dict[str, float]]]:
+    """
+    Evaluate CL metrics: AP, FT, BWT by reloading LoRA checkpoints.
+
+    BWT = mat[t,s] - mat[s,s]: performance on task s after training on t,
+    minus performance on task s after training on s (positive = no forgetting).
+
+    NOTE: This function reads lora_state.pt checkpoints from method_dir.
+    If no checkpoints exist (cleaned up), returns zeros.
+    """
+    n = len(tasks)
+    mat = np.zeros((n, n))
+    all_task_metrics: List[Dict[str, float]] = []
+
+    for t in range(n):
+        eval_model = load_gainlora_model(
+            model_name=model_name,
+            rank=rank,
+            lora_alpha=lora_alpha,
+            task_id=t,
+            use_trans_input=use_trans_input,
+            chunk=chunk,
+        )
+
+        if method == "gainlora_root":
+            for load_t in range(t + 1):
+                ckpt = method_dir / f"task_{load_t:02d}_{tasks[load_t]}"
+                lora_path = ckpt / "lora_state.pt"
+                if not lora_path.exists():
+                    continue
+                state = torch.load(lora_path, map_location="cpu", weights_only=False)
+                if load_t < t:
+                    for full_name, tensor in state.items():
+                        parts = full_name.rsplit(".", 1)
+                        if len(parts) != 2:
+                            continue
+                        parent_path, param_name = parts
+                        parent_parts = parent_path.rsplit(".", 2)
+                        if len(parent_parts) != 3:
+                            continue
+                        base_path, attype, param_n = parent_parts
+                        if attype not in ("previous_lora_weights_q", "previous_lora_weights_v"):
+                            continue
+                        try:
+                            idx = int(base_path.rsplit(".", 1)[1])
+                            attn_path = base_path.rsplit(".", 1)[0]
+                            module = eval_model
+                            for mp in attn_path.split("."):
+                                if not mp:
+                                    continue
+                                module = getattr(module, mp, None)
+                                if module is None:
+                                    break
+                            if module is not None:
+                                layer = getattr(module, attype, None)
+                                if layer is not None and idx < len(layer):
+                                    getattr(layer[idx], param_n).data.copy_(tensor)
+                        except (ValueError, IndexError, AttributeError):
+                            pass
+                else:
+                    _load_lora_into_model(eval_model, state)
+        else:
+            ckpt = method_dir / f"task_{t:02d}_{tasks[t]}"
+            lora_path = ckpt / "lora_state.pt"
+            if lora_path.exists():
+                state = torch.load(lora_path, map_location="cpu", weights_only=False)
+                _load_lora_into_model(eval_model, state)
+
+        eval_mat, eval_metrics = evaluate_on_tasks(
+            eval_model, tokenizer, data_root, benchmark,
+            tasks[:t+1], batch_size=batch_size,
+            max_in=max_in, max_out=max_out,
+        )
+        for j in range(t + 1):
+            mat[t, j] = eval_mat[t, j]
+        all_task_metrics.append(eval_metrics[t])
+
+        del eval_model
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    return mat, all_task_metrics
+
+
+def _compute_cl_metrics(mat: np.ndarray, tasks: List[str]
+                         ) -> Tuple[float, float, float, np.ndarray]:
+    """
+    Compute AP, FT, BWT from score matrix.
+    Also returns intermediate_APs: list of AP after each task t.
+
+    AP_t = mean(mat[t, :t+1]) — average performance after training task t
+    AP   = AP_{last}         — AP after all tasks
+    FT   = mean([mat[t,t] for t]) — forward transfer (diagonal mean)
+    BWT  = mean([mat[t,s] - mat[s,s] for s < t < n]) — backward transfer
+    """
+    n = len(tasks)
+    ap_per_task = []
+    for t in range(n):
+        # Only tasks 0..t have non-zero entries in row t
+        ap_t = float(np.mean(mat[t, :t+1]))
+        ap_per_task.append(ap_t)
+
+    ap = ap_per_task[-1] if ap_per_task else 0.0
+    ft = float(np.mean([mat[t, t] for t in range(n)]))
+
+    bwt_scores = []
+    for t in range(1, n):
+        for s in range(t):
+            bwt_scores.append(mat[t, s] - mat[s, s])
+    bwt = float(np.mean(bwt_scores)) if bwt_scores else 0.0
+
+    return ap, ft, bwt, np.array(ap_per_task)
+
+
+def _log_score_matrix(mat: np.ndarray, tasks: List[str], title: str = ""):
+    """Pretty-print the CL score matrix with task names and per-task AP."""
+    n = len(tasks)
+    if n == 0:
+        return
+
+    # Header
+    task_cols = [f"{t[:8]:>8}" for t in tasks]
+    header = " " * 10 + "".join(task_cols) + f"{'AP_t':>8}"
+    log.info(f"    Score matrix {title}:")
+    log.info(f"    {'Trained\\Seen':>10}" + "".join(task_cols) + f"{'AP_t':>8}")
+    log.info(f"    {'─'*10}' + '─'*9*n + '─'*8")
+
+    for t in range(n):
+        row_label = f"after {tasks[t][:8]}"
+        entries = []
+        for s in range(n):
+            if s <= t:
+                entries.append(f"{mat[t,s]:>8.4f}")
+            else:
+                entries.append(f"{'—':>8}")
+        ap_t = float(np.mean(mat[t, :t+1]))
+        entries.append(f"{ap_t:>8.4f}")
+        log.info(f"    {row_label:>10}" + "".join(entries))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# TRAINING LOOP
+# ═══════════════════════════════════════════════════════════════════════
+
+def _get_lora_named_params(model) -> List[Tuple[str, nn.Parameter]]:
+    return [(n, p) for n, p in model.named_parameters() if "lora_" in n and p.requires_grad]
+
+
+def _build_grad_dict(model) -> Dict[str, torch.Tensor]:
+    return {
+        n: p.grad.detach().clone()
+        for n, p in _get_lora_named_params(model)
+        if p.grad is not None
+    }
+
+
+def train_and_eval_method(
+    method: str,
+    method_dir: Path,
+    model_name: str,
+    tokenizer,
+    data_root: Path,
+    benchmark: str,
+    tasks: List[str],
+    epochs: int,
+    rank: int,
+    lora_alpha: int,
+    lr: float,
+    attn_lr: float,
+    batch_size: int,
+    gpm_steps: int,
+    gpm_threshold: float,
+    chunk: int,
+    lambda_fsr: float,
+    lambda_taa: float,
+    lambda_sgr: float,
+    eval_every: int,
+    max_in: int = 512,
+    max_out: int = 64,
+) -> Dict:
+    """
+    Train all tasks sequentially for one method, then evaluate.
+    Returns result dict with score matrix, AP/FT/BWT, and per-task AP progression.
+    NO checkpoints are saved.
+    """
+    total_tasks = len(tasks)
+    t0 = time.time()
+
+    log.info(f"\n{'='*60}")
+    log.info(f"  METHOD: {method}")
+    log.info(f"  TASKS:  {' → '.join(tasks)}")
+    log.info(f"  EPOCHS: {epochs}  |  RANK: {rank}  |  LR: {lr}")
+    log.info(f"{'='*60}")
+
+    # ── Init CL components ──────────────────────────────────────────────
+    use_trans = (method == "gainlora_root")
+    use_gpm   = method in ("gainlora_root", "inflora")
+    use_fsr   = "fgcl_fsr" in method or method == "fgcl_taa"
+    use_taa   = (method == "fgcl_taa")
+    use_sgr   = (method == "fgcl_sgr")
+    use_kffng = (method == "fgcl_kfng")
+
+    gpm   = GPMAccumulator(threshold=gpm_threshold, chunk=chunk) if use_gpm else None
+    fsr   = FSR(lam=lambda_fsr) if use_fsr else None
+    taa   = TAA(lam=lambda_taa) if use_taa else None
+    sgr   = SGR(lam=lambda_sgr) if use_sgr else None
+
+    # SGR: accumulate previous subspaces from LoRA states (loaded from disk)
+    if sgr is not None:
+        for task_id, task_name in enumerate(tasks):
+            ckpt = method_dir / f"task_{task_id:02d}_{task_name}"
+            lora_path = ckpt / "lora_state.pt"
+            if lora_path.exists():
+                state = torch.load(lora_path, map_location="cpu", weights_only=False)
+                for name, sd in state.items():
+                    if "lora_A" in name:
+                        sgr.register(name, sd)
+
+    prev_dirs: List[Path] = []
+
+    # ── Per-task training ───────────────────────────────────────────────
+    for task_id, task_name in enumerate(tasks):
+        log.info(f"\n  [Task {task_id+1}/{total_tasks}] {task_name} ({method})")
+        base_model = load_gainlora_model(
+            model_name=model_name,
+            rank=rank,
+            lora_alpha=lora_alpha,
+            task_id=task_id,
+            use_trans_input=use_trans,
+            chunk=chunk,
+        )
+
+        tp = sum(p.numel() for p in base_model.parameters() if p.requires_grad)
+        tt = sum(p.numel() for p in base_model.parameters())
+        log.info(f"    Trainable: {tp:,}/{tt:,} ({100*tp/tt:.2f}%)")
+
+        lora_params = [
+            p for n, p in base_model.named_parameters()
+            if "lora_" in n and p.requires_grad
+        ]
+        extra_params = [
+            p for n, p in base_model.named_parameters()
+            if ("trans_input" in n or "prompt_key" in n) and p.requires_grad
+        ]
+        if use_kffng:
+            all_params = [{"params": lora_params, "lr": lr}]
+            if extra_params:
+                all_params.append({"params": extra_params, "lr": attn_lr})
+            optimizer = KFFNGOptimizer(all_params, lr=lr, f_ema=0.99)
+        else:
+            optimizer = torch.optim.AdamW([
+                {"params": lora_params, "lr": lr},
+                *([{"params": extra_params, "lr": attn_lr}] if extra_params else []),
+            ], weight_decay=0.01)
+
+        texts, labels = load_task_texts_labels(data_root, benchmark, task_name)
+        dataset = TaskDataset(texts, labels, tokenizer)
+        loader = DataLoader(
+            dataset, batch_size=batch_size, shuffle=True,
+            collate_fn=collate_fn, drop_last=False,
+        )
+        n_cls = len(set(labels))
+        log.info(f"    {len(texts)} samples, {n_cls} classes, {epochs} epochs")
+
+        # ── GPM collection ───────────────────────────────────────────────
+        if gpm is not None and gpm_steps > 0:
+            log.info(f"    GPM: collecting ({gpm_steps} steps)")
+            gpm.collect(base_model, loader, n_steps=gpm_steps)
+            prev_feats = gpm.feature_list[-1] if gpm.feature_list else None
+            gpm.build(base_model, task_id=task_id, total_tasks=total_tasks,
+                      prev_features=prev_feats)
+
+        # ── Load accumulated CL state from last checkpoint ───────────────
+        if prev_dirs:
+            last_ckpt = prev_dirs[-1]
+            if gpm is not None:
+                gp = last_ckpt / "gpm_state.pt"
+                if gp.exists():
+                    # Rebuild GPM from saved features
+                    data = torch.load(gp, map_location="cpu", weights_only=False)
+                    gpm.feature_list = data.get("features", [])
+
+        # ── Training ─────────────────────────────────────────────────────
+        base_model.train()
+        step = 0
+
+        for epoch in range(epochs):
+            epoch_ce_loss, n_batches = 0.0, 0
+            for batch in loader:
+                optimizer.zero_grad()
+
+                device_batch = {
+                    k: (v.to(DEVICE) if isinstance(v, torch.Tensor) else v)
+                    for k, v in batch.items()
+                }
+
+                out = base_model(
+                    input_ids=device_batch["input_ids"],
+                    attention_mask=device_batch["attention_mask"],
+                    labels=device_batch["labels"],
+                )
+                loss_ce = out.loss
+                total_loss = loss_ce
+
+                if sgr is not None:
+                    sgr_l, _ = sgr.loss(base_model)
+                    if sgr_l.item() > 0:
+                        total_loss = total_loss + sgr_l
+
+                total_loss.backward()
+                grad_dict = _build_grad_dict(base_model)
+
+                if fsr is not None and grad_dict:
+                    fsr.update(grad_dict)
+                    if step > 0 and step % 200 == 0:
+                        fsr.build_bases()
+                    fsr_l, fsr_l_val = fsr.loss(grad_dict)
+                    if fsr_l_val > 0:
+                        optimizer.zero_grad()
+                        out2 = base_model(
+                            input_ids=device_batch["input_ids"],
+                            attention_mask=device_batch["attention_mask"],
+                            labels=device_batch["labels"],
+                        )
+                        (out2.loss + fsr_l).backward()
+                        grad_dict2 = _build_grad_dict(base_model)
+                        if grad_dict2:
+                            fsr.update(grad_dict2)
+                            if use_kffng:
+                                KFFNGOptimizer.update_fisher(
+                                    optimizer, _get_lora_named_params(base_model), grad_dict2
+                                )
+
+                if use_kffng and grad_dict:
+                    KFFNGOptimizer.update_fisher(
+                        optimizer, _get_lora_named_params(base_model), grad_dict
+                    )
+
+                if taa is not None and taa.task_vectors:
+                    taa_l, taa_l_val = taa.loss(base_model, grad_dict)
+                    if taa_l_val > 0:
+                        optimizer.zero_grad()
+                        out3 = base_model(
+                            input_ids=device_batch["input_ids"],
+                            attention_mask=device_batch["attention_mask"],
+                            labels=device_batch["labels"],
+                        )
+                        (out3.loss + taa_l).backward()
+                        grad_dict3 = _build_grad_dict(base_model)
+                        if grad_dict3 and fsr is not None:
+                            fsr.update(grad_dict3)
+
+                if gpm is not None and gpm.feature_list and task_id > 0:
+                    gpm.project(base_model)
+
+                torch.nn.utils.clip_grad_norm_(base_model.parameters(), max_norm=1.0)
+                optimizer.step()
+
+                epoch_ce_loss += loss_ce.item()
+                n_batches += 1
+                step += 1
+
+            avg_loss = epoch_ce_loss / max(n_batches, 1)
+            if (epoch + 1) % max(1, epochs // 5) == 0 or epoch == epochs - 1:
+                log.info(f"    Epoch {epoch+1}/{epochs} loss: {avg_loss:.4f}")
+
+        # ── Save LoRA checkpoint (kept for eval only) ─────────────────────
+        ckpt_dir = method_dir / f"task_{task_id:02d}_{task_name}"
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+        lora_state = {
+            n: p.detach().cpu()
+            for n, p in base_model.named_parameters()
+            if "lora_" in n
+        }
+        torch.save(lora_state, ckpt_dir / "lora_state.pt")
+
+        # Register TAA task vector
+        if taa is not None:
+            taa.register(task_id, base_model)
+
+        log.info(f"    ✓ {task_name} done ({epochs} epochs, loss={avg_loss:.4f})")
+
+        # ── INTERMEDIATE EVAL (every eval_every tasks or last task) ──────
+        if eval_every > 0 and (task_id % eval_every == eval_every - 1 or task_id == total_tasks - 1):
+            log.info(f"\n    [Intermediate eval after task {task_id+1}/{total_tasks}]")
+            interm_mat, _ = evaluate_cl(
+                method=method, method_dir=method_dir,
+                model_name=model_name, tokenizer=tokenizer,
+                data_root=data_root, benchmark=benchmark,
+                tasks=tasks, rank=rank, lora_alpha=lora_alpha,
+                use_trans_input=use_trans, chunk=chunk,
+                batch_size=batch_size,
+            )
+            interm_ap, interm_ft, interm_bwt, interm_aps = _compute_cl_metrics(interm_mat, tasks)
+            _log_score_matrix(interm_mat, tasks, f"{method} after {task_name}")
+            log.info(f"    Intermediate: AP={interm_ap:.4f}  FT={interm_ft:.4f}  BWT={interm_bwt:+.4f}  "
+                     f"(tasks 0..{task_id})")
+
+        prev_dirs.append(ckpt_dir)
+
+        del base_model
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    # ── FINAL EVALUATION ─────────────────────────────────────────────────
+    log.info(f"\n  Final CL evaluation for {method}...")
+    score_mat, _ = evaluate_cl(
+        method=method, method_dir=method_dir,
+        model_name=model_name, tokenizer=tokenizer,
+        data_root=data_root, benchmark=benchmark,
+        tasks=tasks, rank=rank, lora_alpha=lora_alpha,
+        use_trans_input=use_trans, chunk=chunk,
+        batch_size=batch_size,
+    )
+
+    ap, ft, bwt, ap_per_task = _compute_cl_metrics(score_mat, tasks)
+    elapsed = time.time() - t0
+
+    # ── Score matrix summary ─────────────────────────────────────────────
+    _log_score_matrix(score_mat, tasks, f"{method} FINAL")
+
+    log.info(f"\n{'='*60}")
+    log.info(f"  RESULTS ({method})  |  {total_tasks} tasks  |  {elapsed:.0f}s ({elapsed/60:.1f}m)")
+    log.info(f"  AP   = {ap:.4f}   (mean perf after last task, tasks 0..{total_tasks-1})")
+    log.info(f"  FT   = {ft:.4f}   (mean diagonal = forward transfer)")
+    log.info(f"  BWT  = {bwt:+.4f}  (backward transfer, 0 = no forgetting)")
+    log.info(f"  AP per task: {' '.join(f'{x:.3f}' for x in ap_per_task)}")
+    log.info(f"{'='*60}")
+
+    per_task_rows = [
+        {"task_id": t, "task_name": tasks[t], "score_row": score_mat[t].tolist()}
+        for t in range(total_tasks)
+    ]
+
+    result = {
+        "method": method,
+        "tasks": tasks,
+        "epochs": epochs,
+        "elapsed_seconds": elapsed,
+        "AP": ap,
+        "FT": ft,
+        "BWT": bwt,
+        "AP_per_task": ap_per_task.tolist(),
+        "score_matrix": score_mat.tolist(),
+        "per_task": per_task_rows,
+        "config": {
+            "rank": rank, "lora_alpha": lora_alpha, "lr": lr,
+            "gpm_steps": gpm_steps, "gpm_threshold": gpm_threshold,
+            "lambda_fsr": lambda_fsr, "lambda_taa": lambda_taa, "lambda_sgr": lambda_sgr,
+        },
+    }
+
+    # Save JSON
+    with open(method_dir / "result.json", "w") as f:
+        json.dump(result, f, indent=2)
+
+    # Clean up checkpoints (save disk — we only needed them for eval)
+    for task_id, task_name in enumerate(tasks):
+        ckpt = method_dir / f"task_{task_id:02d}_{task_name}"
+        if not ckpt.exists():
+            continue
+        for fname in [
+            "gpm_state.pt",
+            "fsr_state.pt",
+            "taa_state.pt",
+            "sgr_state.pt",
+            "trans_input.pt",
+            "prompt_key.pt",
+        ]:
+            fp = ckpt / fname
+            if fp.exists():
+                fp.unlink()
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# CLI
+# ═══════════════════════════════════════════════════════════════════════
 
 def parse_args():
     p = argparse.ArgumentParser(
-        description="FGCL Experiment Framework",
+        description="FGCL C2 Experiment Framework — Training Dynamics",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""Examples:
-  python exp_fgcl.py                                          # ALL
-  python exp_fgcl.py --phase T1                               # T1 only
-  python exp_fgcl.py --model test_embeddings/TestBackbone/    # specific model
-  python exp_fgcl.py --benchmark SuperNI                      # specific benchmark
-  python exp_fgcl.py --model test_embeddings/Llama-2-7b-hf/ --benchmark SuperNI
-""",
+        epilog="""
+Examples:
+  python exp_fgcl.py                                    # ALL phases, all benchmarks
+  python exp_fgcl.py --phase T4 --benchmark Long_Sequence
+  python exp_fgcl.py --model google/flan-t5-large --benchmark SuperNI
+  python exp_fgcl.py --phase T1 --benchmark Long_Sequence --tasks sst2 imdb mnli
+  python exp_fgcl.py --eval_every 1                    # eval after EVERY task
+  python exp_fgcl.py --eval_every 0                    # skip intermediate eval
+        """,
     )
     p.add_argument("--phase", nargs="+", default=None,
-                   help="Phase(s) to run: T1 T2 T3 T4. Omit = all.")
-    p.add_argument("--model", nargs="+", default=None,
-                   help="Path(s) to model embedding dir. Omit = auto-discover all.")
+                   help="Phase(s): T1 T2 T3 T4. Default: all.")
+    p.add_argument("--model", default="google/flan-t5-large",
+                   help="HF model name. Default: google/flan-t5-large.")
     p.add_argument("--benchmark", nargs="+", default=None,
-                   help="Benchmark name(s): Long_Sequence, SuperNI. Omit = auto-discover all.")
-    p.add_argument("--output_dir", default="results_fgcl")
+                   help="Benchmark(s): Long_Sequence SuperNI. Default: all.")
+    p.add_argument("--tasks", nargs="+", default=None,
+                   help="Specific tasks (subset of benchmark). Default: all.")
+    p.add_argument("--data_root", type=Path, default=Path("CL_Benchmark"),
+                   help="Path to CL_Benchmark/ directory.")
+    p.add_argument("--epochs", type=int, default=None,
+                   help="Override default epochs for all phases.")
+    p.add_argument("--rank", type=int, default=DEFAULT_LORA_RANK)
+    p.add_argument("--alpha", type=int, default=DEFAULT_LORA_ALPHA)
+    p.add_argument("--lr", type=float, default=DEFAULT_LR)
+    p.add_argument("--attn_lr", type=float, default=DEFAULT_ATTN_LR)
+    p.add_argument("--batch_size", type=int, default=DEFAULT_BATCH)
+    p.add_argument("--gpm_steps", type=int, default=DEFAULT_GPM_STEPS)
+    p.add_argument("--gpm_threshold", type=float, default=DEFAULT_GPM_THRESH)
+    p.add_argument("--chunk", type=int, default=DEFAULT_CHUNK)
+    p.add_argument("--lambda_fsr", type=float, default=DEFAULT_LAMBDA_FSR)
+    p.add_argument("--lambda_taa", type=float, default=DEFAULT_LAMBDA_TAA)
+    p.add_argument("--lambda_sgr", type=float, default=DEFAULT_LAMBDA_SGR)
+    p.add_argument("--output_dir", default="results_fgcl",
+                   help="Output root directory. Default: results_fgcl/")
+    p.add_argument("--eval_every", type=int, default=DEFAULT_EVAL_EVERY,
+                   help="Eval every N tasks during training (0=final only). Default: 3.")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
 
-    # ── Resolve phases ──────────────────────────────────────────────────
     phases = args.phase or ALL_PHASES
+    benchmarks = args.benchmark or list(BENCHMARK_TASKS.keys())
 
-    # ── Resolve models ──────────────────────────────────────────────────
-    if args.model:
-        model_dirs = [Path(m) for m in args.model]
-        for md in model_dirs:
-            if not md.exists():
-                log.error(f"Model dir not found: {md}")
-                sys.exit(1)
-    else:
-        model_dirs = discover_models()
-        if not model_dirs:
-            log.error("No model dirs found under test_embeddings/. "
-                      "Use --model to specify path.")
-            sys.exit(1)
-
-    # ── Build run matrix: (phase, model_dir, benchmark, tasks) ──────────
-    # Tasks are DISCOVERED from filesystem: {model_dir}/{benchmark}/{task}/train.npz
     runs = []
-    for model_dir in model_dirs:
-        if args.benchmark:
-            benchmarks = args.benchmark
-        else:
-            benchmarks = discover_benchmarks(model_dir)
-            if not benchmarks:
-                log.warning(f"No benchmarks found in {model_dir}, skipping.")
-                continue
-
-        for bm in benchmarks:
-            bm_path = model_dir / bm
-            if not bm_path.exists():
-                log.warning(f"Benchmark dir not found: {bm_path}, skipping.")
-                continue
-
-            # Discover all task dirs under this benchmark
-            avail_tasks = sorted([
-                d.name for d in bm_path.iterdir()
-                if d.is_dir() and (d / "train.npz").exists()
-            ])
-            if not avail_tasks:
-                log.warning(f"No task .npz files found in {bm_path}, skipping.")
-                continue
-
-            for phase in phases:
-                n = PHASE_TASK_COUNTS[phase]
-                tasks = avail_tasks[:n] if n else avail_tasks  # T4=None → all
-                runs.append((phase, model_dir, bm, tasks))
+    for bm in benchmarks:
+        avail = BENCHMARK_TASKS.get(bm, [])
+        if not avail:
+            log.warning(f"Unknown benchmark: {bm}")
+            continue
+        for phase in phases:
+            n = PHASE_TASK_COUNTS.get(phase)
+            tasks = avail[:n] if n else avail
+            if args.tasks:
+                tasks = [t for t in args.tasks if t in avail]
+            if tasks:
+                runs.append((phase, bm, tasks))
 
     if not runs:
-        log.error("No valid (phase, model, benchmark, tasks) combos found.")
+        log.error("No valid runs. Check --phase and --benchmark arguments.")
         sys.exit(1)
 
-    log.info(f"Run matrix: {len(runs)} combos "
-             f"({len(phases)} phases × {len(model_dirs)} models × benchmarks)")
-    for phase, md, bm, tasks in runs:
-        log.info(f"  {phase} | {md.name} | {bm} | {len(tasks)} tasks")
+    log.info(f"\nRun matrix: {len(runs)} experiment(s)")
+    for phase, bm, tasks in runs:
+        log.info(f"  {phase} | {bm} | {len(tasks)} tasks: {' → '.join(tasks[:3])}"
+                 f"{' ...' if len(tasks) > 3 else ''}")
 
     output_root = Path(args.output_dir)
     all_results = {}
 
-    for phase, model_dir, benchmark, tasks in runs:
-        key = f"{model_dir.name}/{benchmark}/{phase}"
-        out_dir = output_root / model_dir.name / benchmark
-        results = run_phase(
-            phase=phase,
-            benchmark=benchmark,
-            model_dir=model_dir,
-            tasks=tasks,
-            output_dir=out_dir,
-        )
-        all_results[key] = results
+    for phase, benchmark, tasks in runs:
+        key = f"{args.model}/{benchmark}/{phase}"
+        methods = ALL_PHASE_METHODS.get(phase, ["standard_lora"])
+        epochs = args.epochs if args.epochs else DEFAULT_EPOCHS.get(phase, 3)
 
-    # ── Grand summary ───────────────────────────────────────────────────
+        log.info(f"\n{'#'*70}")
+        log.info(f"# PHASE {phase}: {PHASE_DESCS[phase]}")
+        log.info(f"# MODEL: {args.model}")
+        log.info(f"# BENCHMARK: {benchmark}")
+        log.info(f"# TASKS ({len(tasks)}): {' → '.join(tasks)}")
+        log.info(f"# METHODS: {methods}")
+        log.info(f"# EPOCHS: {epochs}  RANK: {args.rank}  LR: {args.lr}  EVAL_EVERY: {args.eval_every}")
+        log.info(f"{'#'*70}")
+
+        phase_dir = output_root / f"phase_{phase}" / args.model.split("/")[-1] / benchmark
+        phase_dir.mkdir(parents=True, exist_ok=True)
+
+        tokenizer = AutoTokenizer.from_pretrained(args.model)
+        phase_results = {}
+
+        for method in methods:
+            method_dir = phase_dir / method
+            method_dir.mkdir(parents=True, exist_ok=True)
+
+            result = train_and_eval_method(
+                method=method,
+                method_dir=method_dir,
+                model_name=args.model,
+                tokenizer=tokenizer,
+                data_root=args.data_root,
+                benchmark=benchmark,
+                tasks=tasks,
+                epochs=epochs,
+                rank=args.rank,
+                lora_alpha=args.alpha,
+                lr=args.lr,
+                attn_lr=args.attn_lr,
+                batch_size=args.batch_size,
+                gpm_steps=args.gpm_steps,
+                gpm_threshold=args.gpm_threshold,
+                chunk=args.chunk,
+                lambda_fsr=args.lambda_fsr,
+                lambda_taa=args.lambda_taa,
+                lambda_sgr=args.lambda_sgr,
+                eval_every=args.eval_every,
+            )
+            phase_results[method] = result
+
+        # ── Phase summary ──────────────────────────────────────────────
+        log.info(f"\n{'═'*70}")
+        log.info(f"PHASE {phase} RESULTS — {args.model} / {benchmark}")
+        log.info(f"  {'Method':<20} {'AP':>8} {'FT':>8} {'BWT':>10} {'Time':>10}")
+        log.info(f"  {'─'*60}")
+        for m, r in phase_results.items():
+            t = r.get("elapsed_seconds", 0)
+            log.info(f"  {m:<20} {r['AP']:>8.4f} {r['FT']:>8.4f} "
+                     f"{r['BWT']:>10.4f}  {t:>7.0f}s")
+
+        combined = {
+            "phase": phase, "model": args.model, "benchmark": benchmark,
+            "tasks": tasks, "methods": list(phase_results.keys()),
+            "description": PHASE_DESCS[phase],
+            "results": phase_results,
+        }
+        out_path = phase_dir / "all_results.json"
+        with open(out_path, "w") as f:
+            json.dump(combined, f, indent=2)
+        log.info(f"\n  Saved: {out_path}")
+
+        all_results[key] = phase_results
+
+    # ── Grand summary ─────────────────────────────────────────────────
     print(f"\n{'═'*70}")
-    print(f"GRAND SUMMARY — {len(runs)} experiments")
+    print(f"GRAND SUMMARY — {len(runs)} experiment(s)")
     print(f"{'═'*70}")
     for key, results in all_results.items():
-        print(f"\n  {key}")
-        print(f"  {'Method':<18} {'AP':>8} {'FT':>8} {'BWT':>10}")
+        print(f"\n  [{key}]")
+        print(f"  {'Method':<20} {'AP':>8} {'FT':>8} {'BWT':>10}")
         print(f"  {'─'*50}")
-        for m, r in results.items():
-            print(f"  {m:<18} {r['AP']:>8.4f} {r['FT']:>8.4f} {r['BWT']:>10.4f}")
+        for m, r in sorted(results.items()):
+            print(f"  {m:<20} {r['AP']:>8.4f} {r['FT']:>8.4f} {r['BWT']:>10.4f}")
     print(f"\n{'═'*70}")
-    print(f"Output: {output_root}/")
+    print(f"Results: {output_root}/phase_{{T1,T2,T3,T4}}/{{model}}/{{benchmark}}/all_results.json")
 
 
 if __name__ == "__main__":
