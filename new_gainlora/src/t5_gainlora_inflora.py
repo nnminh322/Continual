@@ -1325,7 +1325,7 @@ class T5Stack(T5PreTrainedModel):
                 # BUG B.3 fix: always use mapping lookup, include pos==0 assignment
                 if self.use_srt_routing and self.srt_router is not None:
                     h_for_route = avg_inputs_embeds  # (B, 1, d)
-                    h_route = h_for_route.squeeze(1).cpu().numpy()  # (B, d)
+                    h_route = h_for_route.squeeze(1).detach().cpu().numpy()  # (B, d)
                     srt_preds, _ = self.srt_router.route(h_route)
                     B_batch = h_route.shape[0]
 
