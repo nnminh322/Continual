@@ -129,6 +129,7 @@ def gen_t5_script(run_name, task_order, task_list, config_dir, gen_data_dir, met
    --output_dir $BASE_OUT/outputs/{i+1}-{task} \\"""
         else:
             common = f"""\
+   --data_dir CL_Benchmark \\
    --load_checkpoint_from $BASE_OUT/outputs/{i}-{task_list[i-1]}/saved_weights/trans_input.pt \\
    --previous_lora_path {prev_lora} \\
    --previous_prompt_key_path $BASE_OUT/outputs/{i}-{task_list[i-1]}/saved_weights/prompts_keys_till_now.pt \\
@@ -266,6 +267,7 @@ def gen_llama_script(run_name, task_order, task_list, config_dir, gen_data_dir):
    --output_dir $BASE_OUT/outputs/{i+1}-{task} \\"""
         else:
             common = f"""\
+   --data_dir CL_Benchmark \\
    --load_checkpoint_from $BASE_OUT/outputs/{i}-{task_list[i-1]}/saved_weights/trans_input.pt \\
    --previous_lora_path {prev_lora} \\
    --previous_prompt_key_path $BASE_OUT/outputs/{i}-{task_list[i-1]}/saved_weights/prompts_keys_till_now.pt \\

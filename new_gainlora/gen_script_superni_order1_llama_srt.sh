@@ -88,6 +88,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_llama.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights/prompts_keys_till_now.pt \
@@ -140,6 +141,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_llama.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights/prompts_keys_till_now.pt \
@@ -192,6 +194,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_llama.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights/prompts_keys_till_now.pt \
@@ -244,6 +247,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_llama.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights/prompts_keys_till_now.pt \
@@ -296,6 +300,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_llama.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights/prompts_keys_till_now.pt \
@@ -348,6 +353,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_llama.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights/prompts_keys_till_now.pt \
@@ -400,6 +406,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_llama.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights/prompts_keys_till_now.pt \
@@ -452,6 +459,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_llama.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights/prompts_keys_till_now.pt \
@@ -504,6 +512,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_llama.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights/prompts_keys_till_now.pt \
@@ -556,6 +565,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_llama.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/10-task1590_diplomacy_text_generation/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/10-task1590_diplomacy_text_generation/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/10-task1590_diplomacy_text_generation/saved_weights/prompts_keys_till_now.pt \
@@ -608,6 +618,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_llama.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/11-task748_glucose_reverse_cause_event_detection/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/10-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/11-task748_glucose_reverse_cause_event_detection/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/11-task748_glucose_reverse_cause_event_detection/saved_weights/prompts_keys_till_now.pt \
@@ -660,6 +671,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_llama.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/10-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/11-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights/prompts_keys_till_now.pt \
@@ -712,6 +724,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_llama.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/13-task591_sciq_answer_generation/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/10-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/11-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights,$BASE_OUT/outputs/13-task591_sciq_answer_generation/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/13-task591_sciq_answer_generation/saved_weights/prompts_keys_till_now.pt \
@@ -764,6 +777,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_llama.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/14-task1687_sentiment140_classification/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/10-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/11-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights,$BASE_OUT/outputs/13-task591_sciq_answer_generation/saved_weights,$BASE_OUT/outputs/14-task1687_sentiment140_classification/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/14-task1687_sentiment140_classification/saved_weights/prompts_keys_till_now.pt \

@@ -88,6 +88,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/1-yelp/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-yelp/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/1-yelp/saved_weights/prompts_keys_till_now.pt \
@@ -140,6 +141,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/2-amazon/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-yelp/saved_weights,$BASE_OUT/outputs/2-amazon/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/2-amazon/saved_weights/prompts_keys_till_now.pt \
@@ -192,6 +194,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/3-mnli/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-yelp/saved_weights,$BASE_OUT/outputs/2-amazon/saved_weights,$BASE_OUT/outputs/3-mnli/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/3-mnli/saved_weights/prompts_keys_till_now.pt \
@@ -244,6 +247,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/4-cb/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-yelp/saved_weights,$BASE_OUT/outputs/2-amazon/saved_weights,$BASE_OUT/outputs/3-mnli/saved_weights,$BASE_OUT/outputs/4-cb/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/4-cb/saved_weights/prompts_keys_till_now.pt \
@@ -296,6 +300,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/5-copa/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-yelp/saved_weights,$BASE_OUT/outputs/2-amazon/saved_weights,$BASE_OUT/outputs/3-mnli/saved_weights,$BASE_OUT/outputs/4-cb/saved_weights,$BASE_OUT/outputs/5-copa/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/5-copa/saved_weights/prompts_keys_till_now.pt \
@@ -348,6 +353,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/6-qqp/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-yelp/saved_weights,$BASE_OUT/outputs/2-amazon/saved_weights,$BASE_OUT/outputs/3-mnli/saved_weights,$BASE_OUT/outputs/4-cb/saved_weights,$BASE_OUT/outputs/5-copa/saved_weights,$BASE_OUT/outputs/6-qqp/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/6-qqp/saved_weights/prompts_keys_till_now.pt \
@@ -400,6 +406,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/7-rte/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-yelp/saved_weights,$BASE_OUT/outputs/2-amazon/saved_weights,$BASE_OUT/outputs/3-mnli/saved_weights,$BASE_OUT/outputs/4-cb/saved_weights,$BASE_OUT/outputs/5-copa/saved_weights,$BASE_OUT/outputs/6-qqp/saved_weights,$BASE_OUT/outputs/7-rte/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/7-rte/saved_weights/prompts_keys_till_now.pt \
@@ -452,6 +459,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/8-imdb/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-yelp/saved_weights,$BASE_OUT/outputs/2-amazon/saved_weights,$BASE_OUT/outputs/3-mnli/saved_weights,$BASE_OUT/outputs/4-cb/saved_weights,$BASE_OUT/outputs/5-copa/saved_weights,$BASE_OUT/outputs/6-qqp/saved_weights,$BASE_OUT/outputs/7-rte/saved_weights,$BASE_OUT/outputs/8-imdb/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/8-imdb/saved_weights/prompts_keys_till_now.pt \
@@ -504,6 +512,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/9-sst2/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-yelp/saved_weights,$BASE_OUT/outputs/2-amazon/saved_weights,$BASE_OUT/outputs/3-mnli/saved_weights,$BASE_OUT/outputs/4-cb/saved_weights,$BASE_OUT/outputs/5-copa/saved_weights,$BASE_OUT/outputs/6-qqp/saved_weights,$BASE_OUT/outputs/7-rte/saved_weights,$BASE_OUT/outputs/8-imdb/saved_weights,$BASE_OUT/outputs/9-sst2/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/9-sst2/saved_weights/prompts_keys_till_now.pt \
@@ -556,6 +565,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/10-dbpedia/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-yelp/saved_weights,$BASE_OUT/outputs/2-amazon/saved_weights,$BASE_OUT/outputs/3-mnli/saved_weights,$BASE_OUT/outputs/4-cb/saved_weights,$BASE_OUT/outputs/5-copa/saved_weights,$BASE_OUT/outputs/6-qqp/saved_weights,$BASE_OUT/outputs/7-rte/saved_weights,$BASE_OUT/outputs/8-imdb/saved_weights,$BASE_OUT/outputs/9-sst2/saved_weights,$BASE_OUT/outputs/10-dbpedia/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/10-dbpedia/saved_weights/prompts_keys_till_now.pt \
@@ -608,6 +618,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/11-agnews/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-yelp/saved_weights,$BASE_OUT/outputs/2-amazon/saved_weights,$BASE_OUT/outputs/3-mnli/saved_weights,$BASE_OUT/outputs/4-cb/saved_weights,$BASE_OUT/outputs/5-copa/saved_weights,$BASE_OUT/outputs/6-qqp/saved_weights,$BASE_OUT/outputs/7-rte/saved_weights,$BASE_OUT/outputs/8-imdb/saved_weights,$BASE_OUT/outputs/9-sst2/saved_weights,$BASE_OUT/outputs/10-dbpedia/saved_weights,$BASE_OUT/outputs/11-agnews/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/11-agnews/saved_weights/prompts_keys_till_now.pt \
@@ -660,6 +671,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/12-yahoo/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-yelp/saved_weights,$BASE_OUT/outputs/2-amazon/saved_weights,$BASE_OUT/outputs/3-mnli/saved_weights,$BASE_OUT/outputs/4-cb/saved_weights,$BASE_OUT/outputs/5-copa/saved_weights,$BASE_OUT/outputs/6-qqp/saved_weights,$BASE_OUT/outputs/7-rte/saved_weights,$BASE_OUT/outputs/8-imdb/saved_weights,$BASE_OUT/outputs/9-sst2/saved_weights,$BASE_OUT/outputs/10-dbpedia/saved_weights,$BASE_OUT/outputs/11-agnews/saved_weights,$BASE_OUT/outputs/12-yahoo/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/12-yahoo/saved_weights/prompts_keys_till_now.pt \
@@ -712,6 +724,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/13-multirc/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-yelp/saved_weights,$BASE_OUT/outputs/2-amazon/saved_weights,$BASE_OUT/outputs/3-mnli/saved_weights,$BASE_OUT/outputs/4-cb/saved_weights,$BASE_OUT/outputs/5-copa/saved_weights,$BASE_OUT/outputs/6-qqp/saved_weights,$BASE_OUT/outputs/7-rte/saved_weights,$BASE_OUT/outputs/8-imdb/saved_weights,$BASE_OUT/outputs/9-sst2/saved_weights,$BASE_OUT/outputs/10-dbpedia/saved_weights,$BASE_OUT/outputs/11-agnews/saved_weights,$BASE_OUT/outputs/12-yahoo/saved_weights,$BASE_OUT/outputs/13-multirc/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/13-multirc/saved_weights/prompts_keys_till_now.pt \
@@ -764,6 +777,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --load_checkpoint_from $BASE_OUT/outputs/14-boolq/saved_weights/trans_input.pt \
    --previous_lora_path $BASE_OUT/outputs/1-yelp/saved_weights,$BASE_OUT/outputs/2-amazon/saved_weights,$BASE_OUT/outputs/3-mnli/saved_weights,$BASE_OUT/outputs/4-cb/saved_weights,$BASE_OUT/outputs/5-copa/saved_weights,$BASE_OUT/outputs/6-qqp/saved_weights,$BASE_OUT/outputs/7-rte/saved_weights,$BASE_OUT/outputs/8-imdb/saved_weights,$BASE_OUT/outputs/9-sst2/saved_weights,$BASE_OUT/outputs/10-dbpedia/saved_weights,$BASE_OUT/outputs/11-agnews/saved_weights,$BASE_OUT/outputs/12-yahoo/saved_weights,$BASE_OUT/outputs/13-multirc/saved_weights,$BASE_OUT/outputs/14-boolq/saved_weights \
    --previous_prompt_key_path $BASE_OUT/outputs/14-boolq/saved_weights/prompts_keys_till_now.pt \
