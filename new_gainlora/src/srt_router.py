@@ -19,7 +19,7 @@ Zero-rehearsal compliant: only sufficient statistics, no raw data.
 import math
 import numpy as np
 import torch
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -318,7 +318,7 @@ class TaskSignature:
 
     def __init__(
         self,
-        task_id: int,
+        task_id: Union[int, str],
         mu: np.ndarray,
         Sigma: np.ndarray,
         n: int,
@@ -524,7 +524,7 @@ class SRTRouter:
 
     def add_task(
         self,
-        task_id: int,
+        task_id: Union[int, str],
         h_train: np.ndarray,
         use_shrink: bool = True,
         shrink_factor: float = 0.1,
@@ -648,7 +648,7 @@ class SRTRouter:
         self._srm_metrics = dict(data['srm_metrics'].item())
 
         for k, v in data['signatures'].item().items():
-            self.signatures[int(k)] = TaskSignature.from_dict(v)
+            self.signatures[k] = TaskSignature.from_dict(v)
 
     # ── Summary ───────────────────────────────────────────────────────
 

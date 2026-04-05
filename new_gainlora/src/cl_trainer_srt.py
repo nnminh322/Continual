@@ -293,7 +293,7 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
 
     # ── 5. TASK END HOOK ───────────────────────────────────────────────────
 
-    def on_task_end(self, task_id: int):
+    def on_task_end(self, task_id: Union[int, str]):
         """
         Called after each task's training finishes (from run_t5.py).
 
