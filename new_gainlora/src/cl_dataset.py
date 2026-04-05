@@ -33,7 +33,10 @@ AUX_PROB = 0.3
 
 
 def gen_cache_path(cache_dir, data_args):
-    hash_str = data_args.data_dir + data_args.task_config_dir + \
+    # Handle None: use empty string when data_dir/task_config_dir not provided
+    data_dir = data_args.data_dir or ""
+    task_config_dir = data_args.task_config_dir or ""
+    hash_str = data_dir + task_config_dir + \
                str(data_args.max_num_instances_per_task) + str(data_args.max_num_instances_per_eval_task)
     hash_obj = md5(hash_str.encode("utf-8"))
     hash_id = hash_obj.hexdigest()
