@@ -1335,7 +1335,7 @@ class T5Stack(T5PreTrainedModel):
                         dtype=torch.float32, device=key_attention_weights.device
                     )
                     for b in range(B_batch):
-                        pred_id = int(srt_preds[b])   # task ID from SRT router
+                        pred_id = srt_preds[b]   # task ID from SRT router (str or int)
                         if pred_id in self.srt_task_id_to_idx:
                             pos = self.srt_task_id_to_idx[pred_id]
                             # pos is guaranteed < n_slots if wiring is correct
