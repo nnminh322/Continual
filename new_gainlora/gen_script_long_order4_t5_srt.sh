@@ -41,6 +41,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --task_order $TASK_ORDER \
    --task_config_dir configs/gen_script_long_order4_t5_configs/yelp \
    --output_dir $BASE_OUT/outputs/1-yelp \

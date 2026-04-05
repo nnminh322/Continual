@@ -124,6 +124,7 @@ def gen_t5_script(run_name, task_order, task_list, config_dir, gen_data_dir, met
 
         if i == 0:
             common = f"""\
+   --data_dir CL_Benchmark \\
    --task_order $TASK_ORDER \\
    --task_config_dir {config_dir}/{task} \\
    --output_dir $BASE_OUT/outputs/{i+1}-{task} \\"""
@@ -263,6 +264,7 @@ def gen_llama_script(run_name, task_order, task_list, config_dir, gen_data_dir):
 
         if i == 0:
             common = f"""\
+   --data_dir CL_Benchmark \\
    --task_order $TASK_ORDER \\
    --task_config_dir {config_dir}/{task} \\
    --output_dir $BASE_OUT/outputs/{i+1}-{task} \\"""

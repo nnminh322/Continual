@@ -40,6 +40,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_llama.py \
    --do_predict \
    --predict_with_generate \
    --model_name_or_path $MODEL_PATH \
+   --data_dir CL_Benchmark \
    --task_order $TASK_ORDER \
    --task_config_dir configs/gen_script_superni_order2_llama_configs/task748_glucose_reverse_cause_event_detection \
    --output_dir $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection \
