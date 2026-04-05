@@ -975,10 +975,9 @@ def main():
 
         if not prompt_config["run_single"]:
             if training_args.model_name in ['gainlora_inflora', 'gainlora_olora']:
-                # SRT: only save trans_input (for feature transform, not routing)
-                # Non-SRT: also save previous_trans_input for learned router
-                if (prompt_config["previous_prompt_key_path"] is not None
-                        and not (training_args.model_name == 'gainlora_inflora' and training_args.use_srt_router)):
+                # Save previous_trans_input (needed for both SRT and non-SRT:
+                # SRT still uses previous_trans_input for feature extraction before overriding routing)
+                if prompt_config["previous_prompt_key_path"] is not None:
                     previous_trans_input = deepcopy(trainer.model.encoder.previous_trans_input.state_dict())
                     torch.save(previous_trans_input, os.path.join(save_path, 'previous_trans_input.pt'))
                 torch.save(trainer.model.encoder.trans_input.state_dict(), os.path.join(save_path, 'trans_input.pt'))
