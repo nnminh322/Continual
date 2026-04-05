@@ -199,7 +199,8 @@ sleep 5"""
 #SBATCH --gres=gpu:a100-sxm4-80gb:1
 
 export CUDA_DEVICE_ORDER="PCI_BUS_ID"
-MODEL_PATH="${{1:-google/flan-t5-xl}}"
+GPU_ID="${{1:-0}}"
+MODEL_PATH="${{2:-google/flan-t5-xl}}"
 
 # ── GPU detection ────────────────────────────────────────────────────────────
 NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
@@ -207,9 +208,9 @@ GPU_MEM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/d
 : ${{GPU_MEM:=16000}}; : ${{NUM_GPUS:=1}}
 
 if [ "$GPU_MEM" -lt 20000 ]; then
-    IS_T4=1; GPU_MODE="t4_1gpu"; GPU_IDS="${{1:-0}}"; FP16_FLAG="--gradient_checkpointing"
+    IS_T4=1; GPU_MODE="t4_1gpu"; GPU_IDS="$GPU_ID"; FP16_FLAG="--gradient_checkpointing"
 else
-    IS_T4=0; GPU_MODE="a100"; GPU_IDS="${{1:-0}}"; FP16_FLAG=""
+    IS_T4=0; GPU_MODE="a100"; GPU_IDS="$GPU_ID"; FP16_FLAG=""
 fi
 
 echo "[GPU] $GPU_MODE | CUDA_VISIBLE_DEVICES=$GPU_IDS | $MODEL_PATH"
@@ -344,9 +345,9 @@ GPU_MEM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/d
 : ${{GPU_MEM:=16000}}; : ${{NUM_GPUS:=1}}
 
 if [ "$GPU_MEM" -lt 20000 ]; then
-    IS_T4=1; GPU_MODE="t4_1gpu"; GPU_IDS="${{1:-0}}"; FP16_FLAG="--gradient_checkpointing"
+    IS_T4=1; GPU_MODE="t4_1gpu"; GPU_IDS="$GPU_ID"; FP16_FLAG="--gradient_checkpointing"
 else
-    IS_T4=0; GPU_MODE="a100"; GPU_IDS="${{1:-0}}"; FP16_FLAG=""
+    IS_T4=0; GPU_MODE="a100"; GPU_IDS="$GPU_ID"; FP16_FLAG=""
 fi
 
 echo "[GPU] $GPU_MODE | CUDA_VISIBLE_DEVICES=$GPU_IDS | $MODEL_PATH"

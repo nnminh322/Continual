@@ -15,9 +15,9 @@ GPU_MEM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/d
 : ${GPU_MEM:=16000}; : ${NUM_GPUS:=1}
 
 if [ "$GPU_MEM" -lt 20000 ]; then
-    IS_T4=1; GPU_MODE="t4_1gpu"; GPU_IDS="${1:-0}"; FP16_FLAG="--gradient_checkpointing"
+    IS_T4=1; GPU_MODE="t4_1gpu"; GPU_IDS="$GPU_ID"; FP16_FLAG="--gradient_checkpointing"
 else
-    IS_T4=0; GPU_MODE="a100"; GPU_IDS="${1:-0}"; FP16_FLAG=""
+    IS_T4=0; GPU_MODE="a100"; GPU_IDS="$GPU_ID"; FP16_FLAG=""
 fi
 
 echo "[GPU] $GPU_MODE | CUDA_VISIBLE_DEVICES=$GPU_IDS | $MODEL_PATH"
