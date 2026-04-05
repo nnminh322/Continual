@@ -569,6 +569,10 @@ class SRTRouter:
         if self.use_srm and len(self.signatures) >= 2:
             srm_results = srm_metric_selection(self.signatures, self._Sigma_pool)
             self._srm_metrics.update(srm_results)
+            # Propagate SRM results to existing signatures
+            for t_id, m in srm_results.items():
+                if t_id in self.signatures:
+                    self.signatures[t_id]._metric = m
         elif len(self.signatures) == 0:
             self._srm_metrics[task_id] = 'auto'
 
@@ -617,7 +621,7 @@ class SRTRouter:
             dists[:, i] = self.signatures[t_id].distance(h)
 
         nearest_idx = np.argmin(dists, axis=1)
-        nearest_task = np.array(task_list, dtype=np.int64)[nearest_idx]
+        nearest_task = np.array(task_list)[nearest_idx]
 
         return nearest_task, dists
 
