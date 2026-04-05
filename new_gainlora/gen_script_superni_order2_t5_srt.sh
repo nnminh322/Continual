@@ -1,56 +1,86 @@
 #!/bin/bash
-#SBATCH -J srt
-#SBATCH -o srt-%j.out
-#SBATCH -p compute
-#SBATCH -N 1
-#SBATCH -t 80:00:00
-#SBATCH --mem 256G
-#SBATCH --gres=gpu:a100-sxm4-80gb:1
+#SBATCH -J srt                           
+#SBATCH -o srt-%j.out                       
+#SBATCH -p compute 
+#SBATCH -N 1                           
+#SBATCH -t 20:00:00   
+#SBATCH --mem 128G 
+#SBATCH --gres=gpu:a100-sxm4-80gb:1  
 
 export CUDA_DEVICE_ORDER="PCI_BUS_ID"
-GPU_ID="${1:-0}"
-MODEL_PATH="${2:-google/flan-t5-xl}"
 
-# ── GPU detection ────────────────────────────────────────────────────────────
+port=$(shuf -i25000-30000 -n1)
+
+# ============================================================
+# Auto-detect GPU count and type for optimal parallelism
+# ============================================================
 NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
 GPU_MEM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
-: ${GPU_MEM:=16000}; : ${NUM_GPUS:=1}
 
+if [ -z "$GPU_MEM" ]; then
+    echo "ERROR: No GPU detected!"
+    # Default fallback
+    GPU_MEM=16000
+    NUM_GPUS=1
+fi
+
+# Determine GPU type
 if [ "$GPU_MEM" -lt 20000 ]; then
-    IS_T4=1; GPU_MODE="t4_1gpu"; GPU_IDS="$GPU_ID"; FP16_FLAG="--gradient_checkpointing"
+    IS_T4=1
+    echo "[GPU] Detected T4 GPUs (${GPU_MEM}MB VRAM each)"
 else
-    IS_T4=0; GPU_MODE="a100"; GPU_IDS="$GPU_ID"; FP16_FLAG=""
+    IS_T4=0
+    echo "[GPU] Detected high-memory GPUs (${GPU_MEM}MB VRAM each)"
 fi
 
-echo "[GPU] $GPU_MODE | CUDA_VISIBLE_DEVICES=$GPU_IDS | $MODEL_PATH"
+# Determine parallelism strategy
+if [ "$IS_T4" -eq 1 ] && [ "$NUM_GPUS" -ge 2 ]; then
+    GPU_MODE="t4_2gpu"
+    GPU_IDS="0,1"
+    FP16_FLAG="--gradient_checkpointing"
+    echo "[GPU] Strategy: 2x T4 DataParallel + fp32 + gradient_checkpointing"
+elif [ "$IS_T4" -eq 1 ]; then
+    GPU_MODE="t4_1gpu"
+    GPU_IDS="${1:-0}"
+    FP16_FLAG="--gradient_checkpointing"
+    echo "[GPU] Strategy: 1x T4 + fp32 + gradient_checkpointing"
+else
+    GPU_MODE="a100"
+    GPU_IDS="${1:-0}"
+    FP16_FLAG=""
+    echo "[GPU] Strategy: A100 (single GPU, fp32)"
+fi
+
+echo "[GPU] Using CUDA_VISIBLE_DEVICES=$GPU_IDS"
 echo "============================================================"
+echo ""
+  
 
-if [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=8
-else
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
     BSZ=2; GA=8; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
-RUN_NAME="superni_order2_t5_srt"
-TASK_ORDER="task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification"
-BASE_OUT="logs_and_outputs/$RUN_NAME"
 SRT_FLAGS="--use_srt_router --srt_shrink --srt_shrink_factor 0.1 --srt_metric auto --srt_max_emb_samples 500"
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
-   --model_name_or_path $MODEL_PATH \
+   --model_name_or_path $2 \
    --data_dir CL_Benchmark \
-   --task_order $TASK_ORDER \
+   --task_order task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification \
    --task_config_dir configs/gen_script_superni_order2_t5_configs/task748_glucose_reverse_cause_event_detection \
-   --output_dir $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection \
+   --output_dir logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
-   --run_name $RUN_NAME \
+   --run_name superni_order2_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
@@ -66,44 +96,48 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
-   --lora_r 8 \
+   --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
    --load_best_model_at_end \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
-   --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
+   --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
-   $FP16_FLAG \
-   $SRT_FLAGS \
-   
+   --kl_ratio 0.5 \
+   --attn_temperature 1 \
+   $SRT_FLAGS
 
-rm -rf $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/checkpoint*
-sleep 5
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
-   --model_name_or_path $MODEL_PATH \
+   --model_name_or_path $2 \
+   --load_checkpoint_from logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights/trans_input.pt \
+   --previous_lora_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights \
+   --previous_prompt_key_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights/prompts_keys_till_now.pt \
    --data_dir CL_Benchmark \
-   --load_checkpoint_from $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights/trans_input.pt \
-   --previous_lora_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights \
-   --previous_prompt_key_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights/prompts_keys_till_now.pt \
-   --task_order $TASK_ORDER \
+   --task_order task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order2_t5_configs/task073_commonsenseqa_answer_generation \
-   --output_dir $BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation \
+   --output_dir logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
-   --run_name $RUN_NAME \
+   --run_name superni_order2_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
@@ -115,48 +149,54 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
-   --metric_for_best_model eval_rougeL \
+   --metric_for_best_model eval_rougeL_for_task073_commonsenseqa_answer_generation \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
-   --lora_r 8 \
+   --load_best_model_at_end \
+   --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --load_best_model_at_end \
+   --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
-   --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
+   --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
-   $FP16_FLAG \
+   --kl_ratio 0.5 \
+   --attn_temperature 1 \
    $SRT_FLAGS \
-   --srt_load_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights
+   --srt_load_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights
 
-rm -rf $BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/checkpoint*
-sleep 5
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
-   --model_name_or_path $MODEL_PATH \
+   --model_name_or_path $2 \
+   --load_checkpoint_from logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights/trans_input.pt \
+   --previous_lora_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights \
+   --previous_prompt_key_path logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights/prompts_keys_till_now.pt \
    --data_dir CL_Benchmark \
-   --load_checkpoint_from $BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights/trans_input.pt \
-   --previous_lora_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights \
-   --previous_prompt_key_path $BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights/prompts_keys_till_now.pt \
-   --task_order $TASK_ORDER \
+   --task_order task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order2_t5_configs/task1590_diplomacy_text_generation \
-   --output_dir $BASE_OUT/outputs/3-task1590_diplomacy_text_generation \
+   --output_dir logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
-   --run_name $RUN_NAME \
+   --run_name superni_order2_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
@@ -168,48 +208,54 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
-   --metric_for_best_model eval_rougeL \
+   --metric_for_best_model eval_rougeL_for_task1590_diplomacy_text_generation \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
-   --lora_r 8 \
+   --load_best_model_at_end \
+   --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --load_best_model_at_end \
+   --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
-   --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
+   --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
-   $FP16_FLAG \
+   --kl_ratio 0.5 \
+   --attn_temperature 1 \
    $SRT_FLAGS \
-   --srt_load_path $BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights
+   --srt_load_path logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights
 
-rm -rf $BASE_OUT/outputs/3-task1590_diplomacy_text_generation/checkpoint*
-sleep 5
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
-   --model_name_or_path $MODEL_PATH \
+   --model_name_or_path $2 \
+   --load_checkpoint_from logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation/saved_weights/trans_input.pt \
+   --previous_lora_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation/saved_weights \
+   --previous_prompt_key_path logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation/saved_weights/prompts_keys_till_now.pt \
    --data_dir CL_Benchmark \
-   --load_checkpoint_from $BASE_OUT/outputs/3-task1590_diplomacy_text_generation/saved_weights/trans_input.pt \
-   --previous_lora_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/3-task1590_diplomacy_text_generation/saved_weights \
-   --previous_prompt_key_path $BASE_OUT/outputs/3-task1590_diplomacy_text_generation/saved_weights/prompts_keys_till_now.pt \
-   --task_order $TASK_ORDER \
+   --task_order task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order2_t5_configs/task639_multi_woz_user_utterance_generation \
-   --output_dir $BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation \
+   --output_dir logs_and_outputs/superni_order2_t5_srt/outputs/4-task639_multi_woz_user_utterance_generation \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
-   --run_name $RUN_NAME \
+   --run_name superni_order2_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
@@ -221,48 +267,54 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
-   --metric_for_best_model eval_rougeL \
+   --metric_for_best_model eval_rougeL_for_task639_multi_woz_user_utterance_generation \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
-   --lora_r 8 \
+   --load_best_model_at_end \
+   --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --load_best_model_at_end \
+   --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
-   --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
+   --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
-   $FP16_FLAG \
+   --kl_ratio 0.5 \
+   --attn_temperature 1 \
    $SRT_FLAGS \
-   --srt_load_path $BASE_OUT/outputs/3-task1590_diplomacy_text_generation/saved_weights
+   --srt_load_path logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation/saved_weights
 
-rm -rf $BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation/checkpoint*
-sleep 5
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
-   --model_name_or_path $MODEL_PATH \
+   --model_name_or_path $2 \
+   --load_checkpoint_from logs_and_outputs/superni_order2_t5_srt/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights/trans_input.pt \
+   --previous_lora_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights \
+   --previous_prompt_key_path logs_and_outputs/superni_order2_t5_srt/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights/prompts_keys_till_now.pt \
    --data_dir CL_Benchmark \
-   --load_checkpoint_from $BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights/trans_input.pt \
-   --previous_lora_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/3-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights \
-   --previous_prompt_key_path $BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights/prompts_keys_till_now.pt \
-   --task_order $TASK_ORDER \
+   --task_order task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order2_t5_configs/task1572_samsum_summary \
-   --output_dir $BASE_OUT/outputs/5-task1572_samsum_summary \
+   --output_dir logs_and_outputs/superni_order2_t5_srt/outputs/5-task1572_samsum_summary \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
-   --run_name $RUN_NAME \
+   --run_name superni_order2_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
@@ -274,48 +326,54 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
-   --metric_for_best_model eval_rougeL \
+   --metric_for_best_model eval_rougeL_for_task1572_samsum_summary \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
-   --lora_r 8 \
+   --load_best_model_at_end \
+   --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --load_best_model_at_end \
+   --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
-   --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
+   --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
-   $FP16_FLAG \
+   --kl_ratio 0.5 \
+   --attn_temperature 1 \
    $SRT_FLAGS \
-   --srt_load_path $BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights
+   --srt_load_path logs_and_outputs/superni_order2_t5_srt/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights
 
-rm -rf $BASE_OUT/outputs/5-task1572_samsum_summary/checkpoint*
-sleep 5
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
-   --model_name_or_path $MODEL_PATH \
+   --model_name_or_path $2 \
+   --load_checkpoint_from logs_and_outputs/superni_order2_t5_srt/outputs/5-task1572_samsum_summary/saved_weights/trans_input.pt \
+   --previous_lora_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/5-task1572_samsum_summary/saved_weights \
+   --previous_prompt_key_path logs_and_outputs/superni_order2_t5_srt/outputs/5-task1572_samsum_summary/saved_weights/prompts_keys_till_now.pt \
    --data_dir CL_Benchmark \
-   --load_checkpoint_from $BASE_OUT/outputs/5-task1572_samsum_summary/saved_weights/trans_input.pt \
-   --previous_lora_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/3-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/5-task1572_samsum_summary/saved_weights \
-   --previous_prompt_key_path $BASE_OUT/outputs/5-task1572_samsum_summary/saved_weights/prompts_keys_till_now.pt \
-   --task_order $TASK_ORDER \
+   --task_order task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order2_t5_configs/task1687_sentiment140_classification \
-   --output_dir $BASE_OUT/outputs/6-task1687_sentiment140_classification \
+   --output_dir logs_and_outputs/superni_order2_t5_srt/outputs/6-task1687_sentiment140_classification \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
-   --run_name $RUN_NAME \
+   --run_name superni_order2_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
@@ -327,48 +385,54 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
-   --metric_for_best_model eval_exact_match \
+   --metric_for_best_model eval_rougeL_for_task1687_sentiment140_classification \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
-   --lora_r 8 \
+   --load_best_model_at_end \
+   --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --load_best_model_at_end \
+   --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
-   --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
+   --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
-   $FP16_FLAG \
+   --kl_ratio 0.5 \
+   --attn_temperature 1 \
    $SRT_FLAGS \
-   --srt_load_path $BASE_OUT/outputs/5-task1572_samsum_summary/saved_weights
+   --srt_load_path logs_and_outputs/superni_order2_t5_srt/outputs/5-task1572_samsum_summary/saved_weights
 
-rm -rf $BASE_OUT/outputs/6-task1687_sentiment140_classification/checkpoint*
-sleep 5
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
-   --model_name_or_path $MODEL_PATH \
+   --model_name_or_path $2 \
+   --load_checkpoint_from logs_and_outputs/superni_order2_t5_srt/outputs/6-task1687_sentiment140_classification/saved_weights/trans_input.pt \
+   --previous_lora_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/5-task1572_samsum_summary/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/6-task1687_sentiment140_classification/saved_weights \
+   --previous_prompt_key_path logs_and_outputs/superni_order2_t5_srt/outputs/6-task1687_sentiment140_classification/saved_weights/prompts_keys_till_now.pt \
    --data_dir CL_Benchmark \
-   --load_checkpoint_from $BASE_OUT/outputs/6-task1687_sentiment140_classification/saved_weights/trans_input.pt \
-   --previous_lora_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/3-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/5-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/6-task1687_sentiment140_classification/saved_weights \
-   --previous_prompt_key_path $BASE_OUT/outputs/6-task1687_sentiment140_classification/saved_weights/prompts_keys_till_now.pt \
-   --task_order $TASK_ORDER \
+   --task_order task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order2_t5_configs/task591_sciq_answer_generation \
-   --output_dir $BASE_OUT/outputs/7-task591_sciq_answer_generation \
+   --output_dir logs_and_outputs/superni_order2_t5_srt/outputs/7-task591_sciq_answer_generation \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
-   --run_name $RUN_NAME \
+   --run_name superni_order2_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
@@ -380,48 +444,54 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
-   --metric_for_best_model eval_rougeL \
+   --metric_for_best_model eval_rougeL_for_task591_sciq_answer_generation \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
-   --lora_r 8 \
+   --load_best_model_at_end \
+   --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --load_best_model_at_end \
+   --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
-   --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
+   --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
-   $FP16_FLAG \
+   --kl_ratio 0.5 \
+   --attn_temperature 1 \
    $SRT_FLAGS \
-   --srt_load_path $BASE_OUT/outputs/6-task1687_sentiment140_classification/saved_weights
+   --srt_load_path logs_and_outputs/superni_order2_t5_srt/outputs/6-task1687_sentiment140_classification/saved_weights
 
-rm -rf $BASE_OUT/outputs/7-task591_sciq_answer_generation/checkpoint*
-sleep 5
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
-   --model_name_or_path $MODEL_PATH \
+   --model_name_or_path $2 \
+   --load_checkpoint_from logs_and_outputs/superni_order2_t5_srt/outputs/7-task591_sciq_answer_generation/saved_weights/trans_input.pt \
+   --previous_lora_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/5-task1572_samsum_summary/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/6-task1687_sentiment140_classification/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/7-task591_sciq_answer_generation/saved_weights \
+   --previous_prompt_key_path logs_and_outputs/superni_order2_t5_srt/outputs/7-task591_sciq_answer_generation/saved_weights/prompts_keys_till_now.pt \
    --data_dir CL_Benchmark \
-   --load_checkpoint_from $BASE_OUT/outputs/7-task591_sciq_answer_generation/saved_weights/trans_input.pt \
-   --previous_lora_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/3-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/5-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/6-task1687_sentiment140_classification/saved_weights,$BASE_OUT/outputs/7-task591_sciq_answer_generation/saved_weights \
-   --previous_prompt_key_path $BASE_OUT/outputs/7-task591_sciq_answer_generation/saved_weights/prompts_keys_till_now.pt \
-   --task_order $TASK_ORDER \
+   --task_order task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order2_t5_configs/task363_sst2_polarity_classification \
-   --output_dir $BASE_OUT/outputs/8-task363_sst2_polarity_classification \
+   --output_dir logs_and_outputs/superni_order2_t5_srt/outputs/8-task363_sst2_polarity_classification \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
-   --run_name $RUN_NAME \
+   --run_name superni_order2_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
@@ -433,48 +503,54 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
-   --metric_for_best_model eval_exact_match \
+   --metric_for_best_model eval_rougeL_for_task363_sst2_polarity_classification \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
-   --lora_r 8 \
+   --load_best_model_at_end \
+   --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --load_best_model_at_end \
+   --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
-   --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
+   --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
-   $FP16_FLAG \
+   --kl_ratio 0.5 \
+   --attn_temperature 1 \
    $SRT_FLAGS \
-   --srt_load_path $BASE_OUT/outputs/7-task591_sciq_answer_generation/saved_weights
+   --srt_load_path logs_and_outputs/superni_order2_t5_srt/outputs/7-task591_sciq_answer_generation/saved_weights
 
-rm -rf $BASE_OUT/outputs/8-task363_sst2_polarity_classification/checkpoint*
-sleep 5
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
-   --model_name_or_path $MODEL_PATH \
+   --model_name_or_path $2 \
+   --load_checkpoint_from logs_and_outputs/superni_order2_t5_srt/outputs/8-task363_sst2_polarity_classification/saved_weights/trans_input.pt \
+   --previous_lora_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/5-task1572_samsum_summary/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/6-task1687_sentiment140_classification/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/7-task591_sciq_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/8-task363_sst2_polarity_classification/saved_weights \
+   --previous_prompt_key_path logs_and_outputs/superni_order2_t5_srt/outputs/8-task363_sst2_polarity_classification/saved_weights/prompts_keys_till_now.pt \
    --data_dir CL_Benchmark \
-   --load_checkpoint_from $BASE_OUT/outputs/8-task363_sst2_polarity_classification/saved_weights/trans_input.pt \
-   --previous_lora_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/3-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/5-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/6-task1687_sentiment140_classification/saved_weights,$BASE_OUT/outputs/7-task591_sciq_answer_generation/saved_weights,$BASE_OUT/outputs/8-task363_sst2_polarity_classification/saved_weights \
-   --previous_prompt_key_path $BASE_OUT/outputs/8-task363_sst2_polarity_classification/saved_weights/prompts_keys_till_now.pt \
-   --task_order $TASK_ORDER \
+   --task_order task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order2_t5_configs/task1510_evalution_relation_extraction \
-   --output_dir $BASE_OUT/outputs/9-task1510_evalution_relation_extraction \
+   --output_dir logs_and_outputs/superni_order2_t5_srt/outputs/9-task1510_evalution_relation_extraction \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
-   --run_name $RUN_NAME \
+   --run_name superni_order2_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
@@ -486,48 +562,54 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
-   --metric_for_best_model eval_rougeL \
+   --metric_for_best_model eval_rougeL_for_task1510_evalution_relation_extraction \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
-   --lora_r 8 \
+   --load_best_model_at_end \
+   --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --load_best_model_at_end \
+   --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
-   --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
+   --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
-   $FP16_FLAG \
+   --kl_ratio 0.5 \
+   --attn_temperature 1 \
    $SRT_FLAGS \
-   --srt_load_path $BASE_OUT/outputs/8-task363_sst2_polarity_classification/saved_weights
+   --srt_load_path logs_and_outputs/superni_order2_t5_srt/outputs/8-task363_sst2_polarity_classification/saved_weights
 
-rm -rf $BASE_OUT/outputs/9-task1510_evalution_relation_extraction/checkpoint*
-sleep 5
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
-   --model_name_or_path $MODEL_PATH \
+   --model_name_or_path $2 \
+   --load_checkpoint_from logs_and_outputs/superni_order2_t5_srt/outputs/9-task1510_evalution_relation_extraction/saved_weights/trans_input.pt \
+   --previous_lora_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/5-task1572_samsum_summary/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/6-task1687_sentiment140_classification/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/7-task591_sciq_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/8-task363_sst2_polarity_classification/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/9-task1510_evalution_relation_extraction/saved_weights \
+   --previous_prompt_key_path logs_and_outputs/superni_order2_t5_srt/outputs/9-task1510_evalution_relation_extraction/saved_weights/prompts_keys_till_now.pt \
    --data_dir CL_Benchmark \
-   --load_checkpoint_from $BASE_OUT/outputs/9-task1510_evalution_relation_extraction/saved_weights/trans_input.pt \
-   --previous_lora_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/3-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/5-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/6-task1687_sentiment140_classification/saved_weights,$BASE_OUT/outputs/7-task591_sciq_answer_generation/saved_weights,$BASE_OUT/outputs/8-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/9-task1510_evalution_relation_extraction/saved_weights \
-   --previous_prompt_key_path $BASE_OUT/outputs/9-task1510_evalution_relation_extraction/saved_weights/prompts_keys_till_now.pt \
-   --task_order $TASK_ORDER \
+   --task_order task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order2_t5_configs/task1729_personachat_generate_next \
-   --output_dir $BASE_OUT/outputs/10-task1729_personachat_generate_next \
+   --output_dir logs_and_outputs/superni_order2_t5_srt/outputs/10-task1729_personachat_generate_next \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
-   --run_name $RUN_NAME \
+   --run_name superni_order2_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
@@ -539,48 +621,54 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
-   --metric_for_best_model eval_rougeL \
+   --metric_for_best_model eval_rougeL_for_task1729_personachat_generate_next \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
-   --lora_r 8 \
+   --load_best_model_at_end \
+   --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --load_best_model_at_end \
+   --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
-   --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
+   --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
-   $FP16_FLAG \
+   --kl_ratio 0.5 \
+   --attn_temperature 1 \
    $SRT_FLAGS \
-   --srt_load_path $BASE_OUT/outputs/9-task1510_evalution_relation_extraction/saved_weights
+   --srt_load_path logs_and_outputs/superni_order2_t5_srt/outputs/9-task1510_evalution_relation_extraction/saved_weights
 
-rm -rf $BASE_OUT/outputs/10-task1729_personachat_generate_next/checkpoint*
-sleep 5
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
-   --model_name_or_path $MODEL_PATH \
+   --model_name_or_path $2 \
+   --load_checkpoint_from logs_and_outputs/superni_order2_t5_srt/outputs/10-task1729_personachat_generate_next/saved_weights/trans_input.pt \
+   --previous_lora_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/5-task1572_samsum_summary/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/6-task1687_sentiment140_classification/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/7-task591_sciq_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/8-task363_sst2_polarity_classification/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/9-task1510_evalution_relation_extraction/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/10-task1729_personachat_generate_next/saved_weights \
+   --previous_prompt_key_path logs_and_outputs/superni_order2_t5_srt/outputs/10-task1729_personachat_generate_next/saved_weights/prompts_keys_till_now.pt \
    --data_dir CL_Benchmark \
-   --load_checkpoint_from $BASE_OUT/outputs/10-task1729_personachat_generate_next/saved_weights/trans_input.pt \
-   --previous_lora_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/3-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/5-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/6-task1687_sentiment140_classification/saved_weights,$BASE_OUT/outputs/7-task591_sciq_answer_generation/saved_weights,$BASE_OUT/outputs/8-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/9-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/10-task1729_personachat_generate_next/saved_weights \
-   --previous_prompt_key_path $BASE_OUT/outputs/10-task1729_personachat_generate_next/saved_weights/prompts_keys_till_now.pt \
-   --task_order $TASK_ORDER \
+   --task_order task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order2_t5_configs/task181_outcome_extraction \
-   --output_dir $BASE_OUT/outputs/11-task181_outcome_extraction \
+   --output_dir logs_and_outputs/superni_order2_t5_srt/outputs/11-task181_outcome_extraction \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
-   --run_name $RUN_NAME \
+   --run_name superni_order2_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
@@ -592,48 +680,54 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
-   --metric_for_best_model eval_rougeL \
+   --metric_for_best_model eval_rougeL_for_task181_outcome_extraction \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
-   --lora_r 8 \
+   --load_best_model_at_end \
+   --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --load_best_model_at_end \
+   --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
-   --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
+   --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
-   $FP16_FLAG \
+   --kl_ratio 0.5 \
+   --attn_temperature 1 \
    $SRT_FLAGS \
-   --srt_load_path $BASE_OUT/outputs/10-task1729_personachat_generate_next/saved_weights
+   --srt_load_path logs_and_outputs/superni_order2_t5_srt/outputs/10-task1729_personachat_generate_next/saved_weights
 
-rm -rf $BASE_OUT/outputs/11-task181_outcome_extraction/checkpoint*
-sleep 5
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
-   --model_name_or_path $MODEL_PATH \
+   --model_name_or_path $2 \
+   --load_checkpoint_from logs_and_outputs/superni_order2_t5_srt/outputs/11-task181_outcome_extraction/saved_weights/trans_input.pt \
+   --previous_lora_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/5-task1572_samsum_summary/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/6-task1687_sentiment140_classification/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/7-task591_sciq_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/8-task363_sst2_polarity_classification/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/9-task1510_evalution_relation_extraction/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/10-task1729_personachat_generate_next/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/11-task181_outcome_extraction/saved_weights \
+   --previous_prompt_key_path logs_and_outputs/superni_order2_t5_srt/outputs/11-task181_outcome_extraction/saved_weights/prompts_keys_till_now.pt \
    --data_dir CL_Benchmark \
-   --load_checkpoint_from $BASE_OUT/outputs/11-task181_outcome_extraction/saved_weights/trans_input.pt \
-   --previous_lora_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/3-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/5-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/6-task1687_sentiment140_classification/saved_weights,$BASE_OUT/outputs/7-task591_sciq_answer_generation/saved_weights,$BASE_OUT/outputs/8-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/9-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/10-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/11-task181_outcome_extraction/saved_weights \
-   --previous_prompt_key_path $BASE_OUT/outputs/11-task181_outcome_extraction/saved_weights/prompts_keys_till_now.pt \
-   --task_order $TASK_ORDER \
+   --task_order task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order2_t5_configs/task511_reddit_tifu_long_text_summarization \
-   --output_dir $BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization \
+   --output_dir logs_and_outputs/superni_order2_t5_srt/outputs/12-task511_reddit_tifu_long_text_summarization \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
-   --run_name $RUN_NAME \
+   --run_name superni_order2_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
@@ -645,48 +739,54 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
-   --metric_for_best_model eval_rougeL \
+   --metric_for_best_model eval_rougeL_for_task511_reddit_tifu_long_text_summarization \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
-   --lora_r 8 \
+   --load_best_model_at_end \
+   --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --load_best_model_at_end \
+   --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
-   --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
+   --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
-   $FP16_FLAG \
+   --kl_ratio 0.5 \
+   --attn_temperature 1 \
    $SRT_FLAGS \
-   --srt_load_path $BASE_OUT/outputs/11-task181_outcome_extraction/saved_weights
+   --srt_load_path logs_and_outputs/superni_order2_t5_srt/outputs/11-task181_outcome_extraction/saved_weights
 
-rm -rf $BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/checkpoint*
-sleep 5
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
-   --model_name_or_path $MODEL_PATH \
+   --model_name_or_path $2 \
+   --load_checkpoint_from logs_and_outputs/superni_order2_t5_srt/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights/trans_input.pt \
+   --previous_lora_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/5-task1572_samsum_summary/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/6-task1687_sentiment140_classification/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/7-task591_sciq_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/8-task363_sst2_polarity_classification/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/9-task1510_evalution_relation_extraction/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/10-task1729_personachat_generate_next/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/11-task181_outcome_extraction/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights \
+   --previous_prompt_key_path logs_and_outputs/superni_order2_t5_srt/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights/prompts_keys_till_now.pt \
    --data_dir CL_Benchmark \
-   --load_checkpoint_from $BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights/trans_input.pt \
-   --previous_lora_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/3-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/5-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/6-task1687_sentiment140_classification/saved_weights,$BASE_OUT/outputs/7-task591_sciq_answer_generation/saved_weights,$BASE_OUT/outputs/8-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/9-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/10-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/11-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights \
-   --previous_prompt_key_path $BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights/prompts_keys_till_now.pt \
-   --task_order $TASK_ORDER \
+   --task_order task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order2_t5_configs/task002_quoref_answer_generation \
-   --output_dir $BASE_OUT/outputs/13-task002_quoref_answer_generation \
+   --output_dir logs_and_outputs/superni_order2_t5_srt/outputs/13-task002_quoref_answer_generation \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
-   --run_name $RUN_NAME \
+   --run_name superni_order2_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
@@ -698,48 +798,54 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
-   --metric_for_best_model eval_rougeL \
+   --metric_for_best_model eval_rougeL_for_task002_quoref_answer_generation \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
-   --lora_r 8 \
+   --load_best_model_at_end \
+   --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --load_best_model_at_end \
+   --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
-   --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
+   --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
-   $FP16_FLAG \
+   --kl_ratio 0.5 \
+   --attn_temperature 1 \
    $SRT_FLAGS \
-   --srt_load_path $BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights
+   --srt_load_path logs_and_outputs/superni_order2_t5_srt/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights
 
-rm -rf $BASE_OUT/outputs/13-task002_quoref_answer_generation/checkpoint*
-sleep 5
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
-   --model_name_or_path $MODEL_PATH \
+   --model_name_or_path $2 \
+   --load_checkpoint_from logs_and_outputs/superni_order2_t5_srt/outputs/13-task002_quoref_answer_generation/saved_weights/trans_input.pt \
+   --previous_lora_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/5-task1572_samsum_summary/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/6-task1687_sentiment140_classification/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/7-task591_sciq_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/8-task363_sst2_polarity_classification/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/9-task1510_evalution_relation_extraction/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/10-task1729_personachat_generate_next/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/11-task181_outcome_extraction/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/13-task002_quoref_answer_generation/saved_weights \
+   --previous_prompt_key_path logs_and_outputs/superni_order2_t5_srt/outputs/13-task002_quoref_answer_generation/saved_weights/prompts_keys_till_now.pt \
    --data_dir CL_Benchmark \
-   --load_checkpoint_from $BASE_OUT/outputs/13-task002_quoref_answer_generation/saved_weights/trans_input.pt \
-   --previous_lora_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/3-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/5-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/6-task1687_sentiment140_classification/saved_weights,$BASE_OUT/outputs/7-task591_sciq_answer_generation/saved_weights,$BASE_OUT/outputs/8-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/9-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/10-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/11-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights,$BASE_OUT/outputs/13-task002_quoref_answer_generation/saved_weights \
-   --previous_prompt_key_path $BASE_OUT/outputs/13-task002_quoref_answer_generation/saved_weights/prompts_keys_till_now.pt \
-   --task_order $TASK_ORDER \
+   --task_order task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order2_t5_configs/task1290_xsum_summarization \
-   --output_dir $BASE_OUT/outputs/14-task1290_xsum_summarization \
+   --output_dir logs_and_outputs/superni_order2_t5_srt/outputs/14-task1290_xsum_summarization \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
-   --run_name $RUN_NAME \
+   --run_name superni_order2_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
@@ -751,48 +857,54 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
-   --metric_for_best_model eval_rougeL \
+   --metric_for_best_model eval_rougeL_for_task1290_xsum_summarization \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
-   --lora_r 8 \
+   --load_best_model_at_end \
+   --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --load_best_model_at_end \
+   --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
-   --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
+   --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
-   $FP16_FLAG \
+   --kl_ratio 0.5 \
+   --attn_temperature 1 \
    $SRT_FLAGS \
-   --srt_load_path $BASE_OUT/outputs/13-task002_quoref_answer_generation/saved_weights
+   --srt_load_path logs_and_outputs/superni_order2_t5_srt/outputs/13-task002_quoref_answer_generation/saved_weights
 
-rm -rf $BASE_OUT/outputs/14-task1290_xsum_summarization/checkpoint*
-sleep 5
+
+if [ "$GPU_MODE" = "t4_2gpu" ]; then
+    BSZ=2; GA=4; EVAL_BSZ=16
+elif [ "$GPU_MODE" = "t4_1gpu" ]; then
+    BSZ=4; GA=8; EVAL_BSZ=16
+else
+    BSZ=16; GA=2; EVAL_BSZ=128
+fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
    --predict_with_generate \
-   --model_name_or_path $MODEL_PATH \
+   --model_name_or_path $2 \
+   --load_checkpoint_from logs_and_outputs/superni_order2_t5_srt/outputs/14-task1290_xsum_summarization/saved_weights/trans_input.pt \
+   --previous_lora_path logs_and_outputs/superni_order2_t5_srt/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/3-task1590_diplomacy_text_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/5-task1572_samsum_summary/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/6-task1687_sentiment140_classification/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/7-task591_sciq_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/8-task363_sst2_polarity_classification/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/9-task1510_evalution_relation_extraction/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/10-task1729_personachat_generate_next/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/11-task181_outcome_extraction/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/13-task002_quoref_answer_generation/saved_weights,logs_and_outputs/superni_order2_t5_srt/outputs/14-task1290_xsum_summarization/saved_weights \
+   --previous_prompt_key_path logs_and_outputs/superni_order2_t5_srt/outputs/14-task1290_xsum_summarization/saved_weights/prompts_keys_till_now.pt \
    --data_dir CL_Benchmark \
-   --load_checkpoint_from $BASE_OUT/outputs/14-task1290_xsum_summarization/saved_weights/trans_input.pt \
-   --previous_lora_path $BASE_OUT/outputs/1-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/2-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/3-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/4-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/5-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/6-task1687_sentiment140_classification/saved_weights,$BASE_OUT/outputs/7-task591_sciq_answer_generation/saved_weights,$BASE_OUT/outputs/8-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/9-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/10-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/11-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights,$BASE_OUT/outputs/13-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/14-task1290_xsum_summarization/saved_weights \
-   --previous_prompt_key_path $BASE_OUT/outputs/14-task1290_xsum_summarization/saved_weights/prompts_keys_till_now.pt \
-   --task_order $TASK_ORDER \
+   --task_order task748_glucose_reverse_cause_event_detection,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task639_multi_woz_user_utterance_generation,task1572_samsum_summary,task1687_sentiment140_classification,task591_sciq_answer_generation,task363_sst2_polarity_classification,task1510_evalution_relation_extraction,task1729_personachat_generate_next,task181_outcome_extraction,task511_reddit_tifu_long_text_summarization,task002_quoref_answer_generation,task1290_xsum_summarization,task875_emotion_classification \
    --gen_data_dir generated_data/lora_gen_superni_t5 \
    --task_config_dir configs/gen_script_superni_order2_t5_configs/task875_emotion_classification \
-   --output_dir $BASE_OUT/outputs/15-task875_emotion_classification \
+   --output_dir logs_and_outputs/superni_order2_t5_srt/outputs/15-task875_emotion_classification \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
    --num_train_epochs 100 \
-   --run_name $RUN_NAME \
+   --run_name superni_order2_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
@@ -804,26 +916,24 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
-   --metric_for_best_model eval_exact_match \
+   --metric_for_best_model eval_rougeL_for_task875_emotion_classification \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
-   --lora_r 8 \
+   --load_best_model_at_end \
+   --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --load_best_model_at_end \
+   --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
-   --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
    --model_name gainlora_inflora \
+   --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
-   $FP16_FLAG \
+   --kl_ratio 0.5 \
+   --attn_temperature 1 \
    $SRT_FLAGS \
-   --srt_load_path $BASE_OUT/outputs/14-task1290_xsum_summarization/saved_weights
+   --srt_load_path logs_and_outputs/superni_order2_t5_srt/outputs/14-task1290_xsum_summarization/saved_weights
 
-rm -rf $BASE_OUT/outputs/15-task875_emotion_classification/checkpoint*
-sleep 5
-echo "[DONE] All 15 tasks complete. Run: python score.py $RUN_NAME $RUN_NAME"
+python score.py superni_order2_t5_srt superni_order2_t5_srt
