@@ -307,6 +307,7 @@ class TaskSignature:
         alpha: float = 0.0,
         Sigma_raw: Optional[np.ndarray] = None,
         h_train: Optional[np.ndarray] = None,
+        mu_raw: Optional[np.ndarray] = None,
     ):
         self.task_id = task_id
         self.mu = mu.astype(np.float64)
@@ -316,6 +317,7 @@ class TaskSignature:
         self.n = n
         self.alpha = alpha
         self._h_train = h_train.astype(np.float64) if h_train is not None else None
+        self.mu_raw = mu_raw.astype(np.float64) if mu_raw is not None else mu.astype(np.float64).copy()
         self._metric = metric
 
         # Cached decompositions
@@ -395,15 +397,20 @@ class TaskSignature:
                 return metric_psr(h, self.mu, self.eigvecs[:, :k], self.eigvals[:k], self.d)
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             'task_id': self.task_id,
             'mu': self.mu,
             'Sigma': self.Sigma,
             'Sigma_raw': self.Sigma_raw,
+            'mu_raw': self.mu_raw,
             'n': self.n,
             'metric': self.metric,
             'alpha': self.alpha,
         }
+        # Hard mode needs raw embeddings for ZCA refit on future tasks
+        if self._h_train is not None:
+            d['h_train'] = self._h_train
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> 'TaskSignature':
@@ -415,6 +422,8 @@ class TaskSignature:
             metric=d.get('metric', 'l2'),
             alpha=d.get('alpha', 0.0),
             Sigma_raw=d.get('Sigma_raw', d['Sigma']),
+            h_train=d.get('h_train'),
+            mu_raw=d.get('mu_raw'),
         )
 
 
@@ -540,8 +549,18 @@ class SRTRouter:
         # ── [hard mode] ZCA whitening ────────────────────────────────────
         if self.srt_metric_mode == 'hard':
             # Fit ZCA on all RAW embeddings + current batch
-            all_h = [sig._h_train for sig in self.signatures.values()] + [h_train]
-            all_h = np.vstack(all_h)
+            # _h_train is persisted in to_dict/from_dict for cross-invocation support
+            all_h_parts = []
+            for sig in self.signatures.values():
+                if sig._h_train is None:
+                    raise RuntimeError(
+                        f"[SRT] Task {sig.task_id} has no _h_train! This means signatures "
+                        f"were loaded from an old checkpoint that didn't save raw embeddings. "
+                        f"Re-run training from task 1 to regenerate signatures."
+                    )
+                all_h_parts.append(sig._h_train)
+            all_h_parts.append(h_train)
+            all_h = np.vstack(all_h_parts)
             self._mu_global, self._W_zca = compute_whitening({0: all_h})
 
             # Re-whiten all existing signatures FROM RAW (avoid compounding)
@@ -550,9 +569,8 @@ class SRTRouter:
             # Note: _reshrink_all() already reset sig.Sigma from Sigma_raw
             # (line 365), so sig.Sigma is now reshrunk-but-unwhitened.
             for sig in self.signatures.values():
-                raw_mu = sig._h_train.mean(axis=0)
                 reshrunk_Sigma = sig.Sigma  # post-reshrink, pre-whitening
-                sig.mu = apply_whitening(raw_mu.reshape(1, -1), self._mu_global, self._W_zca).ravel()
+                sig.mu = apply_whitening(sig.mu_raw.reshape(1, -1), self._mu_global, self._W_zca).ravel()
                 sig.Sigma = self._W_zca @ reshrunk_Sigma @ self._W_zca.T
                 sig._eigvals = None; sig._eigvecs = None
                 sig._Sinv = None; sig._par = None
@@ -570,6 +588,7 @@ class SRTRouter:
                 metric='l2',
                 Sigma_raw=Sigma_t,   # keep raw for re-whitening on next task
                 h_train=h_train,
+                mu_raw=mu_t,         # keep unwhitened centroid for ZCA refit
             )
             self.signatures[task_id] = sig
 
@@ -586,6 +605,7 @@ class SRTRouter:
                 metric='l2',  # temporary, will be overwritten by SRM below
                 Sigma_raw=Sigma_t,
                 h_train=h_train,
+                mu_raw=mu_t,
             )
             self.signatures[task_id] = sig
 
@@ -637,36 +657,44 @@ class SRTRouter:
     # ── Save / Load ───────────────────────────────────────────────────
 
     def save(self, path: str):
-        """Save all signatures to disk (zero-rehearsal compliant)."""
+        """Save all signatures to disk."""
         sigs_data = {k: v.to_dict() for k, v in self.signatures.items()}
         np.savez_compressed(
             path,
             signatures=sigs_data,
-            mu_pool=self._mu_pool if self._mu_pool is not None else np.zeros(1),
-            Sigma_pool=self._Sigma_pool if self._Sigma_pool is not None else np.zeros((1, 1)),
+            mu_pool=self._mu_pool if self._mu_pool is not None else np.array([]),
+            Sigma_pool=self._Sigma_pool if self._Sigma_pool is not None else np.array([]),
             n_pool=np.array([self._n_pool]),
             srt_metric_mode=self.srt_metric_mode,
-            mu_global=self._mu_global if self._mu_global is not None else np.zeros(1),
-            W_zca=self._W_zca if self._W_zca is not None else np.zeros((1, 1)),
+            use_shrink=np.array([self.use_shrink]),
+            shrink_factor=np.array([self.shrink_factor]),
+            mu_global=self._mu_global if self._mu_global is not None else np.array([]),
+            W_zca=self._W_zca if self._W_zca is not None else np.array([]),
         )
 
     def load(self, path: str):
         """Load signatures from disk."""
         data = np.load(path, allow_pickle=True)
         self.srt_metric_mode = str(data.get('srt_metric_mode', 'hard'))
-        self._mu_pool = data['mu_pool']
-        if self._mu_pool.shape[0] == 1 and self._mu_pool[0] == 0:
-            self._mu_pool = None
-        self._Sigma_pool = data['Sigma_pool']
-        if self._Sigma_pool.shape[0] == 1:
-            self._Sigma_pool = None
+
+        # Restore pooled statistics (empty array = None sentinel)
+        mu_p = data['mu_pool']
+        self._mu_pool = mu_p if mu_p.size > 0 else None
+        Sigma_p = data['Sigma_pool']
+        self._Sigma_pool = Sigma_p if Sigma_p.size > 0 else None
         self._n_pool = int(data['n_pool'][0])
 
-        # ZCA whitening
-        mu_g = data.get('mu_global', None)
-        W_z = data.get('W_zca', None)
-        self._mu_global = None if (mu_g is None or mu_g.shape[0] == 1) else mu_g
-        self._W_zca = None if (W_z is None or W_z.shape[0] == 1) else W_z
+        # Restore shrink settings
+        if 'use_shrink' in data:
+            self.use_shrink = bool(data['use_shrink'][0])
+        if 'shrink_factor' in data:
+            self.shrink_factor = float(data['shrink_factor'][0])
+
+        # ZCA whitening (empty array = None sentinel)
+        mu_g = data.get('mu_global', np.array([]))
+        W_z = data.get('W_zca', np.array([]))
+        self._mu_global = mu_g if mu_g.size > 0 else None
+        self._W_zca = W_z if W_z.size > 0 else None
 
         for k, v in data['signatures'].item().items():
             self.signatures[k] = TaskSignature.from_dict(v)
