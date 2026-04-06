@@ -539,19 +539,23 @@ class SRTRouter:
 
         # ── [hard mode] ZCA whitening ────────────────────────────────────
         if self.srt_metric_mode == 'hard':
-            # Fit ZCA on all stored embeddings + current batch
-            # Wait until ≥2 tasks to have meaningful pooled covariance
+            # Fit ZCA on all RAW embeddings + current batch
             all_h = [sig._h_train for sig in self.signatures.values()] + [h_train]
             all_h = np.vstack(all_h)
-            self._mu_global, self._W_zca = compute_whitening({i: all_h})
+            self._mu_global, self._W_zca = compute_whitening({0: all_h})
 
-            # Whiten all existing signatures
+            # Re-whiten all existing signatures FROM RAW (avoid compounding)
+            # BUG #25 fix: old signatures already had whitened μ/Σ from
+            # previous add_task call. Must whiten from unwhitened values.
+            # Note: _reshrink_all() already reset sig.Sigma from Sigma_raw
+            # (line 365), so sig.Sigma is now reshrunk-but-unwhitened.
             for sig in self.signatures.values():
-                sig.mu = apply_whitening(sig.mu.reshape(1, -1), self._mu_global, self._W_zca).ravel()
-                sig.Sigma = self._W_zca @ sig.Sigma @ self._W_zca.T
+                raw_mu = sig._h_train.mean(axis=0)
+                reshrunk_Sigma = sig.Sigma  # post-reshrink, pre-whitening
+                sig.mu = apply_whitening(raw_mu.reshape(1, -1), self._mu_global, self._W_zca).ravel()
+                sig.Sigma = self._W_zca @ reshrunk_Sigma @ self._W_zca.T
                 sig._eigvals = None; sig._eigvecs = None
                 sig._Sinv = None; sig._par = None
-                # In hard mode: ALL tasks use L2 (Whitened L2 = Pooled Mahalanobis)
                 sig._metric = 'l2'
 
             # Whiten current task
@@ -564,7 +568,7 @@ class SRTRouter:
             sig = TaskSignature(
                 task_id, mu_t_w, Sigma_t_w, n_t,
                 metric='l2',
-                Sigma_raw=Sigma_t,   # keep raw for potential re-whitening
+                Sigma_raw=Sigma_t,   # keep raw for re-whitening on next task
                 h_train=h_train,
             )
             self.signatures[task_id] = sig
