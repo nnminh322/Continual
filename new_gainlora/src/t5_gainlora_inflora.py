@@ -1329,7 +1329,10 @@ class T5Stack(T5PreTrainedModel):
                 #   (srt_n_tasks includes current task; slot count = 1 + N_prev)
                 # BUG B.2 fix: srt_task_id_to_idx built from task_order, not sorted keys
                 # BUG B.3 fix: always use mapping lookup, include pos==0 assignment
-                if self.use_srt_routing and self.srt_router is not None and self.encoder_frozen is not None:
+                # BUG #24 fix: SRT routing ONLY at inference, NOT during training.
+                #   During training, the original learned router (cal_attention) must be used
+                #   so that the current task's LoRA receives gradient via w_cur > 0.
+                if not self.training and self.use_srt_routing and self.srt_router is not None and self.encoder_frozen is not None:
                     # ── SRT FIX: Use FROZEN encoder for routing ─────────────
                     #
                     # Theory: {μ_t, Σ_t} are computed from FROZEN backbone embeddings.

@@ -2,18 +2,18 @@
 SRT Trainer: GainLoRA + SRT Router integration.
 
 Implements CONTRIBUTION_1 (SRT) routing within GainLoRA architecture.
-  - Computes {μ_t, Σ_t} during training
-  - Uses SRT metrics (L2 / Mahalanobis / PSR) for routing at inference
+  - Computes {μ_t, Σ_t} from FROZEN backbone embeddings during training
+  - Uses SRT metrics for routing at inference
   - Replaces learned MLP router with non-parametric SRT router
+
+Two modes:
+  --srt_metric_mode hard    : ZCA whitening + L2 (matches routing_analysis experiment)
+  --srt_metric_mode dynamics: SRM metric selection (matches contribution_UNIFIED)
 
 Key SRT features:
   - Zero-drift: no learnable parameters in router
-  - Metric selection by anisotropy: PaR → metric type
+  - Uses FROZEN encoder for embedding extraction (same space at train & inference)
   - Statistical signatures stored (zero-rehearsal compliant)
-
-Architecture modification:
-  Original: trans_input → prompt_key attention weights → router
-  SRT:      {μ_t, Σ_t} stored → SRT router replaces attention-based routing
 """
 
 import copy
@@ -28,7 +28,7 @@ from typing import Dict, Union, Any, Tuple, List, Optional
 from cl_trainer_gainlora_inflora import GainLoRA_InfLoRA_Trainer
 
 try:
-    from srt_router import SRTRouter, TaskSignature, metric_l2, metric_mahalanobis, metric_psr
+    from srt_router import SRTRouter, TaskSignature
 except ImportError:
     import sys
     sys.path.insert(0, os.path.dirname(__file__))
@@ -36,7 +36,7 @@ except ImportError:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  ATTENTION-BASED ROUTING → SRT ROUTING SWAP
+#  EMBEDDING EXTRACTION — FROZEN ENCODER
 # ─────────────────────────────────────────────────────────────────────────────
 
 def extract_embeddings_from_batch(model, inputs: Dict) -> torch.Tensor:
@@ -68,7 +68,7 @@ def extract_embeddings_from_batch(model, inputs: Dict) -> torch.Tensor:
 
     with torch.no_grad():
         # Use FROZEN encoder — same as routing_analysis experiment
-        if hasattr(model, 'encoder') and hasattr(model.encoder, 'encoder_frozen') and model.encoder.encoder_frozen is not None:
+        if hasattr(model, 'encoder') and hasattr(model.encoder, 'encoder_frozen'):
             frozen_enc = model.encoder.encoder_frozen
             enc_out = frozen_enc(
                 input_ids=input_ids,
@@ -80,7 +80,6 @@ def extract_embeddings_from_batch(model, inputs: Dict) -> torch.Tensor:
                 hidden = enc_out[0]
         else:
             # Fallback: model is a bare T5EncoderModel (no gainlora wrapper)
-            # This case is for backward compatibility / standalone use.
             enc_out = model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -116,11 +115,9 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
       3. At inference: SRT router replaces attention-based routing
       4. SRT router persists across tasks (no drift)
 
-    SRT args:
-      srt_whiten:       use ZCA-whitened L2 (equivalen to pooled Mahalanobis)
-      srt_shrink:        apply Ledoit-Wolf shrinkage to covariance
-      srt_shrink_factor: shrinkage intensity (default 0.1)
-      srt_metric:        override metric selection: 'auto' | 'l2' | 'mahalanobis' | 'psr'
+    SRT modes:
+      srt_metric_mode='hard'     : ZCA whitening + L2 (matches routing_analysis)
+      srt_metric_mode='dynamics': SRM metric selection (matches contribution_UNIFIED)
     """
 
     def __init__(
@@ -139,12 +136,11 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
         compute_metrics=None,
         callbacks=None,
         # ── SRT-specific ────────────────────────────────────────────────
-        srt_whiten: bool = False,
+        srt_metric_mode: str = 'hard',
         srt_shrink: bool = True,
         srt_shrink_factor: float = 0.1,
-        srt_metric: str = 'auto',
         srt_max_emb_samples: int = 500,
-        srt_load_path: Optional[str] = None,   # load signatures from previous checkpoint
+        srt_load_path: Optional[str] = None,
     ):
         super().__init__(
             model, args, train_dataset, cur_task_id, task_order,
@@ -152,28 +148,23 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
             eval_dataset, tokenizer, data_collator, compute_metrics, callbacks,
         )
 
-        self.srt_whiten = srt_whiten
+        self.srt_metric_mode = srt_metric_mode
         self.srt_shrink = srt_shrink
         self.srt_shrink_factor = srt_shrink_factor
-        self.srt_metric = srt_metric
         self.srt_max_emb_samples = srt_max_emb_samples
         self.srt_load_path = srt_load_path
 
-        # SRT Router: shared across all tasks (no drift)
         self.srt_router: Optional[SRTRouter] = None
         self._srt_init()
 
     def _srt_init(self):
         """Initialize SRT router (idempotent — safe to call multiple times)."""
         if self.srt_router is not None:
-            return   # already initialized
-        # Whitening (srt_whiten=True): CRITICAL for routing accuracy.
-        # Theory (Theorem 4): Whitened L2 = Pooled Mahalanobis.
-        # Without whitening, same-domain tasks are indistinguishable.
-        # SRM enabled by default for automatic metric selection.
+            return
         self.srt_router = SRTRouter(
-            use_srm=True,
-            use_whitening=self.srt_whiten,
+            srt_metric_mode=self.srt_metric_mode,
+            use_shrink=self.srt_shrink,
+            shrink_factor=self.srt_shrink_factor,
         )
         if self.srt_load_path is not None:
             self.load_srt_signatures(self.srt_load_path, wire_model=True)
@@ -181,16 +172,7 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
     # ── 1. EMBEDDING EXTRACTION ────────────────────────────────────────────
 
     def _extract_task_embeddings(self, max_samples: int = None) -> Tuple[torch.Tensor, List]:
-        """
-        Extract embeddings for the current training task.
-
-        Uses the frozen backbone forward pass to get encoder hidden states.
-        Extracts up to max_samples batches for efficiency.
-
-        Returns:
-            embeddings: (n, d) tensor on CPU
-            task_ids: list of task indices
-        """
+        """Extract embeddings for the current training task from FROZEN encoder."""
         if max_samples is None:
             max_samples = self.srt_max_emb_samples
 
@@ -206,7 +188,6 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
             inputs = self._prepare_inputs(inputs)
             h = extract_embeddings_from_batch(self.model, inputs)
             h_list.append(h.cpu())
-            # Get task IDs from batch if available
             if 'task_ids' in inputs:
                 task_ids.extend(inputs['task_ids'].tolist())
 
@@ -219,46 +200,18 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
     # ── 2. SIGMA COMPUTATION ───────────────────────────────────────────────
 
     def _compute_and_store_signature(self, task_id: int):
-        """
-        After training task t, compute its statistical signature and store in router.
-
-        Steps:
-          1. Extract training embeddings
-          2. Compute {μ_t, Σ_t} with optional shrinkage
-          3. Add to SRT router
-          4. Log SRT statistics
-        """
+        """After training task t: extract embeddings → compute {μ_t, Σ_t} → add to router."""
         if self.srt_router is None:
             self._srt_init()
 
-        # Extract embeddings
         h_train, _ = self._extract_task_embeddings(self.srt_max_emb_samples)
         if h_train.shape[0] == 0:
             print(f"  [SRT] WARNING: no embeddings extracted for task {task_id}")
             return
 
         h_np = h_train.numpy()
+        sig = self.srt_router.add_task(task_id=task_id, h_train=h_np)
 
-        # Override metric if specified
-        override_metric = None
-        if self.srt_metric != 'auto':
-            override_metric = self.srt_metric
-
-        # Compute shrinkage
-        shrink = self.srt_shrink
-
-        # Add to SRT router
-        sig = self.srt_router.add_task(
-            task_id=task_id,
-            h_train=h_np,
-            use_shrink=shrink,
-            shrink_factor=self.srt_shrink_factor,
-        )
-
-        if override_metric:
-            sig._metric = override_metric
-
-        # Log
         summary = self.srt_router.summary()
         print(f"  [SRT] Task {task_id}: PaR={sig.par:.1f}, metric={sig.metric}, "
               f"n={sig.n}, total_tasks={summary['n_tasks']}")
@@ -266,20 +219,8 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
     # ── 3. SRT ROUTING AT INFERENCE ─────────────────────────────────────────
 
     def _srt_route(self, h: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Route using SRT router (non-parametric, zero-drift).
-
-        Replaces the learned attention-based routing from GainLoRA.
-
-        Args:
-            h: (B, d) embeddings from frozen backbone
-
-        Returns:
-            task_ids: (B,) predicted task ID for each sample
-            dists: (B, T) distance to each task
-        """
+        """Route using SRT router (non-parametric, zero-drift)."""
         if self.srt_router is None or len(self.srt_router.signatures) == 0:
-            # Fallback: return current task
             cur_t = self.task_order[self.cur_task_id]
             B = h.shape[0]
             return torch.full((B,), cur_t, dtype=torch.long), torch.zeros(B, 1)
@@ -298,25 +239,13 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
         """
         Wire SRT router into model encoder for non-parametric routing.
 
-        Sets:
-          - model.encoder.srt_router        = self.srt_router
-          - model.encoder.srt_task_id_to_idx = mapping from SRT task_id → position in key_attention_weights
-          - model.encoder.use_srt_routing   = True
-
         Position mapping (key_attention_weights shape = (B, 1+N_prev, 1)):
-          index 0         = current task  (prompt_key, LoRA branch 0)
-          index 1..N_prev = previous tasks (previous_prompts_keys[0..N_prev-1], LoRA branches 1..N_prev)
-
-        BUG B.2 fix: mapping is built from self.task_order, NOT sorted(task_ids).
-          previous_prompts_keys[i] corresponds to self.task_order[i], not sorted(tid).
+          index 0         = current task
+          index 1..N_prev = previous tasks (by task_order)
         """
         if self.srt_router is None or len(self.srt_router.signatures) == 0:
             return
 
-        # BUG B.2 fix: build mapping from task_order, not sorted keys.
-        # key_attention_weights position i maps to self.task_order[i-1] for i≥1.
-        # Position 0 → current task (self.task_order[self.cur_task_id]).
-        # Position j (1-indexed) → self.task_order[j-1].
         current_task = self.task_order[self.cur_task_id]
         task_id_to_idx = {current_task: 0}
 
@@ -333,27 +262,16 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
     # ── 5. TASK END HOOK ───────────────────────────────────────────────────
 
     def on_task_end(self, task_id: Union[int, str]):
-        """
-        Called after each task's training finishes (from run_t5.py).
-
-        Steps:
-          1. Compute and store statistical signature {μ_t, Σ_t}
-          2. Wire SRT router into model encoder (so inference uses SRT routing)
-          3. Log router summary
-        """
-        # Step 1: compute + store signature
+        """Called after each task's training finishes."""
         self._compute_and_store_signature(task_id)
-
-        # Step 2: wire router into model so forward() uses SRT injection
         self._replace_attention_routing()
 
-        # Step 3: log
         if self.srt_router:
             summary = self.srt_router.summary()
             print(f"  [SRT] Router summary: {summary['n_tasks']} tasks, "
                   f"avg_PaR={summary['avg_par']:.1f}, metrics={summary['metrics']}")
 
-    # ── 6. EVALUATION WITH SRT ROUTING ────────────────────────────────────
+    # ── 6. EVALUATION ─────────────────────────────────────────────────────
 
     def evaluation_loop(
         self,
@@ -363,13 +281,7 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
         ignore_keys: Optional[List] = None,
         metric_key_prefix: str = "eval",
     ) -> Any:
-        """
-        Evaluation loop — SRT routing is handled transparently in model.forward().
-
-        The model's forward() has been pre-wired with srt_router reference and
-        use_srt_routing=True, so SRT injection happens automatically during
-        generate() / forward() calls. No need to override routing here.
-        """
+        """SRT routing handled transparently in model.forward()."""
         return super().evaluation_loop(
             dataloader, description, prediction_loss_only, ignore_keys, metric_key_prefix
         )
@@ -394,7 +306,6 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
         print(f"  [SRT] Loaded {len(self.srt_router.signatures)} signatures from {path}")
         if wire_model and len(self.srt_router.signatures) > 0:
             self.model.encoder.srt_router = self.srt_router
-            # Build task_id → position mapping from task_order (not sorted keys)
             current_task = self.task_order[self.cur_task_id]
             task_id_to_idx = {current_task: 0}
             for prev_idx in range(self.cur_task_id):
@@ -403,16 +314,3 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
             self.model.encoder.use_srt_routing = True
             print(f"  [SRT] Wired {len(self.srt_router.signatures)} signatures to model, "
                   f"cur_task={current_task}, mapping={task_id_to_idx}")
-
-    # ── 8. LOGGING ──────────────────────────────────────────────────────────
-
-    def _log_srt_metrics(self):
-        """Log SRT-specific metrics."""
-        if self.srt_router is None:
-            return
-        summary = self.srt_router.summary()
-        logs = {
-            'srt/n_tasks': summary['n_tasks'],
-            'srt/avg_par': summary['avg_par'],
-        }
-        self.log(logs)

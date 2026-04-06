@@ -303,9 +303,13 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         default=True,
         metadata={"help": "Enable SRT router: non-parametric routing via {μ_t, Σ_t} signatures."},
     )
-    srt_whiten: Optional[bool] = field(
-        default=False,
-        metadata={"help": "Use ZCA-whitened L2 (equivalent to pooled Mahalanobis)."},
+    srt_metric_mode: Optional[str] = field(
+        default='hard',
+        metadata={
+            "help": "SRT routing mode: "
+                    "'hard'     = ZCA whitening + L2 (matches routing_analysis experiment), "
+                    "'dynamics' = SRM metric selection (matches contribution_UNIFIED)."
+        },
     )
     srt_shrink: Optional[bool] = field(
         default=True,
@@ -314,10 +318,6 @@ class TrainingArguments(Seq2SeqTrainingArguments):
     srt_shrink_factor: Optional[float] = field(
         default=0.1,
         metadata={"help": "Ledoit-Wolf shrinkage intensity."},
-    )
-    srt_metric: Optional[str] = field(
-        default='auto',
-        metadata={"help": "SRT routing metric: 'auto' | 'l2' | 'mahalanobis' | 'psr'."},
     )
     srt_max_emb_samples: Optional[int] = field(
         default=500,
@@ -867,10 +867,9 @@ def main():
             data_collator=data_collator,
             compute_metrics=compute_rouge_metrics,
             callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None,
-            srt_whiten=training_args.srt_whiten,
+            srt_metric_mode=training_args.srt_metric_mode,
             srt_shrink=training_args.srt_shrink,
             srt_shrink_factor=training_args.srt_shrink_factor,
-            srt_metric=training_args.srt_metric,
             srt_max_emb_samples=training_args.srt_max_emb_samples,
             srt_load_path=training_args.srt_load_path,
         )

@@ -1,17 +1,16 @@
 """
 SRT Router: Statistical Routing Theory implementation.
 
-From contribution_UNIFIED.md (C1 / SRT):
-  - Per-task signatures: {μ_t, Σ_t}
-  - Metric selection: L2 / Mahalanobis / PSR based on anisotropy
-  - Routing decision: argmin_t d_SRT(h, {μ_t, Σ_t})
-  - Pooled shrinkage (Theorem 5): Σ_s → (1-α_s)Σ_s + α_s Σ_pool
-  - SRM metric selection (Theorem 7): incremental validation via synthetic data
+Two modes:
+  --srt_metric_mode hard:
+    Whitening + ZCA + L2 (equivalent to Pooled Mahalanobis per Theorem 4).
+    Matches routing_analysis experiment: whitening fitted on train, applied always.
+    Single fixed metric → argmin is always valid.
 
-Metrics:
-  1. L2 (isotropic): d_L2(h, t) = ||h - μ_t||₂
-  2. Mahalanobis (anisotropic): d_Mah(h, t) = (h-μ_t)ᵀ Σ_t⁻¹ (h-μ_t)
-  3. PSR (low-rank anisotropic): d_PSR(h, t) from C1 §3.3
+  --srt_metric_mode dynamics:
+    No whitening. SRM global metric selection on synthetic data.
+    Bug fixed: SRM runs AFTER add_task so ALL tasks get SRM-assigned metric.
+    → All tasks use same metric → argmin is valid.
 
 Zero-rehearsal compliant: only sufficient statistics, no raw data.
 """
@@ -30,7 +29,7 @@ def metric_l2(
     h: np.ndarray,    # (n, d) or (d,)
     mu: np.ndarray,
 ) -> np.ndarray:
-    """L2 distance from centroid. Use when task is isotropic (PaR ≈ d)."""
+    """L2 distance from centroid. Use when isotropic (PaR ≈ d)."""
     if h.ndim == 1:
         h = h.reshape(1, -1)
     diff = h - mu
@@ -42,7 +41,7 @@ def metric_mahalanobis(
     mu: np.ndarray,
     Sinv: np.ndarray,
 ) -> np.ndarray:
-    """Mahalanobis distance. Use when task is anisotropic (PaR ≪ d)."""
+    """Mahalanobis distance. Use when anisotropic (PaR ≪ d)."""
     if h.ndim == 1:
         h = h.reshape(1, -1)
     diff = h - mu
@@ -61,20 +60,15 @@ def metric_psr(
 
     d_PSR(h, t) = ||U_tᵀ(h - μ_t)||² + (r/(d-r)) · ||(I - U_t U_tᵀ)(h - μ_t)||²
 
-    Use when task is low-rank anisotropic (PaR ≪ d, effective dims low).
+    Use when low-rank anisotropic (PaR ≪ d, effective dims low).
     """
     if h.ndim == 1:
         h = h.reshape(1, -1)
     diff = h - mu          # (n, d)
 
-    # In-subspace: squared norm in top-k eigenspace
-    # FIX: ||Uᵀv||² = sum_k (⟨v, u_k⟩)² = sum over k of (vᵀu_k)²
-    # Correct: (diff @ eigvecs)² summed over k → (n, k) → sum over k
     proj = diff @ eigvecs                       # (n, k)
     in_sub = np.sum(proj ** 2, axis=-1)         # (n,)
 
-    # Out-of-subspace: squared norm in orthogonal complement
-    # ||v||² - ||Uᵀv||²
     v_norm_sq = np.einsum('nd,nd->n', diff, diff)             # (n,)
     out_sub = v_norm_sq - in_sub                               # (n,)
 
@@ -93,11 +87,15 @@ def pinv_ridge(Sigma: np.ndarray, rcond: float = 1e-6) -> np.ndarray:
     return eigvecs @ np.diag(1.0 / eigvals) @ eigvecs.T
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  ZCA WHITENING
+# ─────────────────────────────────────────────────────────────────────────────
+
 def compute_whitening(task_embs: Dict[int, np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
     """
     Compute ZCA whitening transform from pooled embeddings.
 
-    ZCA: W such that (h - μ) @ W.T @ W @ (h - μ)ᵀ is isotropic.
+    ZCA: W such that (h - μ)ᵀ Wᵀ W (h - μ) is isotropic.
 
     Fit on ALL task embeddings pooled together (per experiment design
     in compare_routing.py: fit on train, apply to test).
@@ -105,9 +103,9 @@ def compute_whitening(task_embs: Dict[int, np.ndarray]) -> Tuple[np.ndarray, np.
     Returns: (mu_global, W_zca) where W_zca @ (h - mu_global) whitens h.
     """
     all_embs = np.vstack(list(task_embs.values()))
-    mu_global = all_embs.mean(0)                      # (d,)
-    Xc = all_embs - mu_global                         # (N, d)
-    cov_global = np.cov(Xc, rowvar=False)            # (d, d)
+    mu_global = all_embs.mean(0)
+    Xc = all_embs - mu_global
+    cov_global = np.cov(Xc, rowvar=False)
     eigvals, eigvecs = np.linalg.eigh(cov_global)
     eigvals = np.maximum(eigvals, 1e-8)
     idx = np.argsort(eigvals)[::-1]
@@ -144,47 +142,28 @@ def ledoit_wolf_shrinkage(Sigma: np.ndarray, factor: float = 0.1) -> np.ndarray:
     Ledoit-Wolf shrinkage toward scalar identity.
 
     Σ_shrunk = (1 - δ) · Σ + δ · λ̄ · I
-
-    where δ = shrink_factor (default 0.1).
-    Shrinks eigenvalues toward their mean — stabilizes inverse especially when n < d.
-
-    Args:
-        Sigma: (d, d) sample covariance
-        factor: shrinkage intensity δ ∈ [0, 1]
-
-    Returns:
-        shrunk covariance (d, d)
     """
     d = Sigma.shape[0]
     trace = np.trace(Sigma)
-    # Scalar target: mean eigenvalue · I
     sigma_mean = trace / d
     target = sigma_mean * np.eye(d)
     return (1 - factor) * Sigma + factor * target
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  POOLLED COVARIANCE UPDATE  (Welford–Hart compact formula)
+#  POOLED COVARIANCE UPDATE  (Welford–Hart)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def update_pooled_cov(
-    mu_old: np.ndarray,     # (d,)
-    cov_old: np.ndarray,     # (d, d)
+    mu_old: np.ndarray,
+    cov_old: np.ndarray,
     n_old: int,
-    mu_new: np.ndarray,     # (d,)
-    cov_new: np.ndarray,    # (d, d)
+    mu_new: np.ndarray,
+    cov_new: np.ndarray,
     n_new: int,
 ) -> Tuple[np.ndarray, np.ndarray, int]:
     """
     Welford–Hart compact update for pooled mean and covariance.
-
-    Correct formula (no overcounting):
-      mu_pool = (n_old·mu_old + n_new·mu_new) / (n_old + n_new)
-      cov_pool = ((n_old-1)·cov_old + (n_new-1)·cov_new + C) / (n_old + n_new - 1)
-
-    where C = (n_old·n_new)/(n_old+n_new) · (mu_new - mu_old)·(mu_new - mu_old)ᵀ
-
-    Returns: (mu_pool, cov_pool, n_pool)
     """
     total = n_old + n_new
     if total <= 1:
@@ -192,11 +171,9 @@ def update_pooled_cov(
 
     mu_pool = (n_old * mu_old + n_new * mu_new) / total
 
-    # Between-group correction
     delta = mu_new - mu_old
     C = (n_old * n_new / total) * np.outer(delta, delta)
 
-    # Combined covariance (Bessel correction)
     cov_pool = (
         (n_old - 1) * cov_old
         + (n_new - 1) * cov_new
@@ -207,14 +184,14 @@ def update_pooled_cov(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  POOLLED SHRINKAGE  (Theorem 5 — the CORRECT shrinkage target)
+#  POOLED SHRINKAGE  (Theorem 5)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def pooled_shrinkage_target(
-    Sigma_t: np.ndarray,      # (d, d) sample covariance of task t
-    Sigma_pool: np.ndarray,  # (d, d) pooled covariance
-    n_t: int,               # sample count for task t
-    n_pool: int,             # total pooled sample count
+    Sigma_t: np.ndarray,
+    Sigma_pool: np.ndarray,
+    n_t: int,
+    n_pool: int,
     alpha_min: float = 0.01,
     alpha_max: float = 0.99,
 ) -> Tuple[np.ndarray, float]:
@@ -222,93 +199,64 @@ def pooled_shrinkage_target(
     Compute optimal pooled shrinkage target for task t (Theorem 5 from C1).
 
     Optimal:  Σ_t* = (1 - α_t*) Σ̂_t + α_t* Σ̂_pool
-
-    where α_t* = argmin E[||Σ* - Σ_true||²]
-    Analytical solution:
-        α_t* = max(α_min, min(α_max, tr((Σ̂_pool - Σ̂_t)·Σ_true) / tr(Σ̂_pool² - Σ̂_t²))
-
-    Asymptotically, this reduces to:
-        α_t* = max(α_min, min(α_max, n_pool / (n_pool + n_t)))
-
-    For finite samples, use analytical form with ridge approximation.
-
-    Returns: (shrunk_Sigma_t, optimal_alpha)
+    where α_t* ≈ n_pool / (n_pool + n_t)
     """
-    # Analytical optimal alpha (Ledoit–Wolf type for pooled target)
-    # α* ≈ n_pool / (n_pool + n_t) for the pooled case
-    # (this minimizes mean-squared error when the true distribution is a mixture)
     alpha_opt = n_pool / (n_pool + n_t)
     alpha_opt = max(alpha_min, min(alpha_max, alpha_opt))
-
     Sigma_shrunk = (1 - alpha_opt) * Sigma_t + alpha_opt * Sigma_pool
-
     return Sigma_shrunk, alpha_opt
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  SRM METRIC SELECTION  (Theorem 7 — the CORRECT algorithm)
+#  SRM METRIC SELECTION  (Theorem 7 — dynamics mode only)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def srm_metric_selection(
     signatures: Dict[int, 'TaskSignature'],
-    Sigma_pool: np.ndarray,
     n_synthetic: int = 500,
     random_seed: int = 42,
-) -> Dict[int, str]:
+) -> Tuple[Dict[int, str], Dict[str, float]]:
     """
-    Structural Risk Minimization (SRM) metric selection from C1 Theorem 7.
+    Structural Risk Minimization (SRM) from C1 Theorem 7.
 
-    Algorithm:
-      1. Generate synthetic validation points from each task's Gaussian model:
-         for task t: sample n_synthetic/2 points from N(μ_t, Σ_t)
-      2. For each metric {L2, Mahalanobis, PSR}:
-         - Route synthetic points
-         - Measure routing error on synthetic validation set
-      3. Select metric with minimum routing error on synthetic set
-      4. OR: select per-task based on that task's PaR
+    Generates synthetic validation points from each task's Gaussian model,
+    evaluates each metric globally, selects the metric minimizing routing error.
 
-    Practical SRM variant:
-      - Generate synthetic data from each stored {μ_t, Σ_t}
-      - Evaluate each metric on synthetic data
-      - Pick metric minimizing misclassification rate
+    CRITICAL FIX: SRM must run AFTER all tasks (including current) are added
+    to signatures. Otherwise current task uses PaR fallback → mixed metrics →
+    argmin across incomparable distances → misroute.
 
-    Returns: {task_id: 'l2'|'mahalanobis'|'psr'}
+    Returns: ({task_id: metric}, {metric_name: error_rate})
     """
     rng = np.random.RandomState(random_seed)
     task_list = sorted(signatures.keys())
     T = len(task_list)
 
     if T < 2:
-        # Not enough tasks for SRM — use PaR-based default
-        return {t: signatures[t].metric for t in task_list}
+        return {t: 'l2' for t in task_list}, {}
 
-    # Generate synthetic validation data
+    # Generate synthetic validation data from each task
     h_val = []
     labels = []
-    per_task_h = {}
     n_per = n_synthetic // T
 
     for t_id in task_list:
         sig = signatures[t_id]
-        # Sample from N(μ_t, Σ_t)
         L = np.linalg.cholesky(sig.Sigma + 1e-6 * np.eye(sig.d))
         z = rng.randn(n_per, sig.d)
         h_syn = sig.mu + (L @ z.T).T
-        per_task_h[t_id] = h_syn
         h_val.append(h_syn)
         labels.extend([t_id] * n_per)
 
-    h_val = np.vstack(h_val)          # (n_synthetic, d)
-    labels = np.array(labels)           # (n_synthetic,)
+    h_val = np.vstack(h_val)
+    labels = np.array(labels)
 
-    # Compute routing errors for each metric
+    # Evaluate each metric globally
     errors = {}
     for metric_name in ['l2', 'mahalanobis', 'psr']:
         n_correct = 0
         for i, h_i in enumerate(h_val):
             true_t = labels[i]
-
-            # Compute distance to each task under this metric
             best_t = None
             best_dist = np.inf
             for t_id in task_list:
@@ -330,13 +278,12 @@ def srm_metric_selection(
 
         errors[metric_name] = 1.0 - n_correct / len(labels)
 
-    # Select metric minimizing error
+    # Global selection: one metric for ALL tasks
     best_metric = min(errors, key=errors.get)
     print(f"  [SRM] Routing errors: {errors}, selected: {best_metric}")
 
-    # Return: same metric for all tasks (SRM global selection)
-    # OR: per-task based on each task's PaR
-    return {t_id: best_metric for t_id in task_list}
+    # Same metric for all tasks
+    return {t_id: best_metric for t_id in task_list}, errors
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -346,7 +293,6 @@ def srm_metric_selection(
 class TaskSignature:
     """
     Statistical signature for one task.
-
     Stores: μ_t, Σ_t, n_t, eigenvalues, eigenvectors, metric type.
     Zero-rehearsal compliant: only sufficient statistics, no raw data.
     """
@@ -357,35 +303,26 @@ class TaskSignature:
         mu: np.ndarray,
         Sigma: np.ndarray,
         n: int,
-        metric: str = 'auto',
-        # Pooled shrinkage params (used during re-shrink)
+        metric: str = 'l2',
         alpha: float = 0.0,
         Sigma_raw: Optional[np.ndarray] = None,
-        # Raw embeddings for ZCA whitening recompute
         h_train: Optional[np.ndarray] = None,
     ):
         self.task_id = task_id
         self.mu = mu.astype(np.float64)
         self.d = mu.shape[0]
-        # Always store the RAW sample covariance separately.
-        # All pooled-shrinkage operations must use Sigma_raw as the base
-        # to avoid compounding shrinkage across re-shrink rounds.
         self.Sigma_raw = (Sigma_raw if Sigma_raw is not None else Sigma).astype(np.float64)
-        # Sigma is the "current" version — may be shrunk, pooled, or raw
         self.Sigma = Sigma.astype(np.float64)
         self.n = n
         self.alpha = alpha
-        # Store raw embeddings for ZCA whitening recompute
         self._h_train = h_train.astype(np.float64) if h_train is not None else None
+        self._metric = metric
 
-        # Eigendecomposition (computed lazily)
+        # Cached decompositions
         self._eigvals: Optional[np.ndarray] = None
         self._eigvecs: Optional[np.ndarray] = None
         self._Sinv: Optional[np.ndarray] = None
-
-        # Geometry descriptors
         self._par: Optional[float] = None
-        self._metric: str = metric
 
     @property
     def eigvals(self) -> np.ndarray:
@@ -400,7 +337,7 @@ class TaskSignature:
     @property
     def eigvecs(self) -> np.ndarray:
         if self._eigvecs is None:
-            _ = self.eigvals  # triggers lazy computation
+            _ = self.eigvals
         return self._eigvecs
 
     @property
@@ -421,20 +358,12 @@ class TaskSignature:
 
     def reshrink(self, Sigma_pool: np.ndarray, n_pool: int, alpha: float):
         """
-        Re-shrink this task's covariance toward pooled covariance (Bug A fix).
-
-        After a new task joins and Σ_pool is updated, ALL previous tasks
-        should be re-shrunk using the updated pool (Theorem 5, Step 3).
-
-        Σ̃_t ← (1 - α_t*) · Σ̂_t (raw) + α_t* · Σ̂_pool
-
-        IMPORTANT: always use Sigma_raw (the raw sample covariance) as the base,
-        not self.Sigma (which may have already been shrunk in a previous round).
+        Re-shrink toward pooled covariance using raw Σ as base
+        (to avoid compounding shrinkage across re-shrink rounds).
         """
         self.alpha = alpha
         self.Sigma = (1 - alpha) * self.Sigma_raw + alpha * Sigma_pool
         self.Sigma = self.Sigma.astype(np.float64)
-        # Invalidate cached decompositions
         self._eigvals = None
         self._eigvecs = None
         self._Sinv = None
@@ -443,12 +372,6 @@ class TaskSignature:
     def distance(self, h: np.ndarray) -> np.ndarray:
         """
         Compute distance from h to this task's centroid using this task's metric.
-
-        Args:
-            h: (n, d) or (d,) — embeddings
-
-        Returns:
-            distances: (n,) or scalar
         """
         if h.ndim == 1:
             h = h.reshape(1, -1)
@@ -462,7 +385,7 @@ class TaskSignature:
             k = max(1, int(np.sum(self.eigvals > 1e-6 * self.eigvals[0])))
             return metric_psr(h, self.mu, self.eigvecs[:, :k], self.eigvals[:k], self.d)
         else:
-            # Fallback: auto-select by PaR
+            # Fallback: PaR-based
             if self.par >= 0.9 * self.d:
                 return metric_l2(h, self.mu)
             elif self.par >= 0.3 * self.d:
@@ -472,7 +395,6 @@ class TaskSignature:
                 return metric_psr(h, self.mu, self.eigvecs[:, :k], self.eigvals[:k], self.d)
 
     def to_dict(self) -> dict:
-        """Serialize to dict (for saving)."""
         return {
             'task_id': self.task_id,
             'mu': self.mu,
@@ -485,16 +407,15 @@ class TaskSignature:
 
     @classmethod
     def from_dict(cls, d: dict) -> 'TaskSignature':
-        sig = cls(
+        return cls(
             task_id=d['task_id'],
             mu=d['mu'],
             Sigma=d['Sigma'],
             n=d['n'],
-            metric=d.get('metric', 'auto'),
+            metric=d.get('metric', 'l2'),
             alpha=d.get('alpha', 0.0),
             Sigma_raw=d.get('Sigma_raw', d['Sigma']),
         )
-        return sig
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -505,37 +426,56 @@ class SRTRouter:
     """
     Statistical Routing Theory Router.
 
-    At training time: compute and store {μ_t, Σ_t} for each task.
-    At inference time: route input h to nearest task by SRT metric.
+    Two modes (set via srt_metric_mode):
+      'hard'    : whitening + L2. No SRM. Matches routing_analysis experiment.
+                  Whitening fitted on train embeddings, applied always.
+                  Single fixed metric (L2 in whitened space = Pooled Mahalanobis).
+                  argmin is always valid because all tasks use L2 in same space.
 
-    Zero-drift: no learnable parameters → no interference with future tasks.
+      'dynamics': no whitening. SRM global metric selection on synthetic data.
+                  All tasks use same SRM-assigned metric → argmin is valid.
+                  Bug fixed: SRM runs AFTER add_task so ALL tasks get metric.
 
-    Integration:
-        trainer.train(task t) → _compute_and_store_signature()
-        → model.forward() → _srt_route() → hard task IDs
+    Zero-drift: no learnable parameters.
     """
 
-    def __init__(self, use_srm: bool = False, use_whitening: bool = False):
+    def __init__(
+        self,
+        srt_metric_mode: str = 'hard',
+        use_shrink: bool = True,
+        shrink_factor: float = 0.1,
+    ):
+        """
+        Args:
+            srt_metric_mode: 'hard' | 'dynamics'
+                'hard'     → ZCA whitening + L2 (matches experiment)
+                'dynamics' → SRM metric selection (matches contribution_UNIFIED)
+            use_shrink: apply Ledoit-Wolf shrinkage to covariance
+            shrink_factor: shrinkage intensity
+        """
+        assert srt_metric_mode in ('hard', 'dynamics'), \
+            f"Unknown srt_metric_mode: {srt_metric_mode}"
+
         self.signatures: Dict[int, TaskSignature] = {}
         self._mu_pool: Optional[np.ndarray] = None
         self._Sigma_pool: Optional[np.ndarray] = None
         self._n_pool: int = 0
-        self.use_srm = use_srm
-        self.use_whitening = use_whitening
-        self._srm_metrics: Dict[int, str] = {}
-        # ── ZCA whitening transform (fitted on pooled embeddings) ────
+
+        self.srt_metric_mode = srt_metric_mode
+        self.use_shrink = use_shrink
+        self.shrink_factor = shrink_factor
+
+        # ── ZCA whitening (hard mode) ────────────────────────────────────
         self._mu_global: Optional[np.ndarray] = None
-        self._W_zca: Optional[np.ndarray] = None   # ZCA whitening matrix
+        self._W_zca: Optional[np.ndarray] = None
+
+        # ── SRM state (dynamics mode) ────────────────────────────────────
+        self._srm_metrics: Dict[int, str] = {}
 
     # ── Pooled statistics ───────────────────────────────────────────────
 
-    def _update_pooled(
-        self,
-        mu_t: np.ndarray,
-        Sigma_t: np.ndarray,
-        n_t: int,
-    ):
-        """Update running pooled mean and covariance using Welford-Hart."""
+    def _update_pooled(self, mu_t: np.ndarray, Sigma_t: np.ndarray, n_t: int):
+        """Update running pooled mean and covariance."""
         if self._n_pool == 0:
             self._mu_pool = mu_t.copy()
             self._Sigma_pool = Sigma_t.copy()
@@ -547,20 +487,12 @@ class SRTRouter:
             )
 
     def _reshrink_all(self):
-        """
-        Re-shrink ALL previous tasks toward updated pooled covariance.
-
-        Bug 7 fix: After pool update, re-apply pooled shrinkage to all tasks.
-        Theorem 5, Step 3: for each task s < t, recompute α_s* and shrink Σ̃_s.
-        """
+        """Re-shrink ALL tasks toward updated pooled covariance (Theorem 5)."""
         if self._n_pool <= 1:
             return
-
         for t_id, sig in self.signatures.items():
-            # Compute optimal α_t* = n_pool / (n_pool + n_t)
             alpha_opt = self._n_pool / (self._n_pool + sig.n)
             alpha_opt = max(0.01, min(0.99, alpha_opt))
-            # Re-shrink toward new pool
             sig.reshrink(self._Sigma_pool, self._n_pool, alpha_opt)
 
     # ── Add task ─────────────────────────────────────────────────────
@@ -569,21 +501,21 @@ class SRTRouter:
         self,
         task_id: Union[int, str],
         h_train: np.ndarray,
-        use_shrink: bool = True,
-        shrink_factor: float = 0.1,
     ) -> TaskSignature:
         """
         Add a new task's statistical signature.
 
-        Steps (per C1 §3.1):
-          1. Compute sufficient statistics μ_t, Σ̂_t from h_train
-          2. Update pooled statistics
-          3. Re-shrink ALL tasks (Bug 7 fix)
-          4. Select metric per SRM (Bug 4 fix)
+        Steps:
+          1. Compute μ_t, Σ̂_t from frozen backbone embeddings
+          2. Apply Ledoit-Wolf shrinkage
+          3. Update pooled statistics
+          4. Re-shrink all existing tasks (Theorem 5)
+          5. [hard mode]  Fit ZCA whitening + apply to all signatures
+          5. [dynamics mode] Run SRM → assign global metric to ALL tasks
 
         Args:
-            task_id: integer task ID
-            h_train: (n_t, d) embeddings from frozen backbone
+            task_id: integer or string task ID
+            h_train: (n_t, d) embeddings from FROZEN backbone
 
         Returns:
             TaskSignature for this task
@@ -594,74 +526,71 @@ class SRTRouter:
         mu_t = h_train.mean(axis=0)
         Sigma_t = np.cov(h_train, rowvar=False, ddof=1)
 
-        # Step 1b: Ledoit-Wolf shrinkage — ALWAYS when use_shrink=True.
-        # BUG E fix: shrinkage is MOST needed when n_t ≤ d (ill-conditioned Σ).
-        # When n_t >> d the sample covariance is already well-conditioned.
-        if use_shrink:
-            Sigma_t = ledoit_wolf_shrinkage(Sigma_t, factor=shrink_factor)
+        # Step 2: Ledoit-Wolf shrinkage
+        if self.use_shrink:
+            Sigma_t = ledoit_wolf_shrinkage(Sigma_t, factor=self.shrink_factor)
 
-        # Step 2: update pooled
+        # Step 3: update pooled
         self._update_pooled(mu_t, Sigma_t, n_t)
 
-        # ── Step 2b: ZCA Whitening (Theorem 4 — Whitened L2 = Pooled Mahalanobis)
-        # Compute whitening transform when pool is large enough (≥3 tasks).
-        # Per experiment design (compare_routing.py): fit on train, apply always.
-        # Whitening is CRITICAL: without it, routing accuracy drops to ~random
-        # on same-domain tasks because anisotropy makes L2/Mahalanobis ineffective.
-        if self.use_whitening and len(self.signatures) >= 2:
-            # Collect all embeddings from stored signatures to fit ZCA
-            all_h = np.vstack([sig._h_train for sig in self.signatures.values()] + [h_train])
-            self._mu_global, self._W_zca = compute_whitening({i: all_h})
-            # Whiten all existing signatures
-            for t_id, sig in self.signatures.items():
-                sig.mu = apply_whitening(sig.mu.reshape(1, -1), self._mu_global, self._W_zca).ravel()
-                sig.Sigma = self._W_zca @ sig.Sigma @ self._W_zca.T
-                sig._eigvals = None; sig._eigvecs = None; sig._Sinv = None; sig._par = None
-            # Whiten new signature
-            mu_t_w = apply_whitening(mu_t.reshape(1, -1), self._mu_global, self._W_zca).ravel()
-            Sigma_t_w = self._W_zca @ Sigma_t @ self._W_zca.T
-            # Re-shrink with whitened cov
-            if use_shrink:
-                Sigma_t_w = ledoit_wolf_shrinkage(Sigma_t_w, factor=shrink_factor)
-        else:
-            mu_t_w = mu_t
-            Sigma_t_w = Sigma_t
-
-        # Step 3: re-shrink ALL tasks (Bug 7 fix)
+        # Step 4: re-shrink all existing tasks (Theorem 5)
         if len(self.signatures) > 0:
             self._reshrink_all()
 
-        # Step 4: SRM metric selection (Bug 4 fix)
-        # Run SRM once when pool is established (≥3 tasks for meaningful SRM)
-        if self.use_srm and len(self.signatures) >= 2:
-            srm_results = srm_metric_selection(self.signatures, self._Sigma_pool)
-            self._srm_metrics.update(srm_results)
-            # Propagate SRM results to existing signatures
-            for t_id, m in srm_results.items():
-                if t_id in self.signatures:
+        # ── [hard mode] ZCA whitening ────────────────────────────────────
+        if self.srt_metric_mode == 'hard':
+            # Fit ZCA on all stored embeddings + current batch
+            # Wait until ≥2 tasks to have meaningful pooled covariance
+            all_h = [sig._h_train for sig in self.signatures.values()] + [h_train]
+            all_h = np.vstack(all_h)
+            self._mu_global, self._W_zca = compute_whitening({i: all_h})
+
+            # Whiten all existing signatures
+            for sig in self.signatures.values():
+                sig.mu = apply_whitening(sig.mu.reshape(1, -1), self._mu_global, self._W_zca).ravel()
+                sig.Sigma = self._W_zca @ sig.Sigma @ self._W_zca.T
+                sig._eigvals = None; sig._eigvecs = None
+                sig._Sinv = None; sig._par = None
+                # In hard mode: ALL tasks use L2 (Whitened L2 = Pooled Mahalanobis)
+                sig._metric = 'l2'
+
+            # Whiten current task
+            mu_t_w = apply_whitening(mu_t.reshape(1, -1), self._mu_global, self._W_zca).ravel()
+            Sigma_t_w = self._W_zca @ Sigma_t @ self._W_zca.T
+            if self.use_shrink:
+                Sigma_t_w = ledoit_wolf_shrinkage(Sigma_t_w, factor=self.shrink_factor)
+
+            # After whitening: space is isotropic → metric = L2
+            sig = TaskSignature(
+                task_id, mu_t_w, Sigma_t_w, n_t,
+                metric='l2',
+                Sigma_raw=Sigma_t,   # keep raw for potential re-whitening
+                h_train=h_train,
+            )
+            self.signatures[task_id] = sig
+
+        # ── [dynamics mode] SRM metric selection ─────────────────────────
+        else:  # 'dynamics'
+            mu_t_w = mu_t
+            Sigma_t_w = Sigma_t
+
+            # Add current task FIRST (CRITICAL FIX)
+            # If we run SRM before adding current task, it gets PaR fallback
+            # → mixed metrics → argmin invalid → misroute
+            sig = TaskSignature(
+                task_id, mu_t_w, Sigma_t_w, n_t,
+                metric='l2',  # temporary, will be overwritten by SRM below
+                Sigma_raw=Sigma_t,
+                h_train=h_train,
+            )
+            self.signatures[task_id] = sig
+
+            # Now run SRM on ALL tasks (including current)
+            if len(self.signatures) >= 2:
+                srm_results, _ = srm_metric_selection(self.signatures)
+                self._srm_metrics = srm_results
+                for t_id, m in srm_results.items():
                     self.signatures[t_id]._metric = m
-        elif len(self.signatures) == 0:
-            self._srm_metrics[task_id] = 'auto'
-
-        # Determine metric for this task
-        # NOTE: When whitening is enabled, Sigma_t_w is already whitened.
-        # After whitening, data is isotropic → PaR ≈ d → metric should be L2.
-        # We still compute PaR on whitened Sigma for confirmation.
-        metric = self._srm_metrics.get(task_id, 'auto')
-        if metric == 'auto':
-            par = participation_ratio(Sigma_t_w)
-            if self.use_whitening:
-                # After whitening, space is isotropic → L2 is optimal (Theorem 4)
-                metric = 'l2'
-            elif par >= 0.9 * d:
-                metric = 'l2'
-            elif par >= 0.3 * d:
-                metric = 'mahalanobis'
-            else:
-                metric = 'psr'
-
-        sig = TaskSignature(task_id, mu_t_w, Sigma_t_w, n_t, metric=metric, h_train=h_train)
-        self.signatures[task_id] = sig
 
         return sig
 
@@ -681,8 +610,8 @@ class SRTRouter:
         if h.ndim == 1:
             h = h.reshape(1, -1)
 
-        # Apply ZCA whitening if enabled (Whitened L2 = Pooled Mahalanobis)
-        if self.use_whitening and self._mu_global is not None and self._W_zca is not None:
+        # [hard mode] Apply ZCA whitening to query embeddings
+        if self.srt_metric_mode == 'hard' and self._W_zca is not None:
             h = apply_whitening(h, self._mu_global, self._W_zca)
 
         n = h.shape[0]
@@ -712,16 +641,15 @@ class SRTRouter:
             mu_pool=self._mu_pool if self._mu_pool is not None else np.zeros(1),
             Sigma_pool=self._Sigma_pool if self._Sigma_pool is not None else np.zeros((1, 1)),
             n_pool=np.array([self._n_pool]),
-            srm_metrics=self._srm_metrics,
-            # ZCA whitening
+            srt_metric_mode=self.srt_metric_mode,
             mu_global=self._mu_global if self._mu_global is not None else np.zeros(1),
             W_zca=self._W_zca if self._W_zca is not None else np.zeros((1, 1)),
-            use_whitening=self.use_whitening,
         )
 
     def load(self, path: str):
         """Load signatures from disk."""
         data = np.load(path, allow_pickle=True)
+        self.srt_metric_mode = str(data.get('srt_metric_mode', 'hard'))
         self._mu_pool = data['mu_pool']
         if self._mu_pool.shape[0] == 1 and self._mu_pool[0] == 0:
             self._mu_pool = None
@@ -729,9 +657,8 @@ class SRTRouter:
         if self._Sigma_pool.shape[0] == 1:
             self._Sigma_pool = None
         self._n_pool = int(data['n_pool'][0])
-        self._srm_metrics = dict(data['srm_metrics'].item())
+
         # ZCA whitening
-        self.use_whitening = bool(data.get('use_whitening', False))
         mu_g = data.get('mu_global', None)
         W_z = data.get('W_zca', None)
         self._mu_global = None if (mu_g is None or mu_g.shape[0] == 1) else mu_g
@@ -747,14 +674,12 @@ class SRTRouter:
         task_list = sorted(self.signatures.keys())
         metrics = [self.signatures[t].metric for t in task_list]
         pars = [self.signatures[t].par for t in task_list]
-        alphas = [self.signatures[t].alpha for t in task_list]
-
         return {
             'n_tasks': len(self.signatures),
             'task_ids': task_list,
             'metrics': metrics,
             'pars': [f"{p:.1f}" for p in pars],
             'avg_par': float(np.mean(pars)) if pars else 0.0,
-            'alphas': alphas,
             'pool_n': self._n_pool,
+            'mode': self.srt_metric_mode,
         }
