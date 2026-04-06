@@ -561,6 +561,22 @@ def main():
         nn.init.uniform_(model.encoder.prompt_key.data, -1, 1)
         print(f"[FIX] Re-initialized prompt_key with uniform(-1, 1)")
 
+    # ── SRT: attach frozen encoder for routing ─────────────────────────
+    # Theory (contribution_UNIFIED.md): SRT signatures {μ_t, Σ_t} are computed
+    # on FROZEN pretrained encoder hidden states — NOT adapted (LoRA) outputs.
+    # Uses T5EncoderModel (same as routing_analysis/extract_embeddings_t5.py).
+    if training_args.use_srt_router:
+        from transformers import T5EncoderModel
+        frozen_encoder = T5EncoderModel.from_pretrained(
+            model_args.model_name_or_path,
+            cache_dir=model_args.cache_dir,
+        )
+        frozen_encoder.eval()
+        for p in frozen_encoder.parameters():
+            p.requires_grad = False
+        model.encoder.encoder_frozen = frozen_encoder
+        print(f"[SRT] Attached frozen T5EncoderModel from {model_args.model_name_or_path}")
+
     try:
         local_rank = int(os.environ['LOCAL_RANK'])
         device = torch.device(f"cuda:{local_rank}")

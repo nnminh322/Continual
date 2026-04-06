@@ -1089,6 +1089,12 @@ class T5Stack(T5PreTrainedModel):
             self.all_attn_weights = []
             self.key_attention_weights = None
 
+            # ── Frozen encoder for SRT routing ────────────────────────────
+            # Set externally by run_t5.py using T5EncoderModel.from_pretrained()
+            # Theory: routing signatures {μ_t, Σ_t} are computed on FROZEN
+            # backbone embeddings, not adapted (LoRA) ones.
+            self.encoder_frozen = None  # T5EncoderModel, attached by run_t5.py
+
         self.final_layer_norm = T5LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout_rate)
 
@@ -1323,9 +1329,31 @@ class T5Stack(T5PreTrainedModel):
                 #   (srt_n_tasks includes current task; slot count = 1 + N_prev)
                 # BUG B.2 fix: srt_task_id_to_idx built from task_order, not sorted keys
                 # BUG B.3 fix: always use mapping lookup, include pos==0 assignment
-                if self.use_srt_routing and self.srt_router is not None:
-                    h_for_route = avg_inputs_embeds  # (B, 1, d)
-                    h_route = h_for_route.squeeze(1).detach().cpu().numpy()  # (B, d)
+                if self.use_srt_routing and self.srt_router is not None and self.encoder_frozen is not None:
+                    # ── SRT FIX: Use FROZEN encoder for routing ─────────────
+                    #
+                    # Theory: {μ_t, Σ_t} are computed from FROZEN backbone embeddings.
+                    # Bug: previously used `avg_inputs_embeds` = embed_tokens(input_ids),
+                    # which is the WRONG embedding space (lexical, not semantic).
+                    #
+                    # Fix: extract embeddings from the FROZEN encoder to match the
+                    # space used during signature computation in SRT_Trainer.
+                    #
+                    # SRT routing path: embed_tokens → frozen encoder → last hidden → mean-pool → route
+                    with torch.no_grad():
+                        h_for_route_raw = self.encoder_frozen(
+                            input_ids=input_ids,
+                            attention_mask=attention_mask,
+                        )
+                        if hasattr(h_for_route_raw, 'last_hidden_state'):
+                            h_hidden = h_for_route_raw.last_hidden_state
+                        else:
+                            h_hidden = h_for_route_raw[0]
+                        # Mean pooling (same as routing_analysis/extract_embeddings_t5.py)
+                        mask = attention_mask.unsqueeze(-1).float()
+                        h_for_route = (h_hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)  # (B, d)
+                        h_route = h_for_route.detach().cpu().numpy()
+
                     srt_preds, _ = self.srt_router.route(h_route)
                     B_batch = h_route.shape[0]
 

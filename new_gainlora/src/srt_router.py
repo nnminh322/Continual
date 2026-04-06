@@ -93,6 +93,41 @@ def pinv_ridge(Sigma: np.ndarray, rcond: float = 1e-6) -> np.ndarray:
     return eigvecs @ np.diag(1.0 / eigvals) @ eigvecs.T
 
 
+def compute_whitening(task_embs: Dict[int, np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Compute ZCA whitening transform from pooled embeddings.
+
+    ZCA: W such that (h - μ) @ W.T @ W @ (h - μ)ᵀ is isotropic.
+
+    Fit on ALL task embeddings pooled together (per experiment design
+    in compare_routing.py: fit on train, apply to test).
+
+    Returns: (mu_global, W_zca) where W_zca @ (h - mu_global) whitens h.
+    """
+    all_embs = np.vstack(list(task_embs.values()))
+    mu_global = all_embs.mean(0)                      # (d,)
+    Xc = all_embs - mu_global                         # (N, d)
+    cov_global = np.cov(Xc, rowvar=False)            # (d, d)
+    eigvals, eigvecs = np.linalg.eigh(cov_global)
+    eigvals = np.maximum(eigvals, 1e-8)
+    idx = np.argsort(eigvals)[::-1]
+    eigvals = eigvals[idx]
+    eigvecs = eigvecs[:, idx]
+    W_zca = eigvecs @ np.diag(1.0 / np.sqrt(eigvals)) @ eigvecs.T
+    return mu_global, W_zca
+
+
+def apply_whitening(
+    h: np.ndarray,
+    mu_global: np.ndarray,
+    W_zca: np.ndarray,
+) -> np.ndarray:
+    """Apply ZCA whitening: h_whitened = (h - mu_global) @ W_zca.T."""
+    if h.ndim == 1:
+        h = h.reshape(1, -1)
+    return (h - mu_global) @ W_zca.T
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  PARTICIPATION RATIO
 # ─────────────────────────────────────────────────────────────────────────────
@@ -326,6 +361,8 @@ class TaskSignature:
         # Pooled shrinkage params (used during re-shrink)
         alpha: float = 0.0,
         Sigma_raw: Optional[np.ndarray] = None,
+        # Raw embeddings for ZCA whitening recompute
+        h_train: Optional[np.ndarray] = None,
     ):
         self.task_id = task_id
         self.mu = mu.astype(np.float64)
@@ -338,6 +375,8 @@ class TaskSignature:
         self.Sigma = Sigma.astype(np.float64)
         self.n = n
         self.alpha = alpha
+        # Store raw embeddings for ZCA whitening recompute
+        self._h_train = h_train.astype(np.float64) if h_train is not None else None
 
         # Eigendecomposition (computed lazily)
         self._eigvals: Optional[np.ndarray] = None
@@ -476,13 +515,17 @@ class SRTRouter:
         → model.forward() → _srt_route() → hard task IDs
     """
 
-    def __init__(self, use_srm: bool = False):
+    def __init__(self, use_srm: bool = False, use_whitening: bool = False):
         self.signatures: Dict[int, TaskSignature] = {}
         self._mu_pool: Optional[np.ndarray] = None
         self._Sigma_pool: Optional[np.ndarray] = None
         self._n_pool: int = 0
         self.use_srm = use_srm
+        self.use_whitening = use_whitening
         self._srm_metrics: Dict[int, str] = {}
+        # ── ZCA whitening transform (fitted on pooled embeddings) ────
+        self._mu_global: Optional[np.ndarray] = None
+        self._W_zca: Optional[np.ndarray] = None   # ZCA whitening matrix
 
     # ── Pooled statistics ───────────────────────────────────────────────
 
@@ -560,6 +603,30 @@ class SRTRouter:
         # Step 2: update pooled
         self._update_pooled(mu_t, Sigma_t, n_t)
 
+        # ── Step 2b: ZCA Whitening (Theorem 4 — Whitened L2 = Pooled Mahalanobis)
+        # Compute whitening transform when pool is large enough (≥3 tasks).
+        # Per experiment design (compare_routing.py): fit on train, apply always.
+        # Whitening is CRITICAL: without it, routing accuracy drops to ~random
+        # on same-domain tasks because anisotropy makes L2/Mahalanobis ineffective.
+        if self.use_whitening and len(self.signatures) >= 2:
+            # Collect all embeddings from stored signatures to fit ZCA
+            all_h = np.vstack([sig._h_train for sig in self.signatures.values()] + [h_train])
+            self._mu_global, self._W_zca = compute_whitening({i: all_h})
+            # Whiten all existing signatures
+            for t_id, sig in self.signatures.items():
+                sig.mu = apply_whitening(sig.mu.reshape(1, -1), self._mu_global, self._W_zca).ravel()
+                sig.Sigma = self._W_zca @ sig.Sigma @ self._W_zca.T
+                sig._eigvals = None; sig._eigvecs = None; sig._Sinv = None; sig._par = None
+            # Whiten new signature
+            mu_t_w = apply_whitening(mu_t.reshape(1, -1), self._mu_global, self._W_zca).ravel()
+            Sigma_t_w = self._W_zca @ Sigma_t @ self._W_zca.T
+            # Re-shrink with whitened cov
+            if use_shrink:
+                Sigma_t_w = ledoit_wolf_shrinkage(Sigma_t_w, factor=shrink_factor)
+        else:
+            mu_t_w = mu_t
+            Sigma_t_w = Sigma_t
+
         # Step 3: re-shrink ALL tasks (Bug 7 fix)
         if len(self.signatures) > 0:
             self._reshrink_all()
@@ -577,18 +644,23 @@ class SRTRouter:
             self._srm_metrics[task_id] = 'auto'
 
         # Determine metric for this task
+        # NOTE: When whitening is enabled, Sigma_t_w is already whitened.
+        # After whitening, data is isotropic → PaR ≈ d → metric should be L2.
+        # We still compute PaR on whitened Sigma for confirmation.
         metric = self._srm_metrics.get(task_id, 'auto')
         if metric == 'auto':
-            # Use PaR-based default
-            par = participation_ratio(Sigma_t)
-            if par >= 0.9 * d:
+            par = participation_ratio(Sigma_t_w)
+            if self.use_whitening:
+                # After whitening, space is isotropic → L2 is optimal (Theorem 4)
+                metric = 'l2'
+            elif par >= 0.9 * d:
                 metric = 'l2'
             elif par >= 0.3 * d:
                 metric = 'mahalanobis'
             else:
                 metric = 'psr'
 
-        sig = TaskSignature(task_id, mu_t, Sigma_t, n_t, metric=metric)
+        sig = TaskSignature(task_id, mu_t_w, Sigma_t_w, n_t, metric=metric, h_train=h_train)
         self.signatures[task_id] = sig
 
         return sig
@@ -608,6 +680,10 @@ class SRTRouter:
         """
         if h.ndim == 1:
             h = h.reshape(1, -1)
+
+        # Apply ZCA whitening if enabled (Whitened L2 = Pooled Mahalanobis)
+        if self.use_whitening and self._mu_global is not None and self._W_zca is not None:
+            h = apply_whitening(h, self._mu_global, self._W_zca)
 
         n = h.shape[0]
         task_list = sorted(self.signatures.keys())
@@ -637,6 +713,10 @@ class SRTRouter:
             Sigma_pool=self._Sigma_pool if self._Sigma_pool is not None else np.zeros((1, 1)),
             n_pool=np.array([self._n_pool]),
             srm_metrics=self._srm_metrics,
+            # ZCA whitening
+            mu_global=self._mu_global if self._mu_global is not None else np.zeros(1),
+            W_zca=self._W_zca if self._W_zca is not None else np.zeros((1, 1)),
+            use_whitening=self.use_whitening,
         )
 
     def load(self, path: str):
@@ -650,6 +730,12 @@ class SRTRouter:
             self._Sigma_pool = None
         self._n_pool = int(data['n_pool'][0])
         self._srm_metrics = dict(data['srm_metrics'].item())
+        # ZCA whitening
+        self.use_whitening = bool(data.get('use_whitening', False))
+        mu_g = data.get('mu_global', None)
+        W_z = data.get('W_zca', None)
+        self._mu_global = None if (mu_g is None or mu_g.shape[0] == 1) else mu_g
+        self._W_zca = None if (W_z is None or W_z.shape[0] == 1) else W_z
 
         for k, v in data['signatures'].item().items():
             self.signatures[k] = TaskSignature.from_dict(v)

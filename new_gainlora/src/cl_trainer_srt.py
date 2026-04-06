@@ -41,25 +41,58 @@ except ImportError:
 
 def extract_embeddings_from_batch(model, inputs: Dict) -> torch.Tensor:
     """
-    Extract mean-pooled encoder hidden states from a batch.
+    Extract mean-pooled encoder hidden states from a FROZEN encoder.
 
-    Matches the embedding extraction used in routing_analysis/extract_embeddings_t5.py.
+    Theory (contribution_UNIFIED.md): SRT signatures {μ_t, Σ_t} are computed
+    on FROZEN backbone embeddings — the embedding space BEFORE any LoRA adaptation.
+
+    Bug fix: previously used `model(**inputs)` which goes through the ADAPTED
+    encoder (LoRA fine-tuned). Now uses `model.encoder.encoder_frozen` to match
+    the frozen embedding space used during inference routing.
+
+    This matches routing_analysis/extract_embeddings_t5.py which loads a
+    pretrained T5EncoderModel and extracts from its frozen encoder.
     """
-    with torch.no_grad():
-        outputs = model(**{k: v for k, v in inputs.items()
-                          if k in ('input_ids', 'attention_mask', 'decoder_input_ids')})
-
-    # Get encoder last hidden state
-    if hasattr(outputs, 'encoder_last_hidden_state'):
-        hidden = outputs.encoder_last_hidden_state   # (B, L, d)
-    elif isinstance(outputs, dict) and 'encoder_last_hidden_state' in outputs:
-        hidden = outputs['encoder_last_hidden_state']
-    else:
-        # Fallback: use first output
-        hidden = outputs[0]
-
-    # Mean pooling (same as routing_analysis)
+    input_ids = inputs.get('input_ids')
     attention_mask = inputs.get('attention_mask')
+
+    if not isinstance(input_ids, torch.Tensor):
+        input_ids = torch.tensor(input_ids)
+    if not isinstance(attention_mask, torch.Tensor):
+        attention_mask = torch.tensor(attention_mask)
+
+    device = next(model.parameters()).device
+    input_ids = input_ids.to(device)
+    if attention_mask is not None:
+        attention_mask = attention_mask.to(device)
+
+    with torch.no_grad():
+        # Use FROZEN encoder — same as routing_analysis experiment
+        if hasattr(model, 'encoder') and hasattr(model.encoder, 'encoder_frozen') and model.encoder.encoder_frozen is not None:
+            frozen_enc = model.encoder.encoder_frozen
+            enc_out = frozen_enc(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+            )
+            if hasattr(enc_out, 'last_hidden_state'):
+                hidden = enc_out.last_hidden_state
+            else:
+                hidden = enc_out[0]
+        else:
+            # Fallback: model is a bare T5EncoderModel (no gainlora wrapper)
+            # This case is for backward compatibility / standalone use.
+            enc_out = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+            )
+            if hasattr(enc_out, 'last_hidden_state'):
+                hidden = enc_out.last_hidden_state
+            elif hasattr(enc_out, 'encoder_last_hidden_state'):
+                hidden = enc_out.encoder_last_hidden_state
+            else:
+                hidden = enc_out[0]
+
+    # Mean pooling (identical to routing_analysis/extract_embeddings_t5.py)
     if attention_mask is not None:
         mask = attention_mask.unsqueeze(-1).float()
         pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
@@ -134,8 +167,14 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
         """Initialize SRT router (idempotent — safe to call multiple times)."""
         if self.srt_router is not None:
             return   # already initialized
-        # BUG F fix: enable SRM metric selection by default
-        self.srt_router = SRTRouter(use_srm=True)
+        # Whitening (srt_whiten=True): CRITICAL for routing accuracy.
+        # Theory (Theorem 4): Whitened L2 = Pooled Mahalanobis.
+        # Without whitening, same-domain tasks are indistinguishable.
+        # SRM enabled by default for automatic metric selection.
+        self.srt_router = SRTRouter(
+            use_srm=True,
+            use_whitening=self.srt_whiten,
+        )
         if self.srt_load_path is not None:
             self.load_srt_signatures(self.srt_load_path, wire_model=True)
 
