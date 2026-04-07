@@ -241,7 +241,15 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
 
         Position mapping (key_attention_weights shape = (B, 1+N_prev, 1)):
           index 0         = current task
-          index 1..N_prev = previous tasks (by task_order)
+          index 1..N_prev = previous tasks in REVERSE chronological order
+                            (slot 1 = most recent previous, slot N = oldest)
+
+        Why reverse? prompts_keys_till_now.pt saves cat([current, prev...]) and
+        previous_lora_list.reverse() loads newest first. So:
+          slot 1 = task_order[cur_task_id - 1]  (most recent previous)
+          slot 2 = task_order[cur_task_id - 2]
+          ...
+          slot N = task_order[0]                 (oldest)
         """
         if self.srt_router is None or len(self.srt_router.signatures) == 0:
             return
@@ -249,9 +257,10 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
         current_task = self.task_order[self.cur_task_id]
         task_id_to_idx = {current_task: 0}
 
+        # BUG #31 fix: slots are in REVERSE chronological order
         for prev_idx in range(self.cur_task_id):
             prev_task = self.task_order[prev_idx]
-            task_id_to_idx[prev_task] = prev_idx + 1
+            task_id_to_idx[prev_task] = self.cur_task_id - prev_idx
 
         self.model.encoder.srt_router = self.srt_router
         self.model.encoder.srt_task_id_to_idx = task_id_to_idx
@@ -308,8 +317,9 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
             self.model.encoder.srt_router = self.srt_router
             current_task = self.task_order[self.cur_task_id]
             task_id_to_idx = {current_task: 0}
+            # BUG #31 fix: slots are in REVERSE chronological order
             for prev_idx in range(self.cur_task_id):
-                task_id_to_idx[self.task_order[prev_idx]] = prev_idx + 1
+                task_id_to_idx[self.task_order[prev_idx]] = self.cur_task_id - prev_idx
             self.model.encoder.srt_task_id_to_idx = task_id_to_idx
             self.model.encoder.use_srt_routing = True
             print(f"  [SRT] Wired {len(self.srt_router.signatures)} signatures to model, "

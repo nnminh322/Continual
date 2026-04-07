@@ -1,0 +1,413 @@
+{
+  "backbone": "flan-t5-large",
+  "benchmark": "Long_Sequence",
+  "k": 8,
+  "d_model": 1024,
+  "tasks": [
+    "agnews",
+    "amazon",
+    "boolq",
+    "cb",
+    "copa",
+    "dbpedia",
+    "imdb",
+    "mnli",
+    "multirc",
+    "qqp",
+    "rte",
+    "sst2",
+    "wic",
+    "yahoo",
+    "yelp"
+  ],
+  "phase_B_distance": {
+    "L2": {
+      "accuracy": 0.9999576635949253,
+      "per_task": {
+        "agnews": 0.9998684210526316,
+        "amazon": 1.0,
+        "boolq": 0.999388379204893,
+        "cb": 1.0,
+        "copa": 1.0,
+        "dbpedia": 1.0,
+        "imdb": 1.0,
+        "mnli": 1.0,
+        "multirc": 1.0,
+        "qqp": 1.0,
+        "rte": 1.0,
+        "sst2": 1.0,
+        "wic": 1.0,
+        "yahoo": 1.0,
+        "yelp": 1.0
+      }
+    },
+    "Cosine": {
+      "accuracy": 0.9995766359492527,
+      "per_task": {
+        "agnews": 1.0,
+        "amazon": 1.0,
+        "boolq": 0.9996941896024465,
+        "cb": 1.0,
+        "copa": 1.0,
+        "dbpedia": 1.0,
+        "imdb": 1.0,
+        "mnli": 0.9997368421052631,
+        "multirc": 1.0,
+        "qqp": 1.0,
+        "rte": 1.0,
+        "sst2": 1.0,
+        "wic": 1.0,
+        "yahoo": 0.9964473684210526,
+        "yelp": 1.0
+      }
+    },
+    "NormL2": {
+      "accuracy": 0.9995766359492527,
+      "per_task": {
+        "agnews": 1.0,
+        "amazon": 1.0,
+        "boolq": 0.9996941896024465,
+        "cb": 1.0,
+        "copa": 1.0,
+        "dbpedia": 1.0,
+        "imdb": 1.0,
+        "mnli": 0.9997368421052631,
+        "multirc": 1.0,
+        "qqp": 1.0,
+        "rte": 1.0,
+        "sst2": 1.0,
+        "wic": 1.0,
+        "yahoo": 0.9964473684210526,
+        "yelp": 1.0
+      }
+    },
+    "SpectralAffinity": {
+      "accuracy": 0.9651994750285771,
+      "per_task": {
+        "agnews": 0.9953947368421052,
+        "amazon": 0.9385526315789474,
+        "boolq": 0.9905198776758409,
+        "cb": 1.0,
+        "copa": 1.0,
+        "dbpedia": 0.9088157894736842,
+        "imdb": 0.996578947368421,
+        "mnli": 0.9693421052631579,
+        "multirc": 0.9857673267326733,
+        "qqp": 0.9957894736842106,
+        "rte": 0.9783393501805054,
+        "sst2": 0.9965596330275229,
+        "wic": 0.9984326018808778,
+        "yahoo": 0.890921052631579,
+        "yelp": 0.9946052631578948
+      }
+    },
+    "SubspaceResidual": {
+      "accuracy": 0.9651994750285771,
+      "per_task": {
+        "agnews": 0.9953947368421052,
+        "amazon": 0.9385526315789474,
+        "boolq": 0.9905198776758409,
+        "cb": 1.0,
+        "copa": 1.0,
+        "dbpedia": 0.9088157894736842,
+        "imdb": 0.996578947368421,
+        "mnli": 0.9693421052631579,
+        "multirc": 0.9857673267326733,
+        "qqp": 0.9957894736842106,
+        "rte": 0.9783393501805054,
+        "sst2": 0.9965596330275229,
+        "wic": 0.9984326018808778,
+        "yahoo": 0.890921052631579,
+        "yelp": 0.9946052631578948
+      }
+    },
+    "WeightedSpectral": {
+      "accuracy": 0.9705620863380421,
+      "per_task": {
+        "agnews": 0.9967105263157895,
+        "amazon": 0.9475,
+        "boolq": 0.9914373088685016,
+        "cb": 1.0,
+        "copa": 1.0,
+        "dbpedia": 0.9213157894736842,
+        "imdb": 0.9971052631578947,
+        "mnli": 0.9771052631578947,
+        "multirc": 0.9845297029702971,
+        "qqp": 0.9967105263157895,
+        "rte": 0.9711191335740073,
+        "sst2": 0.9988532110091743,
+        "wic": 1.0,
+        "yahoo": 0.9082894736842105,
+        "yelp": 0.9955263157894737
+      }
+    },
+    "PSR_full": {
+      "accuracy": 0.15253806748422968,
+      "per_task": {
+        "agnews": 0.011710526315789473,
+        "amazon": 0.09763157894736842,
+        "boolq": 0.06452599388379204,
+        "cb": 0.125,
+        "copa": 0.3,
+        "dbpedia": 0.4661842105263158,
+        "imdb": 0.05394736842105263,
+        "mnli": 0.0075,
+        "multirc": 0.005569306930693069,
+        "qqp": 0.008815789473684211,
+        "rte": 0.010830324909747292,
+        "sst2": 0.0011467889908256881,
+        "wic": 0.023510971786833857,
+        "yahoo": 0.5111842105263158,
+        "yelp": 0.22657894736842105
+      }
+    },
+    "PSR_no_mean": {
+      "accuracy": 0.008227374719521317,
+      "per_task": {
+        "agnews": 0.0,
+        "amazon": 0.0044736842105263155,
+        "boolq": 0.0,
+        "cb": 0.0,
+        "copa": 0.0,
+        "dbpedia": 0.03736842105263158,
+        "imdb": 0.0,
+        "mnli": 0.0,
+        "multirc": 0.0,
+        "qqp": 0.0,
+        "rte": 0.0,
+        "sst2": 0.0,
+        "wic": 0.0,
+        "yahoo": 0.028684210526315788,
+        "yelp": 0.0061842105263157894
+      }
+    },
+    "PSR_no_subspace": {
+      "accuracy": 0.7293292502222661,
+      "per_task": {
+        "agnews": 0.635,
+        "amazon": 0.7353947368421052,
+        "boolq": 0.9761467889908257,
+        "cb": 0.9821428571428571,
+        "copa": 1.0,
+        "dbpedia": 0.6935526315789474,
+        "imdb": 0.7396052631578948,
+        "mnli": 0.8035526315789474,
+        "multirc": 0.5109323432343235,
+        "qqp": 0.6210526315789474,
+        "rte": 0.9747292418772563,
+        "sst2": 0.643348623853211,
+        "wic": 0.622257053291536,
+        "yahoo": 0.8747368421052631,
+        "yelp": 0.7693421052631579
+      }
+    },
+    "PSR_no_penalty": {
+      "accuracy": 0.02290399514542555,
+      "per_task": {
+        "agnews": 0.0,
+        "amazon": 0.0,
+        "boolq": 0.47370030581039757,
+        "cb": 0.017857142857142856,
+        "copa": 0.7,
+        "dbpedia": 0.0,
+        "imdb": 0.0,
+        "mnli": 0.0,
+        "multirc": 0.0,
+        "qqp": 0.0,
+        "rte": 0.0,
+        "sst2": 0.0,
+        "wic": 0.0,
+        "yahoo": 0.00039473684210526315,
+        "yelp": 0.0
+      }
+    },
+    "Mahalanobis": {
+      "accuracy": 0.9999294393248754,
+      "per_task": {
+        "agnews": 0.9998684210526316,
+        "amazon": 1.0,
+        "boolq": 0.998776758409786,
+        "cb": 1.0,
+        "copa": 1.0,
+        "dbpedia": 1.0,
+        "imdb": 1.0,
+        "mnli": 1.0,
+        "multirc": 1.0,
+        "qqp": 1.0,
+        "rte": 1.0,
+        "sst2": 1.0,
+        "wic": 1.0,
+        "yahoo": 1.0,
+        "yelp": 1.0
+      }
+    }
+  },
+  "phase_B_domain_breakdown": {
+    "L2": {
+      "intra_cluster_acc": 0.9999504533505017,
+      "inter_cluster_acc": null
+    },
+    "Cosine": {
+      "intra_cluster_acc": 0.9997252266752509,
+      "inter_cluster_acc": null
+    },
+    "NormL2": {
+      "intra_cluster_acc": 0.9997252266752509,
+      "inter_cluster_acc": null
+    },
+    "SpectralAffinity": {
+      "intra_cluster_acc": 0.9759745859664947,
+      "inter_cluster_acc": null
+    },
+    "SubspaceResidual": {
+      "intra_cluster_acc": 0.9759745859664947,
+      "inter_cluster_acc": null
+    },
+    "WeightedSpectral": {
+      "intra_cluster_acc": 0.9790801676211145,
+      "inter_cluster_acc": null
+    },
+    "PSR_full": {
+      "intra_cluster_acc": 0.12760906787205595,
+      "inter_cluster_acc": null
+    },
+    "PSR_no_mean": {
+      "intra_cluster_acc": 0.005114035087719298,
+      "inter_cluster_acc": null
+    },
+    "PSR_no_subspace": {
+      "intra_cluster_acc": 0.7721195833663513,
+      "inter_cluster_acc": null
+    },
+    "PSR_no_penalty": {
+      "intra_cluster_acc": 0.07946347903397638,
+      "inter_cluster_acc": null
+    },
+    "Mahalanobis": {
+      "intra_cluster_acc": 0.9999096786308279,
+      "inter_cluster_acc": null
+    }
+  },
+  "phase_C_sklearn": {
+    "LDA": {
+      "accuracy": 0.9999294393248754,
+      "per_task": {
+        "agnews": 0.9998684210526316,
+        "amazon": 1.0,
+        "boolq": 0.998776758409786,
+        "cb": 1.0,
+        "copa": 1.0,
+        "dbpedia": 1.0,
+        "imdb": 1.0,
+        "mnli": 1.0,
+        "multirc": 1.0,
+        "qqp": 1.0,
+        "rte": 1.0,
+        "sst2": 1.0,
+        "wic": 1.0,
+        "yahoo": 1.0,
+        "yelp": 1.0
+      }
+    },
+    "QDA": {
+      "accuracy": 0.40451023835396055,
+      "per_task": {
+        "agnews": 0.1813157894736842,
+        "amazon": 0.8356578947368422,
+        "boolq": 0.05596330275229358,
+        "cb": 0.9821428571428571,
+        "copa": 0.22,
+        "dbpedia": 0.6561842105263158,
+        "imdb": 0.5728947368421052,
+        "mnli": 0.31394736842105264,
+        "multirc": 0.0,
+        "qqp": 0.20934210526315788,
+        "rte": 0.007220216606498195,
+        "sst2": 0.17889908256880735,
+        "wic": 0.10031347962382445,
+        "yahoo": 0.010657894736842106,
+        "yelp": 0.9281578947368421
+      }
+    },
+    "LinearSVM": {
+      "accuracy": 0.9999858878649751,
+      "per_task": {
+        "agnews": 1.0,
+        "amazon": 1.0,
+        "boolq": 1.0,
+        "cb": 1.0,
+        "copa": 1.0,
+        "dbpedia": 1.0,
+        "imdb": 1.0,
+        "mnli": 1.0,
+        "multirc": 1.0,
+        "qqp": 1.0,
+        "rte": 1.0,
+        "sst2": 1.0,
+        "wic": 1.0,
+        "yahoo": 0.9998684210526316,
+        "yelp": 1.0
+      }
+    },
+    "RidgeClassifier": {
+      "accuracy": 0.9999717757299502,
+      "per_task": {
+        "agnews": 0.9998684210526316,
+        "amazon": 1.0,
+        "boolq": 0.9996941896024465,
+        "cb": 1.0,
+        "copa": 1.0,
+        "dbpedia": 1.0,
+        "imdb": 1.0,
+        "mnli": 1.0,
+        "multirc": 1.0,
+        "qqp": 1.0,
+        "rte": 1.0,
+        "sst2": 1.0,
+        "wic": 1.0,
+        "yahoo": 1.0,
+        "yelp": 1.0
+      }
+    }
+  },
+  "phase_C_domain_breakdown": {
+    "LDA": {
+      "intra_cluster_acc": 0.9999096786308279,
+      "inter_cluster_acc": null
+    },
+    "QDA": {
+      "intra_cluster_acc": 0.35017978889540813,
+      "inter_cluster_acc": null
+    },
+    "LinearSVM": {
+      "intra_cluster_acc": 0.9999912280701755,
+      "inter_cluster_acc": null
+    },
+    "RidgeClassifier": {
+      "intra_cluster_acc": 0.9999708407103385,
+      "inter_cluster_acc": null
+    }
+  },
+  "top5": [
+    [
+      "LinearSVM",
+      0.9999858878649751
+    ],
+    [
+      "RidgeClassifier",
+      0.9999717757299502
+    ],
+    [
+      "L2",
+      0.9999576635949253
+    ],
+    [
+      "Mahalanobis",
+      0.9999294393248754
+    ],
+    [
+      "LDA",
+      0.9999294393248754
+    ]
+  ]
+}

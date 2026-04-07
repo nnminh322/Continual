@@ -477,6 +477,7 @@ class SRTRouter:
         # ── ZCA whitening (hard mode) ────────────────────────────────────
         self._mu_global: Optional[np.ndarray] = None
         self._W_zca: Optional[np.ndarray] = None
+        self._zca_fitted: bool = False   # True after first ZCA fit; NEVER refit
 
         # ── SRM state (dynamics mode) ────────────────────────────────────
         self._srm_metrics: Dict[int, str] = {}
@@ -514,13 +515,17 @@ class SRTRouter:
         """
         Add a new task's statistical signature.
 
-        Steps:
-          1. Compute μ_t, Σ̂_t from frozen backbone embeddings
-          2. Apply Ledoit-Wolf shrinkage
-          3. Update pooled statistics
-          4. Re-shrink all existing tasks (Theorem 5)
-          5. [hard mode]  Fit ZCA whitening + apply to all signatures
-          5. [dynamics mode] Run SRM → assign global metric to ALL tasks
+        HARD MODE — ZCA fit-once (the key fix):
+          - Task 1: store raw stats only, ZCA NOT fitted yet
+          - Task 2+: fit ZCA ONCE from pooled covariance of ALL seen tasks,
+            WHITEN ALL tasks (including previous) with this fixed W.
+            NEVER refit W again.
+          - This matches the offline experiment (compute_whitening on all train
+            embeddings once) and avoids the catastrophic incremental refitting
+            bug where W changes every add_task() → centroids non-comparable.
+
+        DYNAMICS MODE — SRM (unchanged logic):
+          - Pooled update + re-shrink + SRM per task.
 
         Args:
             task_id: integer or string task ID
@@ -531,91 +536,95 @@ class SRTRouter:
         """
         n_t, d = h_train.shape
 
-        # Step 1: sufficient statistics
+        # ── Sufficient statistics (always in raw space) ────────────────
         mu_t = h_train.mean(axis=0)
         Sigma_t = np.cov(h_train, rowvar=False, ddof=1)
 
-        # Step 2: Ledoit-Wolf shrinkage
+        # Optional pre-whitening LW shrinkage (on raw covariance)
         if self.use_shrink:
-            Sigma_t = ledoit_wolf_shrinkage(Sigma_t, factor=self.shrink_factor)
+            Sigma_t_shrunk = ledoit_wolf_shrinkage(Sigma_t, factor=self.shrink_factor)
+        else:
+            Sigma_t_shrunk = Sigma_t.copy()
 
-        # Step 3: update pooled
-        self._update_pooled(mu_t, Sigma_t, n_t)
+        # ── Pooled statistics update (Welford–Hart) ───────────────────
+        self._update_pooled(mu_t, Sigma_t_shrunk, n_t)
 
-        # Step 4: re-shrink all existing tasks (Theorem 5)
-        if len(self.signatures) > 0:
-            self._reshrink_all()
+        # ── Dynamics mode ────────────────────────────────────────────────
+        if self.srt_metric_mode == 'dynamics':
+            # Re-shrink previous tasks toward updated pool
+            if len(self.signatures) > 0:
+                self._reshrink_all()
 
-        # ── [hard mode] ZCA whitening ────────────────────────────────────
-        if self.srt_metric_mode == 'hard':
-            # Fit ZCA on all RAW embeddings + current batch
-            # _h_train is persisted in to_dict/from_dict for cross-invocation support
-            all_h_parts = []
-            for sig in self.signatures.values():
-                if sig._h_train is None:
-                    raise RuntimeError(
-                        f"[SRT] Task {sig.task_id} has no _h_train! This means signatures "
-                        f"were loaded from an old checkpoint that didn't save raw embeddings. "
-                        f"Re-run training from task 1 to regenerate signatures."
-                    )
-                all_h_parts.append(sig._h_train)
-            all_h_parts.append(h_train)
-            all_h = np.vstack(all_h_parts)
-            self._mu_global, self._W_zca = compute_whitening({0: all_h})
-
-            # Re-whiten all existing signatures FROM RAW (avoid compounding)
-            # BUG #25 fix: old signatures already had whitened μ/Σ from
-            # previous add_task call. Must whiten from unwhitened values.
-            # Note: _reshrink_all() already reset sig.Sigma from Sigma_raw
-            # (line 365), so sig.Sigma is now reshrunk-but-unwhitened.
-            for sig in self.signatures.values():
-                reshrunk_Sigma = sig.Sigma  # post-reshrink, pre-whitening
-                sig.mu = apply_whitening(sig.mu_raw.reshape(1, -1), self._mu_global, self._W_zca).ravel()
-                sig.Sigma = self._W_zca @ reshrunk_Sigma @ self._W_zca.T
-                sig._eigvals = None; sig._eigvecs = None
-                sig._Sinv = None; sig._par = None
-                sig._metric = 'l2'
-
-            # Whiten current task
-            mu_t_w = apply_whitening(mu_t.reshape(1, -1), self._mu_global, self._W_zca).ravel()
-            Sigma_t_w = self._W_zca @ Sigma_t @ self._W_zca.T
-            if self.use_shrink:
-                Sigma_t_w = ledoit_wolf_shrinkage(Sigma_t_w, factor=self.shrink_factor)
-
-            # After whitening: space is isotropic → metric = L2
             sig = TaskSignature(
-                task_id, mu_t_w, Sigma_t_w, n_t,
+                task_id, mu_t, Sigma_t, n_t,
                 metric='l2',
-                Sigma_raw=Sigma_t,   # keep raw for re-whitening on next task
-                h_train=h_train,
-                mu_raw=mu_t,         # keep unwhitened centroid for ZCA refit
-            )
-            self.signatures[task_id] = sig
-
-        # ── [dynamics mode] SRM metric selection ─────────────────────────
-        else:  # 'dynamics'
-            mu_t_w = mu_t
-            Sigma_t_w = Sigma_t
-
-            # Add current task FIRST (CRITICAL FIX)
-            # If we run SRM before adding current task, it gets PaR fallback
-            # → mixed metrics → argmin invalid → misroute
-            sig = TaskSignature(
-                task_id, mu_t_w, Sigma_t_w, n_t,
-                metric='l2',  # temporary, will be overwritten by SRM below
                 Sigma_raw=Sigma_t,
                 h_train=h_train,
                 mu_raw=mu_t,
             )
             self.signatures[task_id] = sig
 
-            # Now run SRM on ALL tasks (including current)
             if len(self.signatures) >= 2:
                 srm_results, _ = srm_metric_selection(self.signatures)
                 self._srm_metrics = srm_results
                 for t_id, m in srm_results.items():
                     self.signatures[t_id]._metric = m
+            return sig
 
+        # ── Hard mode: ZCA fit-once ───────────────────────────────────
+        # Re-shrink previous tasks toward updated pool (raw Σ, pre-whitening)
+        if len(self.signatures) > 0:
+            self._reshrink_all()
+
+        if not self._zca_fitted:
+            # FIRST TIME: fit ZCA from pooled mean + pooled covariance.
+            # Uses Σ_pool which already aggregates ALL seen tasks via Welford–Hart.
+            # This is the single, FINAL whitening transform — never refitted.
+            self._mu_global = self._mu_pool.copy()
+            cov_pool = self._Sigma_pool.copy()
+
+            # Eigendecomposition of pooled covariance → ZCA transform
+            eigvals, eigvecs = np.linalg.eigh(cov_pool)
+            eigvals = np.maximum(eigvals, 1e-8)
+            idx = np.argsort(eigvals)[::-1]
+            eigvals = eigvals[idx]
+            eigvecs = eigvecs[:, idx]
+            self._W_zca = eigvecs @ np.diag(1.0 / np.sqrt(eigvals)) @ eigvecs.T
+            self._zca_fitted = True
+
+            # Re-whiten ALL previous tasks (from their raw centroids)
+            for sig in self.signatures.values():
+                # sig.Sigma was reshrunk-but-unwhitened by _reshrink_all()
+                # sig.mu_raw is the unwhitened centroid
+                sig.mu = apply_whitening(
+                    sig.mu_raw.reshape(1, -1),
+                    self._mu_global, self._W_zca,
+                ).ravel()
+                sig.Sigma = self._W_zca @ sig.Sigma @ self._W_zca.T
+                sig._eigvals = None; sig._eigvecs = None
+                sig._Sinv = None; sig._par = None
+                sig._metric = 'l2'
+
+            n_d = self._n_pool / d
+            print(f"  [SRT] ZCA fitted once: n_pool={self._n_pool}, d={d}, n/d={n_d:.2f}")
+
+        # Whiten current task with the FIXED (already-fitted) ZCA
+        mu_t_w = apply_whitening(
+            mu_t.reshape(1, -1), self._mu_global, self._W_zca,
+        ).ravel()
+        Sigma_t_w = self._W_zca @ Sigma_t_shrunk @ self._W_zca.T
+
+        # NOTE: NO Ledoit-Wolf here — space is already whitened.
+        # Post-whitening LW with lambda-bar-I target would distort isotropy.
+
+        sig = TaskSignature(
+            task_id, mu_t_w, Sigma_t_w, n_t,
+            metric='l2',
+            Sigma_raw=Sigma_t_shrunk,
+            h_train=h_train,
+            mu_raw=mu_t,
+        )
+        self.signatures[task_id] = sig
         return sig
 
     # ── Route ────────────────────────────────────────────────────────
@@ -652,6 +661,18 @@ class SRTRouter:
         nearest_idx = np.argmin(dists, axis=1)
         nearest_task = np.array(task_list)[nearest_idx]
 
+        # ── DEBUG ────────────────────────────────────────────────
+        if not hasattr(self, '_route_debug_count'):
+            self._route_debug_count = 0
+        self._route_debug_count += 1
+        if self._route_debug_count % 1000 == 0 and n > 0:
+            print(f"[SRT-ROUTE] mode={self.srt_metric_mode} n_tasks={T} "
+                  f"task_list={task_list} whiten={'Yes' if self._W_zca is not None else 'No'}")
+            print(f"[SRT-ROUTE] Sample 0: dists={dists[0,:].tolist()} "
+                  f"argmin={nearest_idx[0]} pred={nearest_task[0]}")
+            if hasattr(self, '_srm_metrics'):
+                print(f"[SRT-ROUTE] SRM metrics: {self._srm_metrics}")
+
         return nearest_task, dists
 
     # ── Save / Load ───────────────────────────────────────────────────
@@ -670,6 +691,7 @@ class SRTRouter:
             shrink_factor=np.array([self.shrink_factor]),
             mu_global=self._mu_global if self._mu_global is not None else np.array([]),
             W_zca=self._W_zca if self._W_zca is not None else np.array([]),
+            zca_fitted=np.array([self._zca_fitted]),
         )
 
     def load(self, path: str):
@@ -695,6 +717,11 @@ class SRTRouter:
         W_z = data.get('W_zca', np.array([]))
         self._mu_global = mu_g if mu_g.size > 0 else None
         self._W_zca = W_z if W_z.size > 0 else None
+        # ZCA was fitted once; restore flag (backward compat: infer from W if not saved)
+        if 'zca_fitted' in data:
+            self._zca_fitted = bool(data['zca_fitted'][0])
+        else:
+            self._zca_fitted = (self._mu_global is not None and self._W_zca is not None)
 
         for k, v in data['signatures'].item().items():
             self.signatures[k] = TaskSignature.from_dict(v)

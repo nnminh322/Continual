@@ -1372,6 +1372,23 @@ class T5Stack(T5PreTrainedModel):
                             # pos is guaranteed < n_slots if wiring is correct
                             srt_weights[b, pos, 0] = 1.0
                         # else: all zeros (no matching signature — shouldn't happen)
+
+                    # ── DEBUG ────────────────────────────────────────────────
+                    # Print first sample's routing decision every 500 forward passes
+                    if not hasattr(self, '_srt_debug_count'):
+                        self._srt_debug_count = 0
+                    self._srt_debug_count += 1
+                    if self._srt_debug_count % 500 == 0:
+                        print(f"[SRT-DEBUG] step={self._srt_debug_count} "
+                              f"training={self.training} "
+                              f"use_srt={self.use_srt_routing} "
+                              f"router={'Yes' if self.srt_router else 'No'} "
+                              f"encoder_frozen={'Yes' if self.encoder_frozen else 'No'} "
+                              f"slots={n_slots} "
+                              f"task_ids={self.srt_task_id_to_idx} "
+                              f"srt_preds[:3]={srt_preds[:3].tolist()} "
+                              f"srt_weights[:3,:,0]={srt_weights[:3,:,0].tolist()}")
+
                     # Inject SRT one-hot weights — overrides learned attention routing
                     key_attention_weights[:] = srt_weights
             else:
