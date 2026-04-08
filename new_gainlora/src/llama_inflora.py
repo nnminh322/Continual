@@ -1118,6 +1118,72 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         return reordered_past
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  FROZEN LLAMA EXTRACTOR  (for SRT routing — matches routing_analysis)
+#
+#  MUST be attached BEFORE training starts:
+#    extractor = FrozenLlamaExtractor(model)
+#    model.encoder_frozen = extractor   # or model.model.encoder_frozen
+#
+#  Usage in cl_trainer_srt.py:
+#    if hasattr(model, 'encoder') and hasattr(model.encoder, 'encoder_frozen'):
+#        h = model.encoder.encoder_frozen(input_ids, attention_mask)
+#
+#  Extraction matches extract_embeddings_llama.py (routing_analysis):
+#    - Layer: hidden_states[-1]  (last transformer layer)
+#    - Pool: last non-padding token  (pool="last")
+#    - Frozen: no gradients, no LoRA adaptation
+# ─────────────────────────────────────────────────────────────────────────────
+
+class FrozenLlamaExtractor(nn.Module):
+    """
+    Frozen LLaMA backbone for SRT embedding extraction.
+
+    Matches routing_analysis/extract_embeddings_llama.py exactly:
+      layer  = hidden_states[-1]  (last transformer layer, post-final-LayerNorm)
+      pool   = last non-padding token  (NOT mean pooling)
+
+    MUST be attached BEFORE training so that model.encoder.encoder_frozen
+    is available during SRT signature extraction.
+
+    Usage:
+        model = LlamaForCausalLM.from_pretrained(...)
+        model.model.encoder_frozen = FrozenLlamaExtractor(model.model)
+    """
+
+    def __init__(self, base_model: 'LlamaModel'):
+        super().__init__()
+        self.base_model = base_model
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Returns pooled embeddings: (B, d) — last non-padding token.
+
+        Identical to routing_analysis/extract_embeddings_llama.py:
+          out.hidden_states[-1]  (B, L, d)
+          last_token pooling
+        """
+        with torch.no_grad():
+            out = self.base_model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                output_hidden_states=True,
+            )
+            # Last layer hidden state (B, L, d)
+            hidden = out.hidden_states[-1]
+
+            # Last non-padding token per sample (LLaMA is left-padded)
+            seq_lens = attention_mask.sum(dim=1) - 1  # (B,)
+            B = hidden.size(0)
+            pooled = hidden[torch.arange(B, device=hidden.device), seq_lens]  # (B, d)
+
+        return pooled.float()
+
+
 @add_start_docstrings(
     """
     The LLaMa Model transformer with a sequence classification head on top (linear layer).

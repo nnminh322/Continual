@@ -306,7 +306,7 @@ class TaskSignature:
         metric: str = 'l2',
         alpha: float = 0.0,
         Sigma_raw: Optional[np.ndarray] = None,
-        h_train: Optional[np.ndarray] = None,
+        h_train: Optional[np.ndarray] = None,  # kept for backward compat on load; IGNORED
         mu_raw: Optional[np.ndarray] = None,
     ):
         self.task_id = task_id
@@ -316,7 +316,6 @@ class TaskSignature:
         self.Sigma = Sigma.astype(np.float64)
         self.n = n
         self.alpha = alpha
-        self._h_train = h_train.astype(np.float64) if h_train is not None else None
         self.mu_raw = mu_raw.astype(np.float64) if mu_raw is not None else mu.astype(np.float64).copy()
         self._metric = metric
 
@@ -407,9 +406,9 @@ class TaskSignature:
             'metric': self.metric,
             'alpha': self.alpha,
         }
-        # Hard mode needs raw embeddings for ZCA refit on future tasks
-        if self._h_train is not None:
-            d['h_train'] = self._h_train
+        # Zero-rehearsal compliant: only sufficient statistics, NO raw data.
+        # h_train is NOT needed: Sigma_raw + mu_raw fully encode the distribution.
+        # W_zca is reconstructed from Sigma_pool (already stored separately).
         return d
 
     @classmethod
@@ -422,7 +421,7 @@ class TaskSignature:
             metric=d.get('metric', 'l2'),
             alpha=d.get('alpha', 0.0),
             Sigma_raw=d.get('Sigma_raw', d['Sigma']),
-            h_train=d.get('h_train'),
+            h_train=None,   # h_train intentionally dropped: zero-rehearsal
             mu_raw=d.get('mu_raw'),
         )
 

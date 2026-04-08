@@ -41,17 +41,24 @@ except ImportError:
 
 def extract_embeddings_from_batch(model, inputs: Dict) -> torch.Tensor:
     """
-    Extract mean-pooled encoder hidden states from a FROZEN encoder.
+    Extract frozen backbone embeddings for SRT signatures {μ_t, Σ_t}.
 
-    Theory (contribution_UNIFIED.md): SRT signatures {μ_t, Σ_t} are computed
-    on FROZEN backbone embeddings — the embedding space BEFORE any LoRA adaptation.
+    Matches routing_analysis extraction EXACTLY:
 
-    Bug fix: previously used `model(**inputs)` which goes through the ADAPTED
-    encoder (LoRA fine-tuned). Now uses `model.encoder.encoder_frozen` to match
-    the frozen embedding space used during inference routing.
+      T5 (encoder model):
+        Layer: last encoder hidden state  (out.last_hidden_state)
+        Pool:  mean over non-padding tokens
 
-    This matches routing_analysis/extract_embeddings_t5.py which loads a
-    pretrained T5EncoderModel and extracts from its frozen encoder.
+      LLaMA (decoder model):
+        Layer: last decoder hidden state  (out.hidden_states[-1])
+        Pool:  last non-padding token    (NOT mean pooling)
+
+    MUST use model.encoder.encoder_frozen (or equivalent frozen wrapper).
+    NEVER use adapted model (LoRA fine-tuned) — embedding space differs.
+
+    References:
+      T5:  routing_analysis/extract_embeddings_t5.py (layer="encoder", pool="avg")
+      LLaMA: routing_analysis/extract_embeddings_llama.py (pool="last", layer="hidden")
     """
     input_ids = inputs.get('input_ids')
     attention_mask = inputs.get('attention_mask')
@@ -67,38 +74,53 @@ def extract_embeddings_from_batch(model, inputs: Dict) -> torch.Tensor:
         attention_mask = attention_mask.to(device)
 
     with torch.no_grad():
-        # Use FROZEN encoder — same as routing_analysis experiment
+        # ── Case 1: T5 — frozen encoder (encoder_frozen has last_hidden_state) ──
         if hasattr(model, 'encoder') and hasattr(model.encoder, 'encoder_frozen'):
             frozen_enc = model.encoder.encoder_frozen
             enc_out = frozen_enc(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
             )
-            if hasattr(enc_out, 'last_hidden_state'):
-                hidden = enc_out.last_hidden_state
-            else:
-                hidden = enc_out[0]
-        else:
-            # Fallback: model is a bare T5EncoderModel (no gainlora wrapper)
-            enc_out = model(
+            # frozen_enc is T5EncoderModel → has last_hidden_state
+            hidden = enc_out.last_hidden_state  # (B, L, d)
+
+            # Mean pooling — matches routing_analysis/extract_embeddings_t5.py
+            mask = attention_mask.unsqueeze(-1).float()          # (B, L, 1)
+            pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)  # (B, d)
+
+        # ── Case 2: LLaMA — frozen decoder (encoder_frozen = FrozenLlamaExtractor) ──
+        elif (hasattr(model, 'encoder') and hasattr(model.encoder, 'encoder_frozen')
+              and hasattr(model.encoder.encoder_frozen, 'forward')):
+            # encoder_frozen is FrozenLlamaExtractor → returns pooled (B, d) directly
+            pooled = model.encoder.encoder_frozen(input_ids, attention_mask)  # (B, d)
+
+        # ── Case 3: bare T5EncoderModel (no gainlora wrapper) ──
+        elif hasattr(model, 'encoder'):
+            enc_out = model.encoder(input_ids=input_ids, attention_mask=attention_mask)
+            hidden = getattr(enc_out, 'last_hidden_state', None) or enc_out[0]
+            mask = attention_mask.unsqueeze(-1).float()
+            pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
+
+        # ── Case 4: bare LlamaForCausalLM (no gainlora wrapper) ──
+        elif hasattr(model, 'model'):
+            out = model.model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
+                output_hidden_states=True,
             )
-            if hasattr(enc_out, 'last_hidden_state'):
-                hidden = enc_out.last_hidden_state
-            elif hasattr(enc_out, 'encoder_last_hidden_state'):
-                hidden = enc_out.encoder_last_hidden_state
-            else:
-                hidden = enc_out[0]
+            hidden = out.hidden_states[-1]                     # (B, L, d)
+            seq_lens = attention_mask.sum(dim=1) - 1          # (B,)
+            B = hidden.size(0)
+            pooled = hidden[torch.arange(B, device=device), seq_lens]  # (B, d)
 
-    # Mean pooling (identical to routing_analysis/extract_embeddings_t5.py)
-    if attention_mask is not None:
-        mask = attention_mask.unsqueeze(-1).float()
-        pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
-    else:
-        pooled = hidden.mean(dim=1)
+        # ── Case 5: bare T5EncoderModel directly ──
+        else:
+            enc_out = model(input_ids=input_ids, attention_mask=attention_mask)
+            hidden = getattr(enc_out, 'last_hidden_state', None) or enc_out[0]
+            mask = attention_mask.unsqueeze(-1).float()
+            pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
 
-    return pooled.float()   # (B, d)
+    return pooled  # (B, d), float32
 
 
 # ─────────────────────────────────────────────────────────────────────────────

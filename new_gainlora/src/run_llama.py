@@ -364,6 +364,36 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         metadata={"help": "persent"}
     )
 
+    # ── SRT (Statistical Routing Theory) ──────────────────────────────────────
+    use_srt_router: Optional[bool] = field(
+        default=True,
+        metadata={"help": "Enable SRT non-parametric router via {μ_t, Σ_t} signatures."},
+    )
+    srt_metric_mode: Optional[str] = field(
+        default='hard',
+        metadata={
+            "help": "SRT routing mode: 'hard' (ZCA+L2, matches routing_analysis), "
+                    "'dynamics' (SRM metric selection, matches contribution_UNIFIED).",
+            "choices": ["hard", "dynamics"],
+        },
+    )
+    srt_shrink: Optional[bool] = field(
+        default=False,   # FALSE to match routing_analysis experiment (no LW shrinkage)
+        metadata={"help": "Apply Ledoit-Wolf shrinkage to covariance. FALSE = exact match."},
+    )
+    srt_shrink_factor: Optional[float] = field(
+        default=0.1,
+        metadata={"help": "Ledoit-Wolf shrinkage intensity."},
+    )
+    srt_max_emb_samples: Optional[int] = field(
+        default=500,
+        metadata={"help": "Max training batches for embedding extraction."},
+    )
+    srt_load_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to load SRT signatures from previous checkpoint (multi-task CL)."},
+    )
+
 def main():
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
@@ -520,6 +550,17 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
         use_safetensors=True,
     )
+
+    # ── SRT: Attach frozen LLaMA extractor for routing ─────────────────────────
+    # Matches routing_analysis/extract_embeddings_llama.py:
+    #   Layer: hidden_states[-1] (last decoder layer)
+    #   Pool:  last non-padding token  (pool="last")
+    # MUST be attached BEFORE training so cl_trainer_srt.py can use it.
+    if training_args.use_srt_router:
+        from llama_inflora import FrozenLlamaExtractor
+        model.model.encoder_frozen = FrozenLlamaExtractor(model.model)
+        print(f"[SRT] Attached FrozenLlamaExtractor to model.model.encoder_frozen")
+        print(f"      Layer=last_hidden, Pool=last_token (matches routing_analysis)")
 
     # from transformers.models.llama.modeling_llama import LlamaForCausalLM
     # model = LlamaForCausalLM.from_pretrained(
@@ -825,23 +866,51 @@ def main():
             from cl_trainer_gainlora_inflora_llama import GainLoRA_InfLoRA_Trainer
         else:
             raise NotImplementedError
-        trainer = GainLoRA_InfLoRA_Trainer(
-            model=model,
-            args=training_args,
-            train_dataset=train_dataset if training_args.do_train else None,
-            cur_task_id=cur_task_id,
-            task_order=task_order,
-            data_collator_replay=data_collator_replay,
-            replay_dataset_dict=replay_dataset_dict,
-            replay_label_dict=replay_label_dict,
-            eval_dataset=eval_dataset if training_args.do_eval else None,
-            tokenizer=tokenizer,
-            data_collator=data_collator,
-            compute_metrics=compute_rouge_metrics,
-            callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
-        )
-        if training_args.do_train:
-            trainer.get_reg_matrix()
+
+        if training_args.use_srt_router:
+            # SRT Trainer: GainLoRA + non-parametric SRT router
+            # FrozenLlamaExtractor was attached earlier (model.model.encoder_frozen)
+            from cl_trainer_srt import SRT_Trainer
+            trainer = SRT_Trainer(
+                model=model,
+                args=training_args,
+                train_dataset=train_dataset if training_args.do_train else None,
+                cur_task_id=cur_task_id,
+                task_order=task_order,
+                data_collator_replay=data_collator_replay,
+                replay_dataset_dict=replay_dataset_dict,
+                replay_label_dict=replay_label_dict,
+                eval_dataset=eval_dataset if training_args.do_eval else None,
+                tokenizer=tokenizer,
+                data_collator=data_collator,
+                compute_metrics=compute_rouge_metrics,
+                callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None,
+                srt_metric_mode=training_args.srt_metric_mode,
+                srt_shrink=training_args.srt_shrink,
+                srt_shrink_factor=training_args.srt_shrink_factor,
+                srt_max_emb_samples=training_args.srt_max_emb_samples,
+                srt_load_path=training_args.srt_load_path,
+            )
+            print(f"[SRT] Using SRT_Trainer (mode={training_args.srt_metric_mode}, "
+                  f"shrink={training_args.srt_shrink}, encoder_frozen=attached)")
+        else:
+            trainer = GainLoRA_InfLoRA_Trainer(
+                model=model,
+                args=training_args,
+                train_dataset=train_dataset if training_args.do_train else None,
+                cur_task_id=cur_task_id,
+                task_order=task_order,
+                data_collator_replay=data_collator_replay,
+                replay_dataset_dict=replay_dataset_dict,
+                replay_label_dict=replay_label_dict,
+                eval_dataset=eval_dataset if training_args.do_eval else None,
+                tokenizer=tokenizer,
+                data_collator=data_collator,
+                compute_metrics=compute_rouge_metrics,
+                callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
+            )
+            if training_args.do_train:
+                trainer.get_reg_matrix()
     else:
         raise NotImplementedError
 
