@@ -47,8 +47,8 @@ elif [ "$IS_T4" -eq 1 ]; then
 else
     GPU_MODE="a100"
     GPU_IDS="${1:-0}"
-    FP16_FLAG=""
-    echo "[GPU] Strategy: A100 (single GPU, fp32)"
+    FP16_FLAG="--gradient_checkpointing"
+    echo "[GPU] Strategy: A100 + gradient_checkpointing"
 fi
 
 echo "[GPU] Using CUDA_VISIBLE_DEVICES=$GPU_IDS"
@@ -57,14 +57,14 @@ echo ""
   
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=8
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=8
 else
-    BSZ=8; GA=4; EVAL_BSZ=128
+    BSZ=2; GA=8; EVAL_BSZ=32
 fi
 
-SRT_FLAGS="--use_srt_router --srt_metric_mode hard --srt_shrink --srt_shrink_factor 0.1 --srt_max_emb_samples 500"
+SRT_FLAGS="--use_srt_router --srt_metric_mode hard --srt_max_emb_samples 500"
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
