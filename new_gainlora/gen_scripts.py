@@ -74,7 +74,7 @@ def gen_t5_script(run_name, task_order, task_list, config_dir, gen_data_dir, met
     assert len(task_list) == 15
     SRT_FLAGS = (
         "--use_srt_router --srt_shrink --srt_shrink_factor 0.1 "
-        "--srt_metric auto --srt_max_emb_samples 500"
+        "--srt_metric_mode hard --srt_max_emb_samples 500"
     )
     prev_lora_chains = ",".join(
         f"$BASE_OUT/outputs/{i+1}-{task_list[i]}/saved_weights"
@@ -226,7 +226,7 @@ fi
 RUN_NAME="{run_name}"
 TASK_ORDER="{task_order}"
 BASE_OUT="logs_and_outputs/$RUN_NAME"
-SRT_FLAGS="--use_srt_router --srt_shrink --srt_shrink_factor 0.1 --srt_metric auto --srt_max_emb_samples 500"
+SRT_FLAGS="--use_srt_router --srt_shrink --srt_shrink_factor 0.1 --srt_metric_mode hard --srt_max_emb_samples 500"
 
 """) + "\n\n".join(task_cmds) + f"""\
 
@@ -239,7 +239,7 @@ echo "[DONE] All 15 tasks complete. Run: python score.py $RUN_NAME $RUN_NAME"
 def gen_llama_script(run_name, task_order, task_list, config_dir, gen_data_dir):
     SRT_FLAGS = (
         "--use_srt_router --srt_shrink --srt_shrink_factor 0.1 "
-        "--srt_metric auto --srt_max_emb_samples 500"
+        "--srt_metric_mode hard --srt_max_emb_samples 500"
     )
 
     task_cmds = []
@@ -365,7 +365,7 @@ fi
 RUN_NAME="{run_name}"
 TASK_ORDER="{task_order}"
 BASE_OUT="logs_and_outputs/$RUN_NAME"
-SRT_FLAGS="--use_srt_router --srt_shrink --srt_shrink_factor 0.1 --srt_metric auto --srt_max_emb_samples 500"
+SRT_FLAGS="--use_srt_router --srt_shrink --srt_shrink_factor 0.1 --srt_metric_mode hard --srt_max_emb_samples 500"
 
 """) + "\n\n".join(task_cmds) + f"""\
 

@@ -33,7 +33,7 @@ fi
 RUN_NAME="superni_order1_llama_srt"
 TASK_ORDER="task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification"
 BASE_OUT="logs_and_outputs/$RUN_NAME"
-SRT_FLAGS="--use_srt_router --srt_shrink --srt_shrink_factor 0.1 --srt_metric auto --srt_max_emb_samples 500"
+SRT_FLAGS="--use_srt_router --srt_metric_mode hard --srt_max_emb_samples 500"
 
 # ── TASK 1: task1572_samsum_summary ──────────────────────────────────────────
 OUTPUT_DIR="$BASE_OUT/outputs/1-task1572_samsum_summary"
