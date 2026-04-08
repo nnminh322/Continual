@@ -312,7 +312,7 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         },
     )
     srt_shrink: Optional[bool] = field(
-        default=True,
+        default=False,   # FALSE for hard mode: raw covariance matches routing_analysis experiment
         metadata={"help": "Apply Ledoit-Wolf shrinkage to covariance estimation."},
     )
     srt_shrink_factor: Optional[float] = field(

@@ -64,7 +64,7 @@ else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
-SRT_FLAGS="--use_srt_router --srt_shrink --srt_shrink_factor 0.1 --srt_metric auto --srt_max_emb_samples 500"
+SRT_FLAGS="--use_srt_router --srt_metric_mode hard --srt_shrink --srt_shrink_factor 0.1 --srt_max_emb_samples 500"
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
