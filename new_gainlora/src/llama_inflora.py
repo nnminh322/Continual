@@ -1153,7 +1153,10 @@ class FrozenLlamaExtractor(nn.Module):
 
     def __init__(self, base_model: 'LlamaModel'):
         super().__init__()
-        self.base_model = base_model
+        # Store as non-Module attribute to AVOID PyTorch recursive module traversal.
+        # base_model is already on the correct device (set by parent model load).
+        # Registering it as a Module would cause recursion in model.to(device).
+        object.__setattr__(self, 'base_model', base_model)
 
     def forward(
         self,
