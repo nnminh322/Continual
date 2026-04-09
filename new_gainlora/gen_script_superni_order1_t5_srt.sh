@@ -57,11 +57,11 @@ echo ""
   
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=1; GA=16; EVAL_BSZ=8
+    BSZ=1; GA=16; EVAL_BSZ=4
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=1; GA=16; EVAL_BSZ=8
+    BSZ=1; GA=16; EVAL_BSZ=4
 else
-    BSZ=2; GA=8; EVAL_BSZ=32
+    BSZ=1; GA=32; EVAL_BSZ=16
 fi
 
 SRT_FLAGS="--use_srt_router --srt_metric_mode hard --srt_max_emb_samples 500"
@@ -113,11 +113,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
 
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=4; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 else
-    BSZ=16; GA=2; EVAL_BSZ=128
+    BSZ=1; GA=16; EVAL_BSZ=8
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -172,11 +172,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
 
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=4; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 else
-    BSZ=16; GA=2; EVAL_BSZ=128
+    BSZ=1; GA=16; EVAL_BSZ=8
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -231,11 +231,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
 
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=4; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 else
-    BSZ=16; GA=2; EVAL_BSZ=128
+    BSZ=1; GA=16; EVAL_BSZ=8
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -290,11 +290,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
 
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=4; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 else
-    BSZ=16; GA=2; EVAL_BSZ=128
+    BSZ=1; GA=16; EVAL_BSZ=8
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -349,11 +349,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
 
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=4; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 else
-    BSZ=16; GA=2; EVAL_BSZ=128
+    BSZ=1; GA=16; EVAL_BSZ=8
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -408,11 +408,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
 
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=4; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 else
-    BSZ=16; GA=2; EVAL_BSZ=128
+    BSZ=1; GA=16; EVAL_BSZ=8
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -467,11 +467,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
 
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=4; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 else
-    BSZ=16; GA=2; EVAL_BSZ=128
+    BSZ=1; GA=16; EVAL_BSZ=8
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -526,11 +526,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
 
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=4; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 else
-    BSZ=16; GA=2; EVAL_BSZ=128
+    BSZ=1; GA=16; EVAL_BSZ=8
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -585,11 +585,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
 
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=4; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 else
-    BSZ=16; GA=2; EVAL_BSZ=128
+    BSZ=1; GA=16; EVAL_BSZ=8
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -644,11 +644,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
 
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=4; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 else
-    BSZ=16; GA=2; EVAL_BSZ=128
+    BSZ=1; GA=16; EVAL_BSZ=8
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -703,11 +703,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
 
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=4; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 else
-    BSZ=16; GA=2; EVAL_BSZ=128
+    BSZ=1; GA=16; EVAL_BSZ=8
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -762,11 +762,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
 
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=4; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 else
-    BSZ=16; GA=2; EVAL_BSZ=128
+    BSZ=1; GA=16; EVAL_BSZ=8
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -821,11 +821,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
 
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=4; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 else
-    BSZ=16; GA=2; EVAL_BSZ=128
+    BSZ=1; GA=16; EVAL_BSZ=8
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
@@ -880,11 +880,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
 
 
 if [ "$GPU_MODE" = "t4_2gpu" ]; then
-    BSZ=2; GA=4; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 elif [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=4; GA=8; EVAL_BSZ=16
+    BSZ=1; GA=16; EVAL_BSZ=4
 else
-    BSZ=16; GA=2; EVAL_BSZ=128
+    BSZ=1; GA=16; EVAL_BSZ=8
 fi
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
