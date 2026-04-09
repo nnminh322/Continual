@@ -37,6 +37,7 @@ echo ""
 
 # SRT hard mode: ZCA whitening + L2 (matches routing_analysis experiment)
 SRT_FLAGS="--use_srt_router --srt_metric_mode hard --srt_max_emb_samples 500 --srt_skip_forward"
+echo "NOTE: --srt_skip_forward=True: embeddings loaded from disk (embeddings/flan-t5-xl/Long_Sequence/{task}/)"
 
 
 # ── TASK 1: yelp ──────────────────────────────────────────

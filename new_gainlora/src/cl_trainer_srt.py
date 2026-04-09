@@ -214,7 +214,7 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
             emb_path = self._srt_emb_cache_path(cur_task)
 
             if emb_path is not None and os.path.exists(emb_path):
-                print(f"  [SRT] Loading cached embeddings from {emb_path}")
+                print(f"  [SRT] ★ LOAD FROM CACHE: {emb_path}")
                 data = np.load(emb_path, allow_pickle=True)
                 embeddings = torch.from_numpy(data['embeddings'])  # (n, d)
 
@@ -222,14 +222,18 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
                 if embeddings.shape[0] > max_samples:
                     embeddings = embeddings[:max_samples]
 
-                print(f"  [SRT] Loaded {embeddings.shape[0]} embeddings, dim={embeddings.shape[1]}")
+                print(f"  [SRT]   → Loaded {embeddings.shape[0]} embeddings, dim={embeddings.shape[1]}")
                 return embeddings, []
             else:
-                print(f"  [SRT] WARNING: srt_skip_forward=True but no cached embeddings "
-                      f"found for task '{cur_task}'. Falling back to forward pass.")
+                print(f"  [SRT] ✗ SKIP_FORWARD=True but cache MISS for '{cur_task}' → falling back to forward pass")
+                if emb_path is not None:
+                    print(f"  [SRT]   → Expected path: {emb_path}")
+                else:
+                    print(f"  [SRT]   → Unknown backbone (model_name='{getattr(self.args, 'model_name_or_path', '')}')")
                 # Fall through to forward extraction below
 
         # ── MODE 2: Forward pass extraction (original behavior) ───────────
+        print(f"  [SRT] → Forward pass extraction ({max_samples} batches, backbone)")
         train_dataloader = self.get_train_dataloader()
         h_list = []
         task_ids = []
