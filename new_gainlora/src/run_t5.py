@@ -327,6 +327,14 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         default=None,
         metadata={"help": "Path to load SRT signatures from a previous checkpoint (multi-task CL)."},
     )
+    srt_skip_forward: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Skip forward-pass embedding extraction. "
+                    "Load pre-extracted embeddings from embeddings/{backbone}/{split}/{task}/train.npz instead. "
+                    "Requires pre-extracted embeddings to exist."
+        },
+    )
 
     denser_evaluation: Optional[bool] = field(
         default=False,
@@ -872,6 +880,7 @@ def main():
             srt_shrink_factor=training_args.srt_shrink_factor,
             srt_max_emb_samples=training_args.srt_max_emb_samples,
             srt_load_path=training_args.srt_load_path,
+            srt_skip_forward=training_args.srt_skip_forward,
         )
         if training_args.do_train:
             trainer.get_reg_matrix()

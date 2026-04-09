@@ -393,6 +393,14 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         default=None,
         metadata={"help": "Path to load SRT signatures from previous checkpoint (multi-task CL)."},
     )
+    srt_skip_forward: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Skip forward-pass embedding extraction. "
+                    "Load pre-extracted embeddings from embeddings/{backbone}/{split}/{task}/train.npz instead. "
+                    "Requires pre-extracted embeddings to exist."
+        },
+    )
 
 def main():
     # See all possible arguments in src/transformers/training_args.py
@@ -890,9 +898,11 @@ def main():
                 srt_shrink_factor=training_args.srt_shrink_factor,
                 srt_max_emb_samples=training_args.srt_max_emb_samples,
                 srt_load_path=training_args.srt_load_path,
+                srt_skip_forward=training_args.srt_skip_forward,
             )
             print(f"[SRT] Using SRT_Trainer (mode={training_args.srt_metric_mode}, "
-                  f"shrink={training_args.srt_shrink}, encoder_frozen=attached)")
+                  f"shrink={training_args.srt_shrink}, "
+                  f"skip_forward={training_args.srt_skip_forward}, encoder_frozen=attached)")
         else:
             trainer = GainLoRA_InfLoRA_Trainer(
                 model=model,

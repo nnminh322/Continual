@@ -163,6 +163,7 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
         srt_shrink_factor: float = 0.1,
         srt_max_emb_samples: int = 500,
         srt_load_path: Optional[str] = None,
+        srt_skip_forward: bool = False,
     ):
         super().__init__(
             model, args, train_dataset, cur_task_id, task_order,
@@ -175,6 +176,7 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
         self.srt_shrink_factor = srt_shrink_factor
         self.srt_max_emb_samples = srt_max_emb_samples
         self.srt_load_path = srt_load_path
+        self.srt_skip_forward = srt_skip_forward
 
         self.srt_router: Optional[SRTRouter] = None
         self._srt_init()
@@ -194,10 +196,40 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
     # ── 1. EMBEDDING EXTRACTION ────────────────────────────────────────────
 
     def _extract_task_embeddings(self, max_samples: int = None) -> Tuple[torch.Tensor, List]:
-        """Extract embeddings for the current training task from FROZEN encoder."""
+        """
+        Extract embeddings for the current training task.
+
+        Two modes controlled by self.srt_skip_forward:
+          False (default): forward pass through FROZEN backbone (original behavior)
+          True          : load pre-extracted embeddings from disk
+                          embeddings/{backbone}/{split}/{task}/train.npz
+                          Keys: 'embeddings' (n,d), 'labels' (n,)
+        """
         if max_samples is None:
             max_samples = self.srt_max_emb_samples
 
+        # ── MODE 1: Load pre-extracted embeddings from disk ───────────────
+        if self.srt_skip_forward:
+            cur_task = self.task_order[self.cur_task_id]
+            emb_path = self._srt_emb_cache_path(cur_task)
+
+            if emb_path is not None and os.path.exists(emb_path):
+                print(f"  [SRT] Loading cached embeddings from {emb_path}")
+                data = np.load(emb_path, allow_pickle=True)
+                embeddings = torch.from_numpy(data['embeddings'])  # (n, d)
+
+                # Take at most max_samples (in samples, not batches)
+                if embeddings.shape[0] > max_samples:
+                    embeddings = embeddings[:max_samples]
+
+                print(f"  [SRT] Loaded {embeddings.shape[0]} embeddings, dim={embeddings.shape[1]}")
+                return embeddings, []
+            else:
+                print(f"  [SRT] WARNING: srt_skip_forward=True but no cached embeddings "
+                      f"found for task '{cur_task}'. Falling back to forward pass.")
+                # Fall through to forward extraction below
+
+        # ── MODE 2: Forward pass extraction (original behavior) ───────────
         train_dataloader = self.get_train_dataloader()
         h_list = []
         task_ids = []
@@ -218,6 +250,40 @@ class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
 
         embeddings = torch.cat(h_list, dim=0)  # (n, d)
         return embeddings, task_ids
+
+    # ── helper: resolve embedding cache path ───────────────────────────────
+
+    def _srt_emb_cache_path(self, task_name: str) -> Optional[str]:
+        """
+        Resolve pre-extracted embedding path.
+
+        Mapping:
+          google/flan-t5-xl          → embeddings/flan-t5-xl/
+          google/flan-t5-large       → embeddings/flan-t5-large/
+          meta-llama/Llama-2-7b-hf   → embeddings/Llama-2-7b-hf/
+
+        Task split:
+          SuperNI tasks (task*):     {backbone}/SuperNI/{task}/train.npz
+          Long-Sequence tasks:        {backbone}/Long_Sequence/{task}/train.npz
+        """
+        model_name = getattr(self.args, 'model_name_or_path', '') or ''
+
+        # Map model identifier to embeddings subdirectory
+        backbone = None
+        if 'flan-t5-xl' in model_name.lower():
+            backbone = 'flan-t5-xl'
+        elif 'flan-t5-large' in model_name.lower():
+            backbone = 'flan-t5-large'
+        elif 'llama' in model_name.lower():
+            backbone = 'Llama-2-7b-hf'
+        else:
+            return None
+
+        # Determine split (SuperNI vs Long_Sequence)
+        split = 'SuperNI' if task_name.startswith('task') else 'Long_Sequence'
+
+        root = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'embeddings')
+        return os.path.join(root, backbone, split, task_name, 'train.npz')
 
     # ── 2. SIGMA COMPUTATION ───────────────────────────────────────────────
 

@@ -36,7 +36,7 @@ echo "============================================================"
 echo ""
 
 # SRT hard mode: ZCA whitening + L2 (matches routing_analysis experiment)
-SRT_FLAGS="--use_srt_router --srt_metric_mode hard --srt_max_emb_samples 500"
+SRT_FLAGS="--use_srt_router --srt_metric_mode hard --srt_max_emb_samples 500 --srt_skip_forward"
 
 
 # ── TASK 1: yelp ──────────────────────────────────────────
