@@ -65,7 +65,7 @@ else
 fi
 
 SRT_FLAGS="--use_srt_router --srt_metric_mode hard --srt_max_emb_samples 500 --srt_skip_forward"
-echo "NOTE: --srt_skip_forward=True: embeddings loaded from disk (embeddings/flan-t5-xl/SuperNI/{task}/)"
+echo "NOTE: --srt_skip_forward=True: embeddings loaded from disk (embeddings/{MODEL}/SuperNI/{task}/)"
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
