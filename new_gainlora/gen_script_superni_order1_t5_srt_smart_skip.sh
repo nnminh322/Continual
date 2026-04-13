@@ -99,7 +99,7 @@ COMMON_ARGS=(
     --warmup_steps 0
     --logging_strategy steps
     --logging_steps 10
-    --save_strategy best
+    --save_strategy steps
     --save_total_limit 1
     --lora_r 4
     --lora_alpha 32
