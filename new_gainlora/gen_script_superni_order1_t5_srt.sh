@@ -95,12 +95,11 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
    --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
-   --load_best_model_at_end \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
    --kl_ratio 0.5 \
@@ -153,9 +152,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task363_sst2_polarity_classification \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -212,9 +210,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task1290_xsum_summarization \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -271,9 +268,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task181_outcome_extraction \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -330,9 +326,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task002_quoref_answer_generation \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -389,9 +384,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task1510_evalution_relation_extraction \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -448,9 +442,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task639_multi_woz_user_utterance_generation \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -507,9 +500,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task1729_personachat_generate_next \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -566,9 +558,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task073_commonsenseqa_answer_generation \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -625,9 +616,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task1590_diplomacy_text_generation \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -684,9 +674,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task748_glucose_reverse_cause_event_detection \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -743,9 +732,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task511_reddit_tifu_long_text_summarization \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -802,9 +790,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task591_sciq_answer_generation \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -861,9 +848,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task1687_sentiment140_classification \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -920,9 +906,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_rougeL_for_task875_emotion_classification \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 4 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \

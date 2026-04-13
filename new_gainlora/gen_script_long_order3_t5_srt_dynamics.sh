@@ -64,9 +64,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --lr_scheduler_type constant --warmup_steps 0 \
     --logging_strategy steps --logging_steps 10 \
     --metric_for_best_model eval_exact_match_for_yelp \
-    --evaluation_strategy steps --save_strategy steps --save_total_limit 1 \
-    --load_best_model_at_end \
-    --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
+    --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
+     --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --add_instruction_replay --data_replay_freq -1 --replay_after_n_epoch 0 \
     --mlp_hidden_dim 100 --model_name gainlora_inflora \
     --threshold 0.995 --transthreshold 0.995 \
@@ -103,9 +102,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --lr_scheduler_type constant --warmup_steps 0 \
     --logging_strategy steps --logging_steps 10 \
     --metric_for_best_model eval_exact_match_for_amazon \
-    --evaluation_strategy steps --save_strategy steps --save_total_limit 1 \
-    --load_best_model_at_end \
-    --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
+    --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
+     --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
     --mlp_hidden_dim 100 --model_name gainlora_inflora \
     --threshold 0.995 --transthreshold 0.995 \
@@ -143,9 +141,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --lr_scheduler_type constant --warmup_steps 0 \
     --logging_strategy steps --logging_steps 10 \
     --metric_for_best_model eval_exact_match_for_mnli \
-    --evaluation_strategy steps --save_strategy steps --save_total_limit 1 \
-    --load_best_model_at_end \
-    --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
+    --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
+     --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
     --mlp_hidden_dim 100 --model_name gainlora_inflora \
     --threshold 0.995 --transthreshold 0.995 \
@@ -183,9 +180,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --lr_scheduler_type constant --warmup_steps 0 \
     --logging_strategy steps --logging_steps 10 \
     --metric_for_best_model eval_exact_match_for_cb \
-    --evaluation_strategy steps --save_strategy steps --save_total_limit 1 \
-    --load_best_model_at_end \
-    --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
+    --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
+     --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
     --mlp_hidden_dim 100 --model_name gainlora_inflora \
     --threshold 0.995 --transthreshold 0.995 \
@@ -223,9 +219,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --lr_scheduler_type constant --warmup_steps 0 \
     --logging_strategy steps --logging_steps 10 \
     --metric_for_best_model eval_exact_match_for_copa \
-    --evaluation_strategy steps --save_strategy steps --save_total_limit 1 \
-    --load_best_model_at_end \
-    --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
+    --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
+     --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
     --mlp_hidden_dim 100 --model_name gainlora_inflora \
     --threshold 0.995 --transthreshold 0.995 \
@@ -263,9 +258,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --lr_scheduler_type constant --warmup_steps 0 \
     --logging_strategy steps --logging_steps 10 \
     --metric_for_best_model eval_exact_match_for_qqp \
-    --evaluation_strategy steps --save_strategy steps --save_total_limit 1 \
-    --load_best_model_at_end \
-    --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
+    --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
+     --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
     --mlp_hidden_dim 100 --model_name gainlora_inflora \
     --threshold 0.995 --transthreshold 0.995 \
@@ -303,9 +297,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --lr_scheduler_type constant --warmup_steps 0 \
     --logging_strategy steps --logging_steps 10 \
     --metric_for_best_model eval_exact_match_for_rte \
-    --evaluation_strategy steps --save_strategy steps --save_total_limit 1 \
-    --load_best_model_at_end \
-    --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
+    --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
+     --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
     --mlp_hidden_dim 100 --model_name gainlora_inflora \
     --threshold 0.995 --transthreshold 0.995 \
@@ -343,9 +336,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --lr_scheduler_type constant --warmup_steps 0 \
     --logging_strategy steps --logging_steps 10 \
     --metric_for_best_model eval_exact_match_for_imdb \
-    --evaluation_strategy steps --save_strategy steps --save_total_limit 1 \
-    --load_best_model_at_end \
-    --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
+    --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
+     --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
     --mlp_hidden_dim 100 --model_name gainlora_inflora \
     --threshold 0.995 --transthreshold 0.995 \
@@ -383,9 +375,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --lr_scheduler_type constant --warmup_steps 0 \
     --logging_strategy steps --logging_steps 10 \
     --metric_for_best_model eval_exact_match_for_sst2 \
-    --evaluation_strategy steps --save_strategy steps --save_total_limit 1 \
-    --load_best_model_at_end \
-    --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
+    --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
+     --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
     --mlp_hidden_dim 100 --model_name gainlora_inflora \
     --threshold 0.995 --transthreshold 0.995 \
@@ -423,9 +414,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --lr_scheduler_type constant --warmup_steps 0 \
     --logging_strategy steps --logging_steps 10 \
     --metric_for_best_model eval_exact_match_for_dbpedia \
-    --evaluation_strategy steps --save_strategy steps --save_total_limit 1 \
-    --load_best_model_at_end \
-    --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
+    --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
+     --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
     --mlp_hidden_dim 100 --model_name gainlora_inflora \
     --threshold 0.995 --transthreshold 0.995 \
@@ -463,9 +453,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --lr_scheduler_type constant --warmup_steps 0 \
     --logging_strategy steps --logging_steps 10 \
     --metric_for_best_model eval_exact_match_for_agnews \
-    --evaluation_strategy steps --save_strategy steps --save_total_limit 1 \
-    --load_best_model_at_end \
-    --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
+    --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
+     --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
     --mlp_hidden_dim 100 --model_name gainlora_inflora \
     --threshold 0.995 --transthreshold 0.995 \
@@ -503,9 +492,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --lr_scheduler_type constant --warmup_steps 0 \
     --logging_strategy steps --logging_steps 10 \
     --metric_for_best_model eval_exact_match_for_yahoo \
-    --evaluation_strategy steps --save_strategy steps --save_total_limit 1 \
-    --load_best_model_at_end \
-    --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
+    --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
+     --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
     --mlp_hidden_dim 100 --model_name gainlora_inflora \
     --threshold 0.995 --transthreshold 0.995 \
@@ -543,9 +531,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --lr_scheduler_type constant --warmup_steps 0 \
     --logging_strategy steps --logging_steps 10 \
     --metric_for_best_model eval_exact_match_for_multirc \
-    --evaluation_strategy steps --save_strategy steps --save_total_limit 1 \
-    --load_best_model_at_end \
-    --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
+    --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
+     --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
     --mlp_hidden_dim 100 --model_name gainlora_inflora \
     --threshold 0.995 --transthreshold 0.995 \
@@ -583,9 +570,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --lr_scheduler_type constant --warmup_steps 0 \
     --logging_strategy steps --logging_steps 10 \
     --metric_for_best_model eval_exact_match_for_boolq \
-    --evaluation_strategy steps --save_strategy steps --save_total_limit 1 \
-    --load_best_model_at_end \
-    --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
+    --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
+     --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
     --mlp_hidden_dim 100 --model_name gainlora_inflora \
     --threshold 0.995 --transthreshold 0.995 \
@@ -623,9 +609,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --lr_scheduler_type constant --warmup_steps 0 \
     --logging_strategy steps --logging_steps 10 \
     --metric_for_best_model eval_exact_match_for_wic \
-    --evaluation_strategy steps --save_strategy steps --save_total_limit 1 \
-    --load_best_model_at_end \
-    --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
+    --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
+     --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
     --mlp_hidden_dim 100 --model_name gainlora_inflora \
     --threshold 0.995 --transthreshold 0.995 \

@@ -27,6 +27,11 @@ from dataclasses import dataclass, field
 from typing import Optional
 import math
 import torch
+_original_load = torch.load
+def _patched_load(*args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _original_load(*args, **kwargs)
+torch.load = _patched_load
 from torch import nn
 try:
     import ipdb  # Optional debug dependency.

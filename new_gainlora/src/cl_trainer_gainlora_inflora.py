@@ -1240,10 +1240,8 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         # Skip the first epochs_trained epochs to get the random state of the dataloader at the right point.
         if not args.ignore_data_skip:
             for epoch in range(epochs_trained):
-                is_random_sampler = hasattr(train_dataloader, "sampler") and isinstance(
-                    train_dataloader.sampler, RandomSampler
-                )
-                if is_torch_less_than_1_11 or not is_random_sampler:
+                is_random_sampler = hasattr(train_dataloader, "sampler") and isinstance(train_dataloader.sampler, RandomSampler)
+                if not is_random_sampler:
                     # We just need to begin an iteration to create the randomization of the sampler.
                     # That was before PyTorch 1.11 however...
                     for _ in train_dataloader:
