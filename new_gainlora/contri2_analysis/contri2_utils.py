@@ -706,8 +706,7 @@ def _init_nti(
         # Try to load from cache
         emb_path = os.path.join(RESULTS_DIR, "cache", f"emb_{t_name}.npy")
         if os.path.exists(emb_path):
-            data = np.load(emb_path)
-            h_t = data["embeddings"]
+            h_t = np.load(emb_path)["embeddings"]   # saved via np.savez_compressed(embeddings=...)
             t_sig = router.add_task(task_id=t_name, h_train=h_t)
         else:
             # Can't add without embeddings — fall back to using distances
@@ -800,8 +799,7 @@ def _init_sfi(
         print(f"    [INIT] SFI: {t_name} not in router — adding from cache...")
         emb_path = os.path.join(RESULTS_DIR, "cache", f"emb_{t_name}.npy")
         if os.path.exists(emb_path):
-            data = np.load(emb_path)
-            h_t = data["embeddings"]
+            h_t = np.load(emb_path)["embeddings"]   # saved via np.savez_compressed(embeddings=...)
             t_sig = router.add_task(task_id=t_name, h_train=h_t)
         else:
             print(f"    [INIT] SFI: no cached embeddings for {t_name} → RANDOM")
