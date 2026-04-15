@@ -906,10 +906,11 @@ def eval_zero_shot(model, test_data: List[Dict]) -> float:
             ).to(device)
 
             # ── Manual greedy decoding (replaces model.generate) ──────────────
-            # Encode
+            # Encode (T5Stack needs head_mask=None to avoid AttributeError)
             encoder_out = model.encoder(
                 input_ids=inputs["input_ids"],
                 attention_mask=inputs.get("attention_mask"),
+                head_mask=None,
             )
             encoder_hidden = encoder_out.last_hidden_state
 
@@ -923,11 +924,12 @@ def eval_zero_shot(model, test_data: List[Dict]) -> float:
             max_new = 50
 
             for _step in range(max_new):
-                # Forward decoder
+                # Forward decoder (T5Stack needs head_mask=None)
                 decoder_out = model.decoder(
                     input_ids=decoder_input_ids,
                     encoder_hidden_states=encoder_hidden,
                     encoder_attention_mask=inputs.get("attention_mask"),
+                    head_mask=None,
                 )
                 logits = model.lm_head(decoder_out.last_hidden_state)   # (B, seq, vocab)
                 next_logits = logits[:, -1, :]                          # (B, vocab)
@@ -1002,6 +1004,7 @@ def evaluate_model(
             encoder_out = model.encoder(
                 input_ids=inputs["input_ids"],
                 attention_mask=inputs.get("attention_mask"),
+                head_mask=None,
             )
             encoder_hidden = encoder_out.last_hidden_state  # (B, src_len, d)
 
@@ -1018,6 +1021,7 @@ def evaluate_model(
                         input_ids=decoder_input_ids,
                         encoder_hidden_states=encoder_hidden,
                         encoder_attention_mask=inputs.get("attention_mask"),
+                        head_mask=None,
                     )
                     logits = model.lm_head(decoder_out.last_hidden_state)
                     next_token = logits[:, -1, :].argmax(dim=-1, keepdim=True)
@@ -1039,6 +1043,7 @@ def evaluate_model(
                             input_ids=dec_ids,
                             encoder_hidden_states=h_j,
                             encoder_attention_mask=am_j,
+                            head_mask=None,
                         )
                         logits = model.lm_head(dec_out.last_hidden_state)
                         next_tok = logits[:, -1, :].argmax(dim=-1, keepdim=True)

@@ -5,6 +5,26 @@
 
 ---
 
+## How to Run: Terminal + Log File Simultaneously
+
+Chạy foreground trong terminal **vừa hiển thị output vừa ghi log file**:
+
+```bash
+# Chạy bình thường, output vẫn lên terminal
+python run_contri2_extended.py --phase 0 --model-name google/flan-t5-large 2>&1 | tee results/phase0_t5large_log.txt
+
+# Hoặc chạy background nhưng log vẫn hiện trên terminal
+python run_contri2_extended.py --phase 0 --model-name google/flan-t5-large 2>&1 | tee results/phase0_t5large_log.txt &
+```
+
+Theo dõi progress bằng `tail -f` trong tab khác (không cần chạy job mới):
+
+```bash
+tail -f results/phase0_t5large_log.txt
+```
+
+---
+
 ## Quick Start
 
 ```bash
@@ -13,23 +33,21 @@ cd ~/minhnguyen/test_model/Continual/new_gainlora/contri2_analysis
 
 # ── 2. Phase 0: Tests 1-3 (~45–90 min on t5-large) ──────────────────────
 # First run: extracts embeddings + runs tests
-nohup python run_contri2_extended.py --phase 0 \
-    --model-name google/flan-t5-large \
-    > results/phase0_t5large_log.txt 2>&1 &
+# Output lên terminal + ghi log file
+python run_contri2_extended.py --phase 0 --model-name google/flan-t5-large \
+    2>&1 | tee results/phase0_t5large_log.txt
 
-# ── 3. Check progress ────────────────────────────────────────────────────────
+# ── 3. Check progress (trong terminal tab khác) ──────────────────────────
 tail -f results/phase0_t5large_log.txt
 
 # ── 4. Phase 1: Tests 6-7 (~30 min) ──────────────────────────────────────────
-nohup python run_contri2_extended.py --phase 1 \
-    --model-name google/flan-t5-large \
-    > results/phase1_t5large_log.txt 2>&1 &
+python run_contri2_extended.py --phase 1 --model-name google/flan-t5-large \
+    2>&1 | tee results/phase1_t5large_log.txt
 
 # ── 5. Phase 2: Tests 4-5 (after CL run with SGWI checkpoints) ─────────────
-nohup python run_contri2_extended.py --phase 2 \
-    --model-name google/flan-t5-large \
+python run_contri2_extended.py --phase 2 --model-name google/flan-t5-large \
     --ckpt-dir ../logs_and_outputs/long_order3_t5_srt_hard/outputs \
-    > results/phase2_t5large_log.txt 2>&1 &
+    2>&1 | tee results/phase2_t5large_log.txt
 ```
 
 ---
@@ -105,8 +123,7 @@ The code automatically handles missing/moved modules in newer `transformers`:
 | `transformers.utils.model_parallel_utils` | Stub provided |
 | `find_pruneable_heads_and_indices` | No-op stub |
 | `ipdb` | Dummy stub |
-
-No manual installation needed.
+| `T5Stack.get_head_mask` | Pass `head_mask=None` to encoder/decoder calls |
 
 ---
 
@@ -138,6 +155,19 @@ export PYTHONPATH="$(pwd)/../src:$PYTHONPATH"
 ```bash
 # Clear only checkpoints (keep embeddings)
 rm -f results/cache/ckpt_*.pt
+```
+
+### Job bị crash, muốn chạy lại nhanh
+```bash
+# Kill any stale processes
+kill $(jobs -p) 2>/dev/null
+
+# Clear stale log
+rm -f results/phase0_t5large_log.txt
+
+# Chạy lại — output lên terminal + ghi log
+python run_contri2_extended.py --phase 0 --model-name google/flan-t5-large \
+    2>&1 | tee results/phase0_t5large_log.txt
 ```
 
 ---
