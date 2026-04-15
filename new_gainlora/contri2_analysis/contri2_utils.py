@@ -51,6 +51,7 @@ import os
 import random
 import sys
 import time
+from tqdm import tqdm
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -908,7 +909,8 @@ def eval_zero_shot(model, test_data: List[Dict]) -> float:
     total   = 0
 
     with torch.no_grad():
-        for sample in test_data:
+        for sample in tqdm(test_data, desc="  Zero-shot eval", leave=False,
+                          bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}"):
             text_in, label = format_example(sample)
             inputs = tokenizer(
                 text_in,
@@ -998,7 +1000,9 @@ def evaluate_model(
     references  = []
 
     with torch.no_grad():
-        for i in range(0, len(test_data), batch_size):
+        for i in tqdm(range(0, len(test_data), batch_size), desc="  Eval",
+                      leave=False, bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}",
+                      total=(len(test_data) + batch_size - 1) // batch_size):
             batch = test_data[i:i + batch_size]
             inputs_text = [format_example(s)[0] for s in batch]
             labels      = [format_example(s)[1] for s in batch]
@@ -1200,8 +1204,10 @@ def train_lora_isolated(
         order = list(range(len(train_subset)))
         random.shuffle(order)
 
-        for step_i in range(0, len(train_subset), batch_size):
-            batch_idx = order[step_i:step_i + batch_size]
+        batches = [order[s:s + batch_size] for s in range(0, len(train_subset), batch_size)]
+        pbar = tqdm(batches, desc=f"  Epoch {epoch+1}/{n_epochs}", leave=False,
+                    bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} batches")
+        for batch_idx in pbar:
             batch = [train_subset[i] for i in batch_idx]
 
             inputs_text = [format_example(s)[0] for s in batch]
