@@ -733,6 +733,8 @@ def parse_args():
                    help="Phase 0: Tests 1-3, Phase 1: Tests 6-7, Phase 2: Tests 4-5")
     p.add_argument("--test", type=int, choices=[1, 2, 3, 4, 5, 6, 7],
                    help="Run only this specific test")
+    p.add_argument("--order", type=int, default=3, choices=[3, 4],
+                   help="Task order (3 or 4). CB is at index 3 in order3, index 1 in order4.")
     p.add_argument("--tasks", type=str, default="",
                    help="Comma-separated task names")
     p.add_argument("--model-name", type=str, default="google/flan-t5-small",
@@ -753,7 +755,19 @@ def main():
     cache_dir  = args.cache_dir or str(RESULTS_DIR / "cache")
     os.makedirs(cache_dir, exist_ok=True)
 
-    task_list = [t.strip() for t in args.tasks.split(",")] if args.tasks else TASK_ORDER
+    # ── Set task order ────────────────────────────────────────────────
+    from contri2_utils import TASK_ORDERS
+    full_order = TASK_ORDERS[args.order]
+
+    if args.tasks:
+        # User specified explicit tasks — use them but respect the order
+        requested = [t.strip() for t in args.tasks.split(",")]
+        # Find the LAST requested task's index in the full order
+        # Include all tasks before it (they're needed as priors for SGWI)
+        max_idx = max(full_order.index(t) for t in requested if t in full_order)
+        task_list = full_order[:max_idx + 1]
+    else:
+        task_list = full_order
 
     print(f"""
 ╔══════════════════════════════════════════════════════════════╗

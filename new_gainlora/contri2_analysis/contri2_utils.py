@@ -112,12 +112,16 @@ from srt_router import SRTRouter, TaskSignature
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-# Long_Sequence task order (order 3) — matches generate_srt_order3.py
-TASK_ORDER = [
-    "yelp", "amazon", "mnli", "cb", "copa",
-    "qqp",  "rte",   "imdb", "sst2", "dbpedia",
-    "agnews","yahoo", "multirc", "boolq", "wic",
-]
+# Long_Sequence task orders
+TASK_ORDERS = {
+    3: ["yelp", "amazon", "mnli", "cb", "copa",
+        "qqp",  "rte",   "imdb", "sst2", "dbpedia",
+        "agnews","yahoo", "multirc", "boolq", "wic"],
+    4: ["mnli", "cb", "wic", "copa", "qqp",
+        "rte",  "imdb", "sst2", "dbpedia", "agnews",
+        "yahoo","multirc", "boolq", "yelp", "amazon"],
+}
+TASK_ORDER = TASK_ORDERS[3]  # default
 
 # Benchmark data directory
 BENCHMARK_DIR = PARENT / "CL_Benchmark" / "Long_Sequence"
