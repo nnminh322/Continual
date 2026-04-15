@@ -704,7 +704,7 @@ def _init_nti(
         print(f"    [INIT] NTI: {t_name} not in router — adding temporarily...")
 
         # Try to load from cache
-        emb_path = os.path.join(RESULTS_DIR, "cache", f"emb_{t_name}.npy")
+        emb_path = os.path.join(RESULTS_DIR, "cache", f"emb_{t_name}.npz")
         if os.path.exists(emb_path):
             h_t = np.load(emb_path)["embeddings"]   # saved via np.savez_compressed(embeddings=...)
             t_sig = router.add_task(task_id=t_name, h_train=h_t)
@@ -797,7 +797,7 @@ def _init_sfi(
     t_sig = router.signatures.get(t_name)
     if t_sig is None:
         print(f"    [INIT] SFI: {t_name} not in router — adding from cache...")
-        emb_path = os.path.join(RESULTS_DIR, "cache", f"emb_{t_name}.npy")
+        emb_path = os.path.join(RESULTS_DIR, "cache", f"emb_{t_name}.npz")
         if os.path.exists(emb_path):
             h_t = np.load(emb_path)["embeddings"]   # saved via np.savez_compressed(embeddings=...)
             t_sig = router.add_task(task_id=t_name, h_train=h_t)
