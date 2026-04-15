@@ -72,6 +72,40 @@ PARENT = ROOT.parent
 SRC    = PARENT / "src"
 sys.path.insert(0, str(SRC))
 
+# ── Transformers Version Compatibility ─────────────────────────────────────────
+# t5_gainlora_inflora.py imports modules removed/moved in newer transformers.
+# MUST be patched BEFORE any import of t5_gainlora_inflora.
+# Applies to: transformers >= 4.30 (model_parallel_utils removed),
+#             transformers >= 4.40 (find_pruneable_heads_and_indices moved).
+import types as _types
+import transformers.utils
+
+# Fix 1: model_parallel_utils (removed in transformers >= 4.40)
+if not hasattr(transformers.utils, 'model_parallel_utils'):
+    _mpu = _types.ModuleType('transformers.utils.model_parallel_utils')
+    _mpu.assert_device_map = lambda *a, **k: None
+    _mpu.get_device_map = lambda *a, **k: {}
+    sys.modules['transformers.utils.model_parallel_utils'] = _mpu
+    transformers.utils.model_parallel_utils = _mpu
+
+# Fix 2: find_pruneable_heads_and_indices (moved in newer transformers)
+import transformers.pytorch_utils as _pt_utils
+if not hasattr(_pt_utils, 'find_pruneable_heads_and_indices'):
+    def _find_ph_keys(*a, **k): return set(), None
+    _pt_utils.find_pruneable_heads_and_indices = _find_ph_keys
+
+# Fix 3: loralib (optional dependency — only used if present in t5_gainlora_inflora)
+# t5_gainlora_inflora.py does "import loralib as lora" but loralib may not be installed.
+# We provide a minimal stub so the import succeeds.
+if 'loralib' not in sys.modules:
+    _loralib = _types.ModuleType('loralib')
+    # Provide minimal LoRALayer stub — not actually used in our code path
+    class _LoRALayerStub(nn.Module):
+        def __init__(self, *a, **k): super().__init__()
+        def forward(self, x): return x
+    _loralib.LoRALayer = _LoRALayerStub
+    sys.modules['loralib'] = _loralib
+
 from srt_router import SRTRouter, TaskSignature
 
 
@@ -443,40 +477,11 @@ def build_model(
 
     print(f"    Loading GainLoRA model: {model_name} (device={device})")
 
-    # ── Bootstrap: disable ipdb import so we can load t5_gainlora_inflora ──
-    # (t5_gainlora_inflora.py has "import ipdb" at line 26)
-    import sys
-    if 'ipdb' not in sys.modules:
-        class _DummyIpdB:
-            def set_trace(self): ...
-            def post_mortem(self, *a, **k): ...
-            def pm(self, *a, **k): ...
-            def __enter__(self): return self
-            def __exit__(self, *a): pass
-        sys.modules['ipdb'] = _DummyIpdB()
 
-    # ── Fix transformers version incompatibility ─────────────────────────────────
-    # t5_gainlora_inflora.py imports modules removed in newer transformers.
-    # Monkey-patch them so the import succeeds.
-    import types as _types
-    import transformers.utils
-
-    # Fix 1: model_parallel_utils (removed in transformers >= 4.40)
-    if not hasattr(transformers.utils, 'model_parallel_utils'):
-        _mpu = _types.ModuleType('transformers.utils.model_parallel_utils')
-        _mpu.assert_device_map = lambda *a, **k: None
-        _mpu.get_device_map = lambda *a, **k: {}
-        sys.modules['transformers.utils.model_parallel_utils'] = _mpu
-        transformers.utils.model_parallel_utils = _mpu
-
-    # Fix 2: find_pruneable_heads_and_indices (moved in newer versions)
-    import transformers.pytorch_utils as pt_utils
-    if not hasattr(pt_utils, 'find_pruneable_heads_and_indices'):
-        def _find_ph(*a, **k): return set(), None
-        pt_utils.find_pruneable_heads_and_indices = _find_ph
-
-    # ── Import GainLoRA model class ───────────────────────────────────────
+    # All compatibility patches (ipdb, transformers, loralib) are at MODULE level.
+    # No duplicate patches needed here — import directly.
     from t5_gainlora_inflora import T5ForConditionalGeneration
+
 
     config = AutoConfig.from_pretrained(model_name)
 

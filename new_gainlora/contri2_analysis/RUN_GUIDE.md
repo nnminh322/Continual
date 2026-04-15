@@ -1,216 +1,203 @@
-# 🚀 CONTRI2 Run Guide: Local → GPU Server Workflow
+# 🚀 CONTRI2 Run Guide: GPU Server — SGWI Isolated Tests
 
-## Quick Reference
+> **Model: `google/flan-t5-large`** (d_model=1024, 24 layers, ~770M params)
+> Compatible patches for transformers ≥ 4.40 are applied automatically.
+
+---
+
+## Quick Start
 
 ```bash
-# LOCAL: commit & push
-git add -A && git commit -m "contri2: add extended SGWI tests (4-7)" && git push
+# ── 1. Setup ────────────────────────────────────────────────────────────────
+cd ~/minhnguyen/test_model/Continual/new_gainlora/contri2_analysis
 
-# SERVER: pull & run
-cd ~/Continual && git pull
-cd new_gainlora/contri2_analysis
+# ── 2. Phase 0: Tests 1-3 (~45–90 min on t5-large) ──────────────────────
+# First run: extracts embeddings + runs tests
+nohup python run_contri2_extended.py --phase 0 \
+    --model-name google/flan-t5-large \
+    > results/phase0_t5large_log.txt 2>&1 &
 
-# Phase 0: Quick proxy tests (~30 min GPU)
-python run_contri2_extended.py --phase 0
+# ── 3. Check progress ────────────────────────────────────────────────────────
+tail -f results/phase0_t5large_log.txt
 
-# Phase 1: Extended tests (~45 min GPU)
-python run_contri2_extended.py --phase 1
+# ── 4. Phase 1: Tests 6-7 (~30 min) ──────────────────────────────────────────
+nohup python run_contri2_extended.py --phase 1 \
+    --model-name google/flan-t5-large \
+    > results/phase1_t5large_log.txt 2>&1 &
 
-# Phase 2: Real LoRA tests (after CL run)
-python run_contri2_extended.py --phase 2 --ckpt-dir ../logs_and_outputs/long_order3_t5_srt_hard/outputs
-
-# Fast test on 3 tasks only (~10 min)
-python run_contri2_extended.py --phase 0 --tasks cb,rte,mnli
+# ── 5. Phase 2: Tests 4-5 (after CL run with SGWI checkpoints) ─────────────
+nohup python run_contri2_extended.py --phase 2 \
+    --model-name google/flan-t5-large \
+    --ckpt-dir ../logs_and_outputs/long_order3_t5_srt_hard/outputs \
+    > results/phase2_t5large_log.txt 2>&1 &
 ```
 
 ---
 
-## Step-by-Step Workflow
+## Phase Details
 
-### 1. LOCAL: Commit & Push
+### Phase 0 — Tests 1, 2, 3 (~45–90 min on t5-large)
 
-```bash
-cd /Users/nnminh322/Desktop/personal/Continual
-
-# Check what's changed
-git status
-
-# Add all contri2 files
-git add new_gainlora/contri2_analysis/
-git add new_gainlora/CLAUDE.md
-git add isolate_hypothesis_testing.md
-git add SRT_WARM_INIT_PROPOSAL.md
-
-# Commit
-git commit -m "contri2: add SGWI isolated tests (Tests 1-7)
-
-- Tests 1-3: proxy-based (zero-shot, few-shot, ablation)
-- Test 4: H1 validation (d_SRT vs ||ΔW||_F correlation)
-- Test 5: Real SGWI with actual LoRA checkpoints
-- Test 6: τ sensitivity sweep
-- Test 7: Negative transfer detection"
-
-# Push
-git push origin main
-```
-
-### 2. SERVER: Pull & Setup
+**First run:** Extracts frozen embeddings for all 15 tasks (d=1024) → cached.
+**Subsequent runs:** Use cached embeddings, only run tests.
 
 ```bash
-# SSH to GPU server
-ssh your_server
+# All 15 tasks
+python run_contri2_extended.py --phase 0 --model-name google/flan-t5-large
 
-# Navigate to project
-cd ~/Continual   # or wherever your repo is
-
-# Pull latest
-git pull origin main
-
-# Navigate to contri2
-cd new_gainlora/contri2_analysis
-
-# Check Python environment
-python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA={torch.cuda.is_available()}')"
-python -c "import transformers; print(f'transformers {transformers.__version__}')"
-
-# Install scipy if missing
-pip install scipy --quiet
-```
-
-### 3. SERVER: Run Tests
-
-#### Phase 0 — Quick Proxy Validation (~30 min)
-
-```bash
-# All 15 tasks, Tests 1-3
-python run_contri2_extended.py --phase 0
-
-# Or fast: only CB + 2 related NLI tasks (~10 min)
+# Fast: only specific tasks
 python run_contri2_extended.py --phase 0 --tasks cb,rte,mnli
 
-# Or individual tests
-python run_contri2_extended.py --test 1    # Zero-shot only
-python run_contri2_extended.py --test 2    # Few-shot convergence only
-python run_contri2_extended.py --test 3    # Ablation only
+# Individual tests
+python run_contri2_extended.py --test 1 --model-name google/flan-t5-large   # Zero-shot
+python run_contri2_extended.py --test 2 --model-name google/flan-t5-large   # Few-shot
+python run_contri2_extended.py --test 3 --model-name google/flan-t5-large   # Ablation
 ```
 
-#### Phase 1 — Extended Validation (~45 min)
+### Phase 1 — Tests 6, 7 (~30 min)
 
 ```bash
-# τ sensitivity + negative transfer
-python run_contri2_extended.py --phase 1
-
-# Or individual
-python run_contri2_extended.py --test 6    # τ sweep
-python run_contri2_extended.py --test 7    # Negative transfer
+python run_contri2_extended.py --phase 1 --model-name google/flan-t5-large
 ```
 
-#### Phase 2 — Real LoRA (after full CL run)
+### Phase 2 — Tests 4, 5 (~20 min, **requires CL checkpoints**)
 
 ```bash
-# First: need CL checkpoints from a completed training run
-# Check if checkpoints exist:
-ls ../logs_and_outputs/long_order3_t5_srt_hard/outputs/
+# First run a full CL training run with SGWI patch:
+python patch_sgwi_into_run_t5.py --apply   # patches run_t5.py (backup: run_t5.py.bak_sgwi)
+bash gen_script_long_order3_t5_srt_hard.sh google/flan-t5-large
 
-# Then run with checkpoint path
+# Then run Phase 2 with checkpoint path:
 python run_contri2_extended.py --phase 2 \
+    --model-name google/flan-t5-large \
     --ckpt-dir ../logs_and_outputs/long_order3_t5_srt_hard/outputs
 ```
 
-#### Run with nohup (background, don't lose on disconnect)
+---
+
+## Patch: SGWI into run_t5.py
 
 ```bash
-# Recommended: use nohup + redirect output
-nohup python run_contri2_extended.py --phase 0 \
-    > results/phase0_log.txt 2>&1 &
+# Apply patch (creates backup)
+python patch_sgwi_into_run_t5.py --apply
 
-# Check progress
-tail -f results/phase0_log.txt
+# Preview changes without applying
+python patch_sgwi_into_run_t5.py --dry-run
 
-# Or use screen/tmux
-tmux new -s contri2
-python run_contri2_extended.py --phase 0
-# Ctrl+B, D to detach
-# tmux attach -t contri2 to reattach
+# Revert to original
+python patch_sgwi_into_run_t5.py --revert
 ```
 
-### 4. SERVER: Check Results
-
-```bash
-# Results saved as JSON
-cat results/contri2_extended_results.json | python -m json.tool | head -100
-
-# Quick summary
-python -c "
-import json
-with open('results/contri2_extended_results.json') as f:
-    r = json.load(f)
-for test_name, test_data in r.items():
-    print(f'\n=== {test_name} ===')
-    if isinstance(test_data, dict):
-        for task, res in test_data.items():
-            if isinstance(res, dict) and 'delta' in res:
-                print(f'  {task}: Δ = {res[\"delta\"]:+.2f}%')
-"
-```
-
-### 5. SERVER → LOCAL: Pull Results
-
-```bash
-# SERVER: commit results
-cd ~/Continual
-git add new_gainlora/contri2_analysis/results/
-git commit -m "contri2: Phase 0 results"
-git push
-
-# LOCAL: pull results
-cd /Users/nnminh322/Desktop/personal/Continual
-git pull
-cat new_gainlora/contri2_analysis/results/contri2_extended_results.json
-```
+After patching, the full CL pipeline automatically uses SGWI (SVD Fusion Init) when:
+- `--use_srt_router` is set AND
+- `cur_task_id > 0` AND
+- `--use_sgwi` is True (default)
 
 ---
 
-## Test Matrix & Expected Results
+## Compatibility Fixes (Applied Automatically)
 
-| Test | What | Time | GPU | Hypothesis |
-|------|------|------|-----|-----------|
-| **1** | Zero-shot transfer | 5 min | ✅ | H2: SGWI > random at init |
-| **2** | Few-shot convergence | 15 min | ✅ | H2: SGWI converges faster |
-| **3** | Ablation (R/NTI/SFI) | 15 min | ✅ | H3: SFI > NTI > Random |
-| **6** | τ sensitivity | 20 min | ✅ | H8: τ_median robust |
-| **7** | Negative transfer | 15 min | ✅ | SRT guides correctly |
-| **4** | H1 correlation | 5 min | ❌ | H1: d_SRT ∝ d_LoRA |
-| **5** | Real SGWI vs proxy | 20 min | ✅ | Real ≥ Proxy > Random |
+The code automatically handles missing/moved modules in newer `transformers`:
+
+| Missing Module | Fix |
+|---|---|
+| `loralib` | Stub provided |
+| `transformers.utils.model_parallel_utils` | Stub provided |
+| `find_pruneable_heads_and_indices` | No-op stub |
+| `ipdb` | Dummy stub |
+
+No manual installation needed.
 
 ---
 
 ## Troubleshooting
 
-### "ModuleNotFoundError: No module named 'srt_router'"
+### "CUDA out of memory" on t5-large
 ```bash
-# srt_router.py is in ../src/
-export PYTHONPATH=$PYTHONPATH:$(pwd)/../src
-```
-
-### "CUDA out of memory"
-```bash
-# Use smaller model
-python run_contri2_extended.py --phase 0 --model-name google/flan-t5-small
+# Switch to t5-base for debugging
+python run_contri2_extended.py --phase 0 --model-name google/flan-t5-base
 
 # Or reduce batch size in contri2_utils.py train_lora_isolated()
 ```
 
-### "FileNotFoundError: CL_Benchmark"
+### Wrong embedding dimensions (512 vs 1024)
 ```bash
-# Ensure benchmark data exists
-ls ../CL_Benchmark/Long_Sequence/
-# Should show: agnews/ amazon/ boolq/ cb/ copa/ ...
+# Clear cached embeddings (wrong-dim from previous run)
+rm -f results/cache/emb_*.npy
+
+# Will re-extract with correct dimension for current model
 ```
 
-### Cached results interfering
+### "ModuleNotFoundError: No module named 'srt_router'"
 ```bash
-# Clear cache to re-run
-rm -rf results/cache/ckpt_*
-# Keep embeddings cache (expensive to recompute)
+# srt_router.py lives in ../src/
+export PYTHONPATH="$(pwd)/../src:$PYTHONPATH"
+```
+
+### Cached checkpoints interfering
+```bash
+# Clear only checkpoints (keep embeddings)
+rm -f results/cache/ckpt_*.pt
+```
+
+---
+
+## Test Matrix
+
+| Test | What | Time (t5-large) | Needs Checkpoints |
+|------|------|-----------------|-----------------|
+| **1** | Zero-shot transfer | ~10 min | ❌ |
+| **2** | Few-shot convergence | ~20 min | ❌ |
+| **3** | Ablation (R/NTI/SFI) | ~30 min | ❌ |
+| **6** | τ sensitivity sweep | ~20 min | ❌ |
+| **7** | Negative transfer detection | ~15 min | ❌ |
+| **4** | H1: d_SRT ∝ d_LoRA | ~5 min | ✅ |
+| **5** | Real vs Proxy SGWI | ~20 min | ✅ |
+
+---
+
+## Results
+
+All results saved to `results/contri2_extended_results.json`.
+
+```bash
+# Pretty-print
+python -c "
+import json
+with open('results/contri2_extended_results.json') as f:
+    r = json.load(f)
+for k, v in r.items():
+    print(f'=== {k} ===')
+    if isinstance(v, dict):
+        for tk, tv in v.items():
+            if isinstance(tv, dict) and tv.get('status') not in ('completed',):
+                continue
+            if isinstance(tv, dict) and 'summary' in tv:
+                print(f'  {tk}: Δ={tv[\"summary\"]}')
+            elif isinstance(tv, dict) and tv.get('delta') not in (None, ''):
+                print(f'  {tk}: Δ={tv[\"delta\"]:+.2f}%')
+"
+```
+
+## Pipeline Summary
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  CONTRI2 Tests (flan-t5-large)                        │
+│                                                         │
+│  Phase 0 ─── Tests 1-3 ─── Isolated: AP improvement?   │
+│    Test 1: Zero-shot (SGWI vs Random baseline)         │
+│    Test 2: Few-shot convergence (5 epochs)              │
+│    Test 3: Ablation R/NTI/SFI                         │
+│                          ↓                            │
+│  Phase 1 ─── Tests 6-7 ─── Robustness:                │
+│    Test 6: τ sensitivity (median is robust?)           │
+│    Test 7: Negative transfer (SRT guides correctly?)  │
+│                          ↓                            │
+│  Phase 2 ─── Tests 4-5 ─── With Real Checkpoints:      │
+│    Test 4: H1 correlation d_SRT ∝ ||ΔW||_F            │
+│    Test 5: Real LoRA vs Proxy (quality of μ·μᵀ proxy?)│
+│                          ↓                            │
+│  Full CL + SGWI ── AP > 78.01, Fgt < 0.34?            │
+└─────────────────────────────────────────────────────────┘
 ```
