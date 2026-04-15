@@ -877,7 +877,9 @@ def eval_zero_shot(model, test_data: List[Dict]) -> float:
     Evaluate model WITHOUT training on test set.
     Returns accuracy as percentage.
 
-    Uses exact string matching (for classification) or ROUGE for generation.
+    NOTE: T5ForConditionalGeneration from t5_gainlora_inflora.py does NOT inherit
+    from GenerationMixin, so it has no .generate() method.
+    We implement manual greedy decoding instead.
     """
     if not test_data:
         return 0.0
@@ -885,6 +887,10 @@ def eval_zero_shot(model, test_data: List[Dict]) -> float:
     device = next(model.parameters()).device
     tokenizer = AutoTokenizer.from_pretrained(model.config._name_or_path)
     model.eval()
+
+    # Determine pad/eos token ids
+    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
+    eos_token_id = tokenizer.eos_token_id if tokenizer.eos_token_id is not None else 1
 
     correct = 0
     total   = 0
@@ -899,15 +905,43 @@ def eval_zero_shot(model, test_data: List[Dict]) -> float:
                 max_length=512,
             ).to(device)
 
-            # For zero-shot, the LoRA is initialized but NOT trained.
-            # Since LoRA_B starts at zero (for RANDOM) or from SFI,
-            # the model output depends entirely on the init.
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=50,
-                do_sample=False,
+            # ── Manual greedy decoding (replaces model.generate) ──────────────
+            # Encode
+            encoder_out = model.encoder(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs.get("attention_mask"),
             )
-            pred = tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
+            encoder_hidden = encoder_out.last_hidden_state
+
+            # Decode: greedy, up to 50 new tokens
+            decoder_input_ids = torch.full(
+                (inputs["input_ids"].size(0), 1),
+                pad_token_id,
+                dtype=torch.long,
+                device=device,
+            )
+            max_new = 50
+
+            for _step in range(max_new):
+                # Forward decoder
+                decoder_out = model.decoder(
+                    input_ids=decoder_input_ids,
+                    encoder_hidden_states=encoder_hidden,
+                    encoder_attention_mask=inputs.get("attention_mask"),
+                )
+                logits = model.lm_head(decoder_out.last_hidden_state)   # (B, seq, vocab)
+                next_logits = logits[:, -1, :]                          # (B, vocab)
+                next_token = next_logits.argmax(dim=-1, keepdim=True)    # (B, 1)
+                decoder_input_ids = torch.cat([decoder_input_ids, next_token], dim=1)
+                # Stop if all EOS
+                if (next_token == eos_token_id).all():
+                    break
+
+            pred_ids = decoder_input_ids[0].cpu()
+            # Trim padding
+            pred_ids = pred_ids[pred_ids != pad_token_id]
+            pred = tokenizer.decode(pred_ids, skip_special_tokens=True).strip()
+
             pred_lower = pred.lower()
             label_lower = label.lower()
 
@@ -943,6 +977,8 @@ def evaluate_model(
     device = next(model.parameters()).device
     tokenizer = AutoTokenizer.from_pretrained(model.config._name_or_path)
     model.eval()
+    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
+    eos_token_id  = tokenizer.eos_token_id  if tokenizer.eos_token_id  is not None else 1
 
     predictions = []
     references  = []
@@ -961,17 +997,58 @@ def evaluate_model(
                 max_length=512,
             ).to(device)
 
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=50,
-                do_sample=False,
+            # ── Manual greedy decoding (model.generate not available on
+            #    T5ForConditionalGeneration — no GenerationMixin inheritance)
+            encoder_out = model.encoder(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs.get("attention_mask"),
             )
+            encoder_hidden = encoder_out.last_hidden_state  # (B, src_len, d)
 
-            for j, output_ids in enumerate(outputs):
-                pred = tokenizer.decode(output_ids, skip_special_tokens=True).strip()
+            B = inputs["input_ids"].size(0)
+            max_new = 50
+
+            if B == 1:
+                # Fast path: single sample
+                decoder_input_ids = torch.full(
+                    (1, 1), pad_token_id, dtype=torch.long, device=device
+                )
+                for _step in range(max_new):
+                    decoder_out = model.decoder(
+                        input_ids=decoder_input_ids,
+                        encoder_hidden_states=encoder_hidden,
+                        encoder_attention_mask=inputs.get("attention_mask"),
+                    )
+                    logits = model.lm_head(decoder_out.last_hidden_state)
+                    next_token = logits[:, -1, :].argmax(dim=-1, keepdim=True)
+                    decoder_input_ids = torch.cat([decoder_input_ids, next_token], dim=1)
+                    if (next_token == eos_token_id).all():
+                        break
+                pred = tokenizer.decode(decoder_input_ids[0], skip_special_tokens=True).strip()
                 pred = pred.replace("Output:", "").replace("output:", "").strip()
                 predictions.append(pred)
-                references.append(labels[j])
+                references.append(labels[0])
+            else:
+                # Multi-sample batch: decode each independently
+                for j in range(B):
+                    h_j = encoder_hidden[j:j+1]           # (1, src_len, d)
+                    am_j = inputs["attention_mask"][j:j+1] if "attention_mask" in inputs else None
+                    dec_ids = torch.full((1, 1), pad_token_id, dtype=torch.long, device=device)
+                    for _step in range(max_new):
+                        dec_out = model.decoder(
+                            input_ids=dec_ids,
+                            encoder_hidden_states=h_j,
+                            encoder_attention_mask=am_j,
+                        )
+                        logits = model.lm_head(dec_out.last_hidden_state)
+                        next_tok = logits[:, -1, :].argmax(dim=-1, keepdim=True)
+                        dec_ids = torch.cat([dec_ids, next_tok], dim=1)
+                        if (next_tok == eos_token_id).all():
+                            break
+                    pred = tokenizer.decode(dec_ids[0], skip_special_tokens=True).strip()
+                    pred = pred.replace("Output:", "").replace("output:", "").strip()
+                    predictions.append(pred)
+                    references.append(labels[j])
 
     # Compute metrics
     exact_match = sum(
