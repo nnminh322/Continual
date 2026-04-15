@@ -411,42 +411,94 @@ def build_model(
     device: Optional[torch.device] = None,
 ):
     """
-    Build a T5 model with LoRA adapters.
+    Build a T5 model with GainLoRA LoRA adapters.
 
-    In adapter_mode=True (default): attaches LoRA layers to all Linear layers
-    matching the GainLoRA architecture from t5_gainlora_inflora.py.
+    CRITICAL: Must use T5ForConditionalGeneration from t5_gainlora_inflora.py
+    (NOT AutoModelForSeq2SeqLM from HuggingFace), because:
+      - HF T5Attention.forward does NOT call lora_q/lora_v → LoRA is dead code
+      - GainLoRA T5Attention.forward DOES call lora_q/lora_v → LoRA actually works
 
-    In adapter_mode=False: returns the bare model without LoRA adapters.
-    For isolated tests, we use adapter_mode=True and manually initialize.
+    Uses T5ForConditionalGeneration.from_pretrained(config, prompt_config)
+    which creates lora_q, lora_v as first-class attributes in T5Attention.__init__.
 
-    The model is returned in eval mode (for zero-shot) unless training.
+    The model returned has the SAME architecture as run_t5.py training,
+    just without trans_input/prompt_key routing (isolated test).
     """
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    print(f"    Loading model: {model_name} (device={device})")
+    print(f"    Loading GainLoRA model: {model_name} (device={device})")
+
+    # ── Bootstrap: disable ipdb import so we can load t5_gainlora_inflora ──
+    # (t5_gainlora_inflora.py has "import ipdb" at line 26)
+    import sys
+    if 'ipdb' not in sys.modules:
+        class _DummyIpdB:
+            def set_trace(self): ...
+            def post_mortem(self, *a, **k): ...
+            def pm(self, *a, **k): ...
+            def __enter__(self): return self
+            def __exit__(self, *a): pass
+        sys.modules['ipdb'] = _DummyIpdB()
+
+    # ── Import GainLoRA model class ───────────────────────────────────────
+    from t5_gainlora_inflora import T5ForConditionalGeneration
 
     config = AutoConfig.from_pretrained(model_name)
-    config.hidden_size = config.d_model
 
-    model = AutoModelForSeq2SeqLM.from_pretrained(
+    # prompt_config mirrors run_t5.py lines 513-524
+    # Note: previous_lora_path=None, task_id=0 → no previous_lora_weights init
+    prompt_config = {
+        'seq_len': 512,
+        'mlp_hidden_dim': 100,
+        'attn_temperature': 1,    # = √(2*dim) when temperature==1
+        'previous_lora_path': None,
+        'previous_prompt_key_path': None,
+        'task_id': 0,              # current task (standalone test)
+        'run_single': True,        # no prompt_key stored
+        'lora_r': lora_rank,
+        'lora_alpha': lora_alpha,
+        'lora_dropout': lora_dropout,
+    }
+
+    # Use same from_pretrained call as run_t5.py line 533
+    # This calls T5ForConditionalGeneration.__init__(config, prompt_config)
+    # which creates lora_q/lora_v in T5Attention.__init__ — real LoRA that works
+    model = T5ForConditionalGeneration.from_pretrained(
         model_name,
+        prompt_config,
         config=config,
-        trust_remote_code=False,
     )
 
-    if adapter_mode:
-        _attach_gainlora_adapters(model, lora_rank, lora_alpha, lora_dropout)
+    # ── FIX: Re-initialize lora_A after from_pretrained ─────────────────────
+    # from_pretrained wraps __init__ in no_init_weights() context,
+    # making reset_parameters() a no-op → lora_A stays zeros.
+    # This mirrors run_t5.py lines 550-555 exactly.
+    _n_reinit = 0
+    for _module in model.modules():
+        if (hasattr(_module, 'lora_A') and hasattr(_module, 'lora_B')
+                and hasattr(_module, 'reset_parameters')):
+            nn.init.kaiming_uniform_(_module.lora_A, a=math.sqrt(5))
+            _n_reinit += 1
+    print(f"    [FIX] Re-initialized lora_A in {_n_reinit} LoRA layers "
+          f"(from_pretrained bypassed init)")
 
     model.to(device)
     model.eval()
 
-    # Attach frozen encoder for SRT routing
+    # Attach frozen encoder for SRT routing (matches run_t5.py lines 581-589)
     frozen_enc = T5EncoderModel.from_pretrained(model_name)
     frozen_enc.eval()
     for p in frozen_enc.parameters():
         p.requires_grad = False
     model.encoder.encoder_frozen = frozen_enc
+
+    # Verify LoRA layers exist and are real (not dead)
+    lora_count = sum(
+        1 for m in model.modules()
+        if hasattr(m, 'lora_A') and hasattr(m, 'lora_B')
+    )
+    print(f"    LoRA layers verified: {lora_count} (from GainLoRA T5Attention)")
 
     return model
 
@@ -455,79 +507,23 @@ def build_model(
 
 def _attach_gainlora_adapters(model, lora_rank: int, lora_alpha: int, lora_dropout: float):
     """
-    Attach LoRA adapters to T5 encoder attention q and v projections.
+    No-op for models built via T5ForConditionalGeneration.from_pretrained.
 
-    T5Attention has: self.q, self.k, self.v, self.o as nn.Linear.
-    We add: self.lora_q = LoRALayer, self.lora_v = LoRALayer alongside them.
+    T5ForConditionalGeneration.from_pretrained already creates real lora_q and
+    lora_v LoRALayer instances in T5Attention.__init__ (see t5_gainlora_inflora.py
+    lines 422, 426). The forward pass in T5Attention.forward (line 669, 678)
+    calls lora_q and lora_v — they are FIRST-CLASS participants, not patches.
 
-    The forward pass uses: q_out = self.q(x) + self.lora_q(x)
-                           v_out = self.v(x) + self.lora_v(x)
-    (matching t5_gainlora_inflora.py T5Attention.forward logic)
+    Calling this function would create DUPLICATE LoRALayer attributes that are
+    never used by the forward pass (since forward reads self.lora_q once).
+    So this is intentionally a no-op when the model already has LoRA layers.
     """
-    from t5_gainlora_inflora import LoRALayer
-
-    lora_count = 0
-
-    # Iterate over encoder blocks directly (not by named_modules walk)
-    encoder = model.get_encoder()
-    if not hasattr(encoder, 'block'):
-        print(f"    WARNING: encoder has no 'block' attr — cannot attach LoRA")
-        return
-
-    for block_idx, block in enumerate(encoder.block):
-        for layer_idx, layer in enumerate(block.layer):
-            # Only handle SelfAttention (not CrossAttention in decoder)
-            if not hasattr(layer, 'SelfAttention'):
-                continue
-            attn = layer.SelfAttention
-
-            # Attach lora_q if present (T5Attention.q is nn.Linear)
-            if hasattr(attn, 'q') and not hasattr(attn, 'lora_q'):
-                d_model = attn.q.in_features
-                d_out   = attn.q.out_features
-                attn.lora_q = LoRALayer(
-                    in_features=d_model,
-                    out_features=d_out,
-                    r=lora_rank,
-                    lora_alpha=lora_alpha,
-                    lora_dropout=lora_dropout,
-                ).to(attn.q.weight.device)
-                lora_count += 1
-
-            # Attach lora_v if present
-            if hasattr(attn, 'v') and not hasattr(attn, 'lora_v'):
-                d_model = attn.v.in_features
-                d_out   = attn.v.out_features
-                attn.lora_v = LoRALayer(
-                    in_features=d_model,
-                    out_features=d_out,
-                    r=lora_rank,
-                    lora_alpha=lora_alpha,
-                    lora_dropout=lora_dropout,
-                ).to(attn.v.weight.device)
-                lora_count += 1
-
-    # Also handle decoder blocks (for cross-attention)
-    if hasattr(model, 'decoder') and hasattr(model.decoder, 'block'):
-        for block in model.decoder.block:
-            for layer in block.layer:
-                if not hasattr(layer, 'SelfAttention'):
-                    continue
-                attn = layer.SelfAttention
-                if hasattr(attn, 'q') and not hasattr(attn, 'lora_q'):
-                    attn.lora_q = LoRALayer(
-                        attn.q.in_features, attn.q.out_features,
-                        lora_rank, lora_alpha, lora_dropout,
-                    ).to(attn.q.weight.device)
-                    lora_count += 1
-                if hasattr(attn, 'v') and not hasattr(attn, 'lora_v'):
-                    attn.lora_v = LoRALayer(
-                        attn.v.in_features, attn.v.out_features,
-                        lora_rank, lora_alpha, lora_dropout,
-                    ).to(attn.v.weight.device)
-                    lora_count += 1
-
-    print(f"    Attached {lora_count} LoRA adapters (rank={lora_rank})")
+    existing = sum(
+        1 for m in model.modules()
+        if hasattr(m, 'lora_A') and hasattr(m, 'lora_B')
+    )
+    print(f"    [_attach_gainlora_adapters] LoRA already present from "
+          f"T5ForConditionalGeneration.__init__: {existing} layers (no-op)")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
