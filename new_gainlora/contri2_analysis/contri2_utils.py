@@ -532,6 +532,18 @@ def build_model(
         p.requires_grad = False
     model.encoder.encoder_frozen = frozen_enc
 
+    # ── Fix 3: get_head_mask missing on T5Stack in newer transformers ────
+    # t5_gainlora_inflora.py T5Stack.forward() calls self.get_head_mask()
+    # but T5Stack doesn't inherit from PreTrainedModel in newer transformers.
+    def _get_head_mask(head_mask, num_hidden_layers, is_attention_chunked=False):
+        if head_mask is not None:
+            return head_mask
+        return [None] * num_hidden_layers
+
+    for submod in [model.encoder, model.decoder]:
+        if not hasattr(submod, 'get_head_mask'):
+            submod.get_head_mask = _get_head_mask
+
     # Verify LoRA layers exist and are real (not dead)
     lora_count = sum(
         1 for m in model.modules()
