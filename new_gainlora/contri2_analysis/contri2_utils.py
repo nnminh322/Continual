@@ -1186,7 +1186,7 @@ def train_lora_isolated(
         lr=lr,
         weight_decay=0.0,
     )
-    scheduler = torch.optim.lr_scheduler.ConstantLRScheduler(optimizer)
+    scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer)
 
     loss_curve = []
     acc_curve  = []
