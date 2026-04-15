@@ -1223,20 +1223,32 @@ def train_lora_isolated(
                 max_length=512,
             ).to(device)
 
-            with tokenizer.as_target_tokenizer():
-                targets = tokenizer(
-                    labels_text,
-                    return_tensors="pt",
-                    padding=True,
-                    truncation=True,
-                    max_length=50,
-                )
-            targets = {k: v.to(device) for k, v in targets.items()}
+            # as_target_tokenizer() removed in transformers v4+
+            # For T5, set decoder_input_ids to labels shifted right (with pad as start)
+            targets = tokenizer(
+                labels_text,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=50,
+            ).to(device)
+            # Prepend decoder_start_token_id to labels for T5 teacher-forcing
+            decoder_start = tokenizer.pad_token_id or 0
+            labels_ids = targets["input_ids"]
+            # decoder input = shift labels right, prepend pad token
+            decoder_input_ids = torch.cat(
+                [
+                    torch.full((labels_ids.size(0), 1), decoder_start, dtype=torch.long, device=device),
+                    labels_ids[:, :-1],
+                ],
+                dim=1,
+            )
 
             # Forward
             outputs = model(
                 input_ids=inputs["input_ids"],
                 attention_mask=inputs["attention_mask"],
+                decoder_input_ids=decoder_input_ids,
                 labels=targets["input_ids"],
             )
             loss = outputs.loss / gradient_accumulation
