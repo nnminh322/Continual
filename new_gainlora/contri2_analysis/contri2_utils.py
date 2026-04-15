@@ -456,14 +456,24 @@ def build_model(
         sys.modules['ipdb'] = _DummyIpdB()
 
     # ── Fix transformers version incompatibility ─────────────────────────────────
-    # t5_gainlora_inflora.py imports
-    #   from transformers.pytorch_utils import find_pruneable_heads_and_indices
-    # which was removed in newer transformers versions.
-    # Monkey-patch so the import succeeds.
+    # t5_gainlora_inflora.py imports modules removed in newer transformers.
+    # Monkey-patch them so the import succeeds.
+    import types as _types
+    import transformers.utils
+
+    # Fix 1: model_parallel_utils (removed in transformers >= 4.40)
+    if not hasattr(transformers.utils, 'model_parallel_utils'):
+        _mpu = _types.ModuleType('transformers.utils.model_parallel_utils')
+        _mpu.assert_device_map = lambda *a, **k: None
+        _mpu.get_device_map = lambda *a, **k: {}
+        sys.modules['transformers.utils.model_parallel_utils'] = _mpu
+        transformers.utils.model_parallel_utils = _mpu
+
+    # Fix 2: find_pruneable_heads_and_indices (moved in newer versions)
     import transformers.pytorch_utils as pt_utils
     if not hasattr(pt_utils, 'find_pruneable_heads_and_indices'):
-        def _noop(*a, **k): return None, None
-        pt_utils.find_pruneable_heads_and_indices = _noop
+        def _find_ph(*a, **k): return set(), None
+        pt_utils.find_pruneable_heads_and_indices = _find_ph
 
     # ── Import GainLoRA model class ───────────────────────────────────────
     from t5_gainlora_inflora import T5ForConditionalGeneration
