@@ -413,7 +413,7 @@ def main():
 
     router_state = {}
     for t_idx, t_name in enumerate(task_list):
-        emb_path = os.path.join(cache_dir, f"emb_{t_name}.npy")
+        emb_path = os.path.join(cache_dir, f"emb_{t_name}.npz")
         if os.path.exists(emb_path):
             embeddings = {"embeddings": None}  # will load from cache
             router_state[t_name] = {"emb_path": emb_path, "train_data": None}

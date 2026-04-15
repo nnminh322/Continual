@@ -393,7 +393,7 @@ def _init_real_sgwi(model, router, t_name, task_list, all_lora, lora_rank=8):
     # Compute SRT distances
     t_sig = router.signatures.get(t_name)
     if t_sig is None:
-        emb_path = os.path.join(RESULTS_DIR, "cache", f"emb_{t_name}.npy")
+        emb_path = os.path.join(RESULTS_DIR, "cache", f"emb_{t_name}.npz")
         if os.path.exists(emb_path):
             data = np.load(emb_path)
             t_sig = router.add_task(task_id=t_name, h_train=data["embeddings"])
@@ -610,7 +610,7 @@ def run_test7(router_state: dict, task_list: list, model_name: str, cache_dir: s
         # Find nearest and farthest tasks
         t_sig = router.signatures.get(t_name)
         if t_sig is None:
-            emb_path = os.path.join(RESULTS_DIR, "cache", f"emb_{t_name}.npy")
+            emb_path = os.path.join(RESULTS_DIR, "cache", f"emb_{t_name}.npz")
             if os.path.exists(emb_path):
                 data = np.load(emb_path)
                 t_sig = router.add_task(task_id=t_name, h_train=data["embeddings"])
@@ -786,7 +786,7 @@ def main():
     print_header("STEP 0 — EXTRACT FROZEN EMBEDDINGS")
     router_state = {}
     for t_idx, t_name in enumerate(task_list):
-        emb_path = os.path.join(cache_dir, f"emb_{t_name}.npy")
+        emb_path = os.path.join(cache_dir, f"emb_{t_name}.npz")
         if os.path.exists(emb_path):
             router_state[t_name] = {"emb_path": emb_path}
             print(f"  [{t_idx:2d}] {t_name}: CACHED")
