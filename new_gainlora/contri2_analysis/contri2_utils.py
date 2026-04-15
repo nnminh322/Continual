@@ -198,14 +198,54 @@ def load_task_data(task_name: str, split: str = "train") -> List[Dict]:
     return samples
 
 
-def format_example(sample: Dict, add_prefix: bool = True) -> str:
-    """Format a sample as input string for T5."""
-    instruction = ""
-    if add_prefix:
-        instruction = f"Input: {sample['input'].strip()}\nOutput: "
+# ── Task Definition cache ─────────────────────────────────────────────────
+_TASK_DEFS: Dict[str, str] = {}
+_CURRENT_TASK: str = ""  # Module-level: set before eval/train to auto-inject definition
+
+def get_task_definition(task_name: str) -> str:
+    """Load task definition from train.json (cached)."""
+    if task_name in _TASK_DEFS:
+        return _TASK_DEFS[task_name]
+    path = BENCHMARK_DIR / task_name / "train.json"
+    if path.exists():
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        defs = data.get("Definition", [])
+        defn = defs[0].strip() if isinstance(defs, list) and defs else ""
+        _TASK_DEFS[task_name] = defn
+        return defn
+    return ""
+
+
+def format_example(sample: Dict, task_name: str = "", add_prefix: bool = True) -> Tuple[str, str]:
+    """
+    Format a sample as input string for T5.
+
+    CRITICAL: Must include the task Definition so the model knows what to do.
+    Format: "{definition}\\n{input}\\nOutput: " — matches CL pipeline.
+    Without definition, model outputs random → accuracy = random guess.
+    """
+    text = sample["input"].strip()
+    label = sample.get("label", sample.get("output", ""))
+
+    # Get task definition (critical for model to understand the task)
+    # Falls back to _CURRENT_TASK if task_name not provided
+    effective_task = task_name or _CURRENT_TASK
+    defn = get_task_definition(effective_task) if effective_task else ""
+
+    if defn:
+        instruction = f"{defn}\n{text}\nOutput: "
+    elif add_prefix:
+        instruction = f"Input: {text}\nOutput: "
     else:
-        instruction = f"{sample['input'].strip()}\nOutput: "
-    return instruction, sample.get("label", sample.get("output", ""))
+        instruction = f"{text}\nOutput: "
+
+    # Strip "Output:" prefix from label if present
+    label_clean = label
+    if label_clean.lower().startswith("output:"):
+        label_clean = label_clean[len("output:"):].strip()
+
+    return instruction, label_clean
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -963,11 +1003,10 @@ def eval_zero_shot(model, test_data: List[Dict]) -> float:
             pred_lower = pred.lower()
             label_lower = label.lower()
 
-            # Normalize: strip common prefixes
+            # Strip "output:" from prediction (T5 may output the full "Input: ... Output: " template)
             if pred_lower.startswith("output:"):
                 pred_lower = pred_lower[len("output:"):].strip()
-            if label_lower.startswith("output:"):
-                label_lower = label_lower[len("output:"):].strip()
+            # Labels are already clean (set in format_example)
 
             if pred_lower == label_lower:
                 correct += 1
@@ -1223,8 +1262,7 @@ def train_lora_isolated(
                 max_length=512,
             ).to(device)
 
-            # as_target_tokenizer() removed in transformers v4+
-            # For T5, set decoder_input_ids to labels shifted right (with pad as start)
+            # Tokenize labels (T5.forward with labels= auto-prepends decoder_start_token_id)
             targets = tokenizer(
                 labels_text,
                 return_tensors="pt",
@@ -1232,23 +1270,11 @@ def train_lora_isolated(
                 truncation=True,
                 max_length=50,
             ).to(device)
-            # Prepend decoder_start_token_id to labels for T5 teacher-forcing
-            decoder_start = tokenizer.pad_token_id or 0
-            labels_ids = targets["input_ids"]
-            # decoder input = shift labels right, prepend pad token
-            decoder_input_ids = torch.cat(
-                [
-                    torch.full((labels_ids.size(0), 1), decoder_start, dtype=torch.long, device=device),
-                    labels_ids[:, :-1],
-                ],
-                dim=1,
-            )
 
-            # Forward
+            # Forward — T5 handles decoder_input_ids internally when labels= is provided
             outputs = model(
                 input_ids=inputs["input_ids"],
                 attention_mask=inputs["attention_mask"],
-                decoder_input_ids=decoder_input_ids,
                 labels=targets["input_ids"],
             )
             loss = outputs.loss / gradient_accumulation

@@ -33,6 +33,7 @@ ROOT = Path(__file__).parent
 SRC  = ROOT.parent / "src"
 sys.path.insert(0, str(SRC))
 
+import contri2_utils
 from contri2_utils import (
     TASK_ORDER, BENCHMARK_DIR, RESULTS_DIR,
     load_task_data, extract_frozen_embeddings,
@@ -112,6 +113,7 @@ def run_test1(router_state, task_list, model_name, cache_dir):
             continue
 
         print(f"\n  [t={t_idx}] {t_name}")
+        contri2_utils._CURRENT_TASK = t_name
 
         # Build SRT router using signatures from tasks 0..t-1
         # router_state[t-1] contains embeddings for tasks 0..t-1
@@ -186,6 +188,9 @@ def run_test2(router_state, task_list, model_name, cache_dir):
 
         print(f"\n  {'─'*60}")
         print(f"  [t={t_idx}] {t_name}")
+
+        # Set current task so format_example() includes the Definition
+        contri2_utils._CURRENT_TASK = t_name
 
         # Load data
         train_data = load_task_data(t_name, "train")
@@ -302,6 +307,7 @@ def run_test3(router_state, task_list, model_name, cache_dir):
 
         print(f"\n  {'─'*60}")
         print(f"  [t={t_idx}] {t_name}")
+        contri2_utils._CURRENT_TASK = t_name
 
         # Load data
         train_data = load_task_data(t_name, "train")
