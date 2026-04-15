@@ -270,6 +270,7 @@ def extract_frozen_embeddings(
 def build_srt_router(
     task_list: List[str],
     router_state: Dict,
+    model_name: str = "google/flan-t5-large",
     metric_mode: str = "hard",
     shrink_factor: float = 0.1,
 ) -> SRTRouter:
@@ -278,18 +279,21 @@ def build_srt_router(
 
     Args:
         task_list   : list of task names (e.g. ["yelp", "amazon", "mnli"])
-                     Router will include signatures for these tasks IN ORDER.
         router_state: dict keyed by task_name, each containing:
                        {"emb_path": str, "train_data": list or None}
+        model_name  : backbone used for embedding extraction (e.g. flan-t5-large)
         metric_mode : "hard" (ZCA whitening + L2) or "dynamics" (SRM)
         shrink_factor: Ledoit-Wolf shrinkage factor
 
     Returns:
         SRTRouter with signatures for all tasks in task_list.
 
-    The router computes {μ_t, Σ_t} from cached embeddings and fits
-    ZCA whitening (hard mode) once all tasks are added.
+    Handles dimension mismatch: if cached embeddings have wrong dim
+    (e.g. cached from small model, now running large), re-extracts.
     """
+    from transformers import AutoConfig
+    expected_d = AutoConfig.from_pretrained(model_name).d_model
+
     router = SRTRouter(
         srt_metric_mode=metric_mode,
         use_shrink=True,
@@ -305,6 +309,19 @@ def build_srt_router(
         if emb_path and os.path.exists(emb_path):
             data = np.load(emb_path)
             h_train = data["embeddings"]
+            # ── Re-extract if dimension mismatch ───────────────────────────
+            if h_train.shape[1] != expected_d:
+                print(f"    [DIM MISMATCH] {t_name}: cached dim={h_train.shape[1]} "
+                      f"≠ expected={expected_d} (model={model_name}) → re-extracting")
+                train_data = router_state[t_name].get("train_data")
+                if train_data is None:
+                    train_data = load_task_data(t_name, "train")
+                if train_data:
+                    emb_new, _ = extract_frozen_embeddings(
+                        model_name, train_data, max_samples=500,
+                        cache_path=emb_path,
+                    )
+                    h_train = emb_new.numpy()
         else:
             # Fall back: extract embeddings on the fly
             train_data = router_state[t_name].get("train_data")
@@ -313,19 +330,16 @@ def build_srt_router(
             if train_data is None:
                 print(f"    WARNING: no data for {t_name}, skipping router entry")
                 continue
-            # Get backbone from model_name in config
-            # Use default small model for embedding extraction
-            from transformers import AutoModel
-            # We need the same model as used for training
-            # Use cached extraction only
-            print(f"    WARNING: no cached embeddings for {t_name}, using on-the-fly extraction")
-            h_train, _ = extract_frozen_embeddings(
-                "google/flan-t5-small", train_data, max_samples=500
+            print(f"    WARNING: no cached embeddings for {t_name}, "
+                  f"extracting with {model_name}")
+            emb_new, _ = extract_frozen_embeddings(
+                model_name, train_data, max_samples=500, cache_path=emb_path,
             )
-            h_train = h_train.numpy()
+            h_train = emb_new.numpy()
 
         sig = router.add_task(task_id=t_name, h_train=h_train)
-        print(f"    [SRT] Added {t_name}: PaR={sig.par:.1f}, metric={sig.metric}, n={sig.n}")
+        print(f"    [SRT] Added {t_name}: PaR={sig.par:.1f}, "
+              f"metric={sig.metric}, n={sig.n}")
 
     return router
 
@@ -440,6 +454,16 @@ def build_model(
             def __enter__(self): return self
             def __exit__(self, *a): pass
         sys.modules['ipdb'] = _DummyIpdB()
+
+    # ── Fix transformers version incompatibility ─────────────────────────────────
+    # t5_gainlora_inflora.py imports
+    #   from transformers.pytorch_utils import find_pruneable_heads_and_indices
+    # which was removed in newer transformers versions.
+    # Monkey-patch so the import succeeds.
+    import transformers.pytorch_utils as pt_utils
+    if not hasattr(pt_utils, 'find_pruneable_heads_and_indices'):
+        def _noop(*a, **k): return None, None
+        pt_utils.find_pruneable_heads_and_indices = _noop
 
     # ── Import GainLoRA model class ───────────────────────────────────────
     from t5_gainlora_inflora import T5ForConditionalGeneration

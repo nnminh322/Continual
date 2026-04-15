@@ -79,7 +79,7 @@ def run_test4(ckpt_dir: str, router_state: dict, task_list: list, model_name: st
         return {"status": "skipped", "reason": "no checkpoints"}
 
     # Build full router with all tasks
-    router = build_srt_router(task_list, router_state)
+    router = build_srt_router(task_list, router_state, model_name)
 
     # Load all LoRA checkpoints
     lora_weights = {}  # task_name → {layer_name: (A, B)}
@@ -246,7 +246,7 @@ def run_test5(ckpt_dir: str, router_state: dict, task_list: list, model_name: st
         train_few = train_data[:n_few]
 
         sig_tasks = task_list[:t_idx]
-        router = build_srt_router(sig_tasks, router_state)
+        router = build_srt_router(sig_tasks, router_state, model_name)
 
         # ── A: Random Init ────────────────────────────────────────────
         print(f"    [A] Random Init...")
@@ -477,7 +477,7 @@ def run_test6(router_state: dict, task_list: list, model_name: str, cache_dir: s
     print_header("TEST 6 — τ SENSITIVITY SWEEP")
 
     # Build full router to get τ_median
-    router_full = build_srt_router(task_list, router_state)
+    router_full = build_srt_router(task_list, router_state, model_name)
     tau_median = _compute_temperatures(router_full)
     print(f"  τ_median (data-driven) = {tau_median:.4f}")
 
@@ -515,7 +515,7 @@ def run_test6(router_state: dict, task_list: list, model_name: str, cache_dir: s
         train_few = train_data[:n_few]
 
         sig_tasks = task_list[:t_idx]
-        router = build_srt_router(sig_tasks, router_state)
+        router = build_srt_router(sig_tasks, router_state, model_name)
 
         task_results = {}
         for tau_label, tau_val in tau_values.items():
@@ -605,7 +605,7 @@ def run_test7(router_state: dict, task_list: list, model_name: str, cache_dir: s
 
         # Build router with all prior tasks
         sig_tasks = task_list[:t_idx]
-        router = build_srt_router(sig_tasks, router_state)
+        router = build_srt_router(sig_tasks, router_state, model_name)
 
         # Find nearest and farthest tasks
         t_sig = router.signatures.get(t_name)

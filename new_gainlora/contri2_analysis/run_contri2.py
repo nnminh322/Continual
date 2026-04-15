@@ -116,7 +116,7 @@ def run_test1(router_state, task_list, model_name, cache_dir):
         # Build SRT router using signatures from tasks 0..t-1
         # router_state[t-1] contains embeddings for tasks 0..t-1
         sig_tasks = task_list[:t_idx]
-        router = build_srt_router(sig_tasks, router_state)
+        router = build_srt_router(sig_tasks, router_state, model_name)
 
         # Load current task test data
         test_data = load_task_data(t_name, "test")
@@ -202,7 +202,7 @@ def run_test2(router_state, task_list, model_name, cache_dir):
 
         # Build SRT router for SGWI
         sig_tasks = task_list[:t_idx]
-        router = build_srt_router(sig_tasks, router_state)
+        router = build_srt_router(sig_tasks, router_state, model_name)
 
         results_t = {}
 
@@ -317,7 +317,7 @@ def run_test3(router_state, task_list, model_name, cache_dir):
 
         # Build SRT router
         sig_tasks = task_list[:t_idx]
-        router = build_srt_router(sig_tasks, router_state)
+        router = build_srt_router(sig_tasks, router_state, model_name)
 
         results_t = {}
 
