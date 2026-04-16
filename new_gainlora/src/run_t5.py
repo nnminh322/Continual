@@ -1104,7 +1104,9 @@ def main():
             trainer.save_metrics("predict", metrics)
             all_metrics.update(metrics)
 
-            with open(os.path.join("logs_and_outputs", training_args.run_name, "outputs", "task_order.txt"), 'w') as f:
+            outputs_dir = os.path.join("logs_and_outputs", training_args.run_name, "outputs")
+            os.makedirs(outputs_dir, exist_ok=True)
+            with open(os.path.join(outputs_dir, "task_order.txt"), 'w') as f:
                 f.write(data_args.task_order)
 
     return results
