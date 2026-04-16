@@ -884,9 +884,13 @@ def main():
         if training_args.do_train:
             trainer.get_reg_matrix()
     elif training_args.model_name == 'gainlora_inflora' and training_args.use_srt_router:
-        # SRT Trainer: GainLoRA + SRT non-parametric router
-        from cl_trainer_srt import SRT_Trainer
-        trainer = SRT_Trainer(
+        # C2: dispatch to SGWI_DualFisher_Trainer if sgwi_mode != 'inflora'
+        _sgwi_mode = getattr(training_args, 'sgwi_mode', 'inflora')
+        _lambda_emb = getattr(training_args, 'lambda_emb', 0.0)
+        _use_sgwi = _sgwi_mode != 'inflora'
+        print(f"[C2] sgwi_mode={_sgwi_mode}, lambda_emb={_lambda_emb}, use_sgwi={_use_sgwi}")
+
+        _srt_kwargs = dict(
             model=model,
             args=training_args,
             train_dataset=train_dataset if training_args.do_train else None,
@@ -907,6 +911,16 @@ def main():
             srt_load_path=training_args.srt_load_path,
             srt_skip_forward=training_args.srt_skip_forward,
         )
+        if _use_sgwi:
+            from sgwi_trainer import SGWI_DualFisher_Trainer
+            trainer = SGWI_DualFisher_Trainer(
+                **_srt_kwargs,
+                sgwi_mode=_sgwi_mode,
+                lambda_emb=_lambda_emb,
+            )
+        else:
+            from cl_trainer_srt import SRT_Trainer
+            trainer = SRT_Trainer(**_srt_kwargs)
         if training_args.do_train:
             trainer.get_reg_matrix()
     elif training_args.model_name == 'gainlora_olora':
