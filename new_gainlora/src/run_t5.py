@@ -341,6 +341,26 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         },
     )
 
+    # ── C2: SGWI (SRT-Guided Warm Initialization) + Dual Fisher ─────────
+    sgwi_mode: Optional[str] = field(
+        default='inflora',
+        metadata={
+            "help": "SGWI initialization mode: "
+                    "'inflora' = InfLoRA baseline (no SGWI), "
+                    "'sgwi' = SGWI warm init from SRT-weighted past LoRAs, "
+                    "'sgwi+inflora' = SGWI + InfLoRA combined, "
+                    "'random' = random baseline."
+        },
+    )
+    lambda_emb: Optional[float] = field(
+        default=0.0,
+        metadata={
+            "help": "Dual Fisher regularization strength: "
+                    "L2 penalty on parameters relative to warm-init solution. "
+                    "λ=0 = no regularization (SGWI only), λ>0 = apply penalty."
+        },
+    )
+
     denser_evaluation: Optional[bool] = field(
         default=False,
         metadata={"help": "If specifid, the model will do more evaluation at the beginning of training."}
