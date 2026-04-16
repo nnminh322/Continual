@@ -148,11 +148,16 @@ class SGWI_DualFisher_Trainer(SRT_Trainer):
 
         # Extract current task embeddings to compute signature
         logger.info("[SGWI] Extracting current task embeddings for distance computation...")
-        h_train = self._extract_task_embeddings()
-        if h_train is None or len(h_train) == 0:
+        result = self._extract_task_embeddings(max_samples=self.srt_max_emb_samples)
+        # _extract_task_embeddings returns (h_train, task_ids) tuple
+        if isinstance(result, tuple):
+            h_train, _ = result
+        else:
+            h_train = result
+        if h_train is None or (hasattr(h_train, '__len__') and len(h_train) == 0):
             return {}
 
-        current_mu = h_train.mean(dim=0).numpy()
+        current_mu = h_train.mean(dim=0).cpu().numpy()
         self._current_task_mu = current_mu
 
         # Compute distances to all past tasks
