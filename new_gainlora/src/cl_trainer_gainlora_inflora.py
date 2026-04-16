@@ -152,7 +152,12 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         reg_matrix, reg_trans_matrix = [], []
         for all_dir in all_dirs:
             if not os.path.isdir(os.path.join(log_path, all_dir)): continue
-            if eval(all_dir.split('-')[0]) == eval(local_dir.split('-')[0])-1: 
+            try:
+                all_idx = int(all_dir.split('-')[0])
+                local_idx = int(local_dir.split('-')[0])
+            except (ValueError, TypeError):
+                continue  # skip dirs that don't follow N-taskname format
+            if all_idx == local_idx - 1:
                 i = 0
                 for module in self.model.modules():
                     if hasattr(module, 'get_feature'):
@@ -169,7 +174,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 print(os.path.join(log_path, all_dir))
                 print(len(reg_matrix))
                 break
-        return reg_matrix, reg_trans_matrix, eval(local_dir.split('-')[0])-1
+        return reg_matrix, reg_trans_matrix, int(local_dir.split('-')[0])-1
 
 
     def get_reg_matrix(self):
