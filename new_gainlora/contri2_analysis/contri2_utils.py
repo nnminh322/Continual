@@ -664,14 +664,12 @@ def init_lora_weights(
 
     For NTI INIT (Nearest-Task Init):
       - Find nearest task s* by SRT distance
-      - Approximate LoRA transfer using the observation that:
-        optimal LoRA direction ≈ backbone gradient direction
-        We model: B_s*A_s ≈ μ_s · (μ_s)ᵀ (outer product of centroid)
-        This captures the TASK GEOMETRY without needing real checkpoints.
+      - Proxy: Σ_s (task covariance) → captures principal variance directions
+      - SVD(Σ_s) → top-r → LoRA init
 
     For SFI INIT (SVD Fusion):
       - Compute w_s = softmax(-d_SRT(t,s) / τ) for all s < t
-      - ΔW_init = Σ w_s · (μ_s · μ_sᵀ)   [outer product proxy]
+      - ΔW_init = Σ w_s · Σ_s   [covariance proxy, not μ·μᵀ]
       - SVD → rank-r → B_t, A_t
     ─────────────────────────────────────────────────────────────
     """
@@ -720,11 +718,13 @@ def _init_nti(
     Nearest-Task Init (NTI).
 
     Finds the task s* with minimum SRT distance to t, then
-    initializes LoRA_t using a proxy derived from the embedding geometry.
+    initializes LoRA_t using the nearest task's covariance as proxy.
 
-    The proxy is: the outer product μ_s · μ_sᵀ captures the principal
-    semantic direction of the source task's data in embedding space.
-    Rank-r SVD gives B_s*·A_s* ≈ U[:,:r]·Σ^{1/2} and A_s*·B_s* ≈ Σ^{1/2}·V[:r,:].
+    Theory:
+      - Σ_s (task covariance) captures PRINCIPAL VARIANCE DIRECTIONS
+        of the source task in embedding space
+      - SVD(Σ_s) gives orthonormal directions ranked by variance
+      - Top-r components → rank-r LoRA init: B=U[:,:r]√S[:r], A=√S[:r]V[:r,:]
     """
     t_idx = task_list.index(t_name) if t_name in task_list else -1
     prior_tasks = task_list[:t_idx] if t_idx > 0 else []
@@ -773,9 +773,8 @@ def _init_nti(
                 best_task = prior_tasks[-1]
             print(f"    [INIT] NTI: fallback → using most central={best_task}")
             s_sig = router.signatures[best_task]
-            mu_s = s_sig.mu.astype(np.float64)
-            delta_W_proxy = np.outer(mu_s, mu_s)
-            _set_lora_from_deltaW(model, delta_W_proxy, lora_rank, tag=f"NTI-{best_task}")
+            Sigma_s = s_sig.Sigma_raw.astype(np.float64)
+            _set_lora_from_deltaW(model, Sigma_s, lora_rank, tag=f"NTI-{best_task}")
             return
 
     # Compute distances to all prior tasks
@@ -796,13 +795,14 @@ def _init_nti(
     min_dist = dists[nearest]
     print(f"    [INIT] NTI: nearest={nearest}, d={min_dist:.3f}")
 
-    # Proxy: ΔW_s ≈ μ_s · μ_sᵀ  (outer product captures task geometry)
+    # Use nearest task's covariance as the init direction
+    # Theory: Σ_s captures principal variance directions of task s
+    # SVD(Σ_s) → top-r components → rank-r LoRA init
     s_sig = router.signatures[nearest]
-    mu_s = s_sig.mu.astype(np.float64)        # (d,)
-    delta_W_proxy = np.outer(mu_s, mu_s)       # (d, d)
+    Sigma_s = s_sig.Sigma_raw.astype(np.float64)  # (d, d)
 
     # Rank-r SVD → B_t, A_t
-    _set_lora_from_deltaW(model, delta_W_proxy, lora_rank, tag=f"NTI-{nearest}")
+    _set_lora_from_deltaW(model, Sigma_s, lora_rank, tag=f"NTI-{nearest}")
 
 
 def _init_sfi(
@@ -877,16 +877,34 @@ def _init_sfi(
         if w > 0.01:
             print(f"           {s_name}: w={w:.3f}")
 
-    # Step 3: Weighted blend of proxy ΔW
+    # Step 3: Weighted blend of task covariance matrices
+    # ── SRT-grounded proxy for ΔW_s ─────────────────────────────────────────
+    #
+    # Theory:
+    #   - ZCA-whitened μ_t ≈ 0 (global centering) → μ·μᵀ ≈ zero → FAIL
+    #   - Σ_t (covariance) captures PRINCIPAL DIRECTIONS of task variation,
+    #     independent of mean, preserved by ZCA up to eigen-value scaling
+    #   - ΔW_s ∈ ℝ^{d×d} is low-rank (rank ≤ r by LoRA definition)
+    #   - SVD(Σ_s) gives orthonormal directions ranked by variance contribution
+    #   - Keeping top-r components = optimal rank-r approximation for init
+    #
+    # Mathematical definition:
+    #   ΔW_proxy = Σ_{s} w_s · Σ_s     ∈ ℝ^{d×d}
+    #   → SVD(ΔW_proxy) → U, S, Vᵀ
+    #   → B = U[:,:r] · √S[:r]   ∈ ℝ^{d×r}
+    #   → A = √S[:r] · Vᵀ[:r,:] ∈ ℝ^{r×d}
+    #   → A·B ≈ ΔW_proxy (rank-r approximation)
+    #
     d = t_sig.d
     delta_W_init = np.zeros((d, d), dtype=np.float64)
     for s_name, w in zip(names, weights):
         s_sig = router.signatures[s_name]
-        mu_s = s_sig.mu.astype(np.float64)    # (d,)
-        # Proxy: ΔW_s ≈ μ_s · μ_sᵀ  (outer product captures task geometry)
-        delta_W_init += w * np.outer(mu_s, mu_s)
+        # Sigma_raw = Ledoit-Wolf shrunk raw covariance (pre-whitening)
+        # Preserves absolute variance structure; numerically stable
+        Sigma_s = s_sig.Sigma_raw.astype(np.float64)   # (d, d)
+        delta_W_init += w * Sigma_s
 
-    # Step 4-5: Rank-r SVD
+    # Step 4-5: Rank-r SVD → LoRA weights
     _set_lora_from_deltaW(model, delta_W_init, lora_rank, tag="SFI")
 
 
