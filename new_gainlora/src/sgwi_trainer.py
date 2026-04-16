@@ -100,8 +100,9 @@ class SGWI_DualFisher_Trainer(SRT_Trainer):
             return
 
         if self.sgwi_mode == 'random':
-            # Arm D: Skip all initialization
+            # Arm D: Skip all initialization — but still must set _cur_task etc.
             logger.info("[SGWI] Mode=random → skipping all initialization")
+            self._init_gpm_attrs_skip()
             return
 
         if self.cur_task_id == 0:
@@ -111,19 +112,31 @@ class SGWI_DualFisher_Trainer(SRT_Trainer):
             return
 
         if self.sgwi_mode == 'sgwi':
-            # Arm B: SGWI only
+            # Arm B: SGWI warm init, NO InfLoRA projection during training
             logger.info("[SGWI] Mode=sgwi → running SGWI initialization")
+            self._init_gpm_attrs_skip()  # set _cur_task=0, empty feature lists
             self._sgwi_init()
             return
 
         if self.sgwi_mode == 'sgwi+inflora':
-            # Arm C: SGWI first, then InfLoRA
+            # Arm C: SGWI first, then InfLoRA (InfLoRA sets _cur_task etc.)
             logger.info("[SGWI] Mode=sgwi+inflora → SGWI then InfLoRA")
             self._sgwi_init()
             super().get_reg_matrix()
             return
 
         raise ValueError(f"Unknown sgwi_mode: {self.sgwi_mode}")
+
+    def _init_gpm_attrs_skip(self):
+        """Initialize GPM attributes to safe defaults so _inner_training_loop doesn't crash.
+        Sets _cur_task=0 (falsy) so GPM projection is skipped during training.
+        Use for sgwi-only and random modes."""
+        self._cur_task = 0
+        self.feature_list = []
+        self.feature_trans_list = []
+        self.feature_mat = []
+        self.feature_trans_mat = []
+        logger.info("[SGWI] GPM attrs initialized (skip mode): _cur_task=0, feature_list=[]")
 
     def _sgwi_init(self):
         """SRT-Guided Warm Initialization for current task's LoRA."""
