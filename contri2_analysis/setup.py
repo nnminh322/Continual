@@ -18,41 +18,6 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUN_T5_PATH = os.path.join(REPO_ROOT, 'new_gainlora', 'src', 'run_t5.py')
 BACKUP_PATH = RUN_T5_PATH + '.bak_c2'
 
-# ============================================================================
-# Patch 1: Add SGWI arguments to TrainingArguments
-# ============================================================================
-ARGS_MARKER = "srt_skip_forward: Optional[bool]"
-ARGS_PATCH = '''
-    # ── C2: SGWI + Dual Fisher ───────────────────────────────────
-    sgwi_mode: Optional[str] = field(
-        default='inflora',
-        metadata={"help": "SGWI init mode: 'inflora' (baseline), 'sgwi', 'sgwi+inflora', 'random'"}
-    )
-    lambda_emb: Optional[float] = field(
-        default=0.0,
-        metadata={"help": "Dual Fisher embedding regularization strength (0=disabled)"}
-    )
-'''
-
-# ============================================================================
-# Patch 2: Add SGWI trainer import
-# ============================================================================
-IMPORT_MARKER = "from cl_trainer_srt import SRT_Trainer"
-IMPORT_PATCH = """from cl_trainer_srt import SRT_Trainer
-from sgwi_trainer import SGWI_DualFisher_Trainer"""
-
-# ============================================================================
-# Patch 3: Wire SGWI trainer into the SRT training path
-# Replace SRT_Trainer instantiation with SGWI_DualFisher_Trainer
-# ============================================================================
-# We need to find where SRT_Trainer is instantiated and add a condition
-TRAINER_MARKER = "trainer = SRT_Trainer("
-TRAINER_PATCH_BEFORE = """            # C2: Use SGWI trainer if sgwi_mode != 'inflora' or lambda_emb > 0
-            if hasattr(training_args, 'sgwi_mode') and (training_args.sgwi_mode != 'inflora' or training_args.lambda_emb > 0):
-                trainer = SGWI_DualFisher_Trainer("""
-TRAINER_PATCH_AFTER_CLOSE = """                    sgwi_mode=training_args.sgwi_mode,
-                    lambda_emb=training_args.lambda_emb,"""
-
 
 def check_patched():
     """Check if run_t5.py is already patched."""
@@ -80,118 +45,135 @@ def apply_patch():
     with open(RUN_T5_PATH, 'r') as f:
         content = f.read()
 
-    # Patch 1: Add arguments
-    if ARGS_MARKER in content:
-        # Find the line with srt_skip_forward and add after its field() closing
-        lines = content.split('\n')
-        new_lines = []
-        found_marker = False
-        for i, line in enumerate(lines):
-            new_lines.append(line)
-            if ARGS_MARKER in line and not found_marker:
-                # Find end of this field definition (next line with closing paren)
-                j = i + 1
-                while j < len(lines) and ')' not in lines[j]:
-                    j += 1
-                # The args patch will be inserted after j
-                # But we need to handle this differently - add after this block
-                found_marker = True
-        
-        if found_marker:
-            # Simpler approach: just insert after the marker line's field() block
-            content_with_args = content.replace(
-                ARGS_MARKER,
-                ARGS_MARKER
-            )
-            # Find the complete srt_skip_forward field definition end
-            idx = content.find(ARGS_MARKER)
-            # Find the next field or class end after this
-            idx_after = content.find('\n\n', idx)
-            if idx_after == -1:
-                idx_after = content.find('\n    #', idx + len(ARGS_MARKER))
-            if idx_after == -1:
-                idx_after = content.find('\n    denser_evaluation', idx)
-            
-            if idx_after > idx:
-                content = content[:idx_after] + '\n' + ARGS_PATCH + content[idx_after:]
-                print("[setup] ✅ Patch 1: Added sgwi_mode + lambda_emb arguments")
-            else:
-                # Fallback: insert right after the marker line
-                content = content.replace(
-                    ARGS_MARKER,
-                    ARGS_MARKER + '\n' + ARGS_PATCH
-                )
-                print("[setup] ✅ Patch 1 (fallback): Added sgwi_mode + lambda_emb arguments")
-    else:
-        print(f"[setup] ⚠️  Patch 1: Could not find marker '{ARGS_MARKER}'. Manual edit needed.")
+    # ========================================================================
+    # Patch 1: Add SGWI arguments to TrainingArguments
+    # ========================================================================
+    ARGS_MARKER = "srt_skip_forward: Optional[bool]"
+    ARGS_PATCH = '''
+    # ── C2: SGWI + Dual Fisher ───────────────────────────────────
+    sgwi_mode: Optional[str] = field(
+        default='inflora',
+        metadata={"help": "SGWI init mode: 'inflora' (baseline), 'sgwi', 'sgwi+inflora', 'random'"}
+    )
+    lambda_emb: Optional[float] = field(
+        default=0.0,
+        metadata={"help": "Dual Fisher embedding regularization strength (0=disabled)"}
+    )
+'''
 
-    # Patch 2: Add import
+    if ARGS_MARKER in content:
+        idx = content.find(ARGS_MARKER)
+        idx_after = content.find('\n        ', idx + len(ARGS_MARKER))
+        if idx_after > idx:
+            content = content[:idx_after] + ARGS_PATCH + content[idx_after:]
+            print("[setup] ✅ Patch 1: Added sgwi_mode + lambda_emb arguments")
+    else:
+        print(f"[setup] ⚠️  Patch 1: Could not find marker. Manual edit needed.")
+
+    # ========================================================================
+    # Patch 2: Add SGWI trainer import
+    # ========================================================================
+    IMPORT_MARKER = "from cl_trainer_srt import SRT_Trainer"
     if IMPORT_MARKER in content and 'SGWI_DualFisher_Trainer' not in content:
+        IMPORT_PATCH = "from cl_trainer_srt import SRT_Trainer\nfrom sgwi_trainer import SGWI_DualFisher_Trainer"
         content = content.replace(IMPORT_MARKER, IMPORT_PATCH)
         print("[setup] ✅ Patch 2: Added SGWI_DualFisher_Trainer import")
-    elif 'SGWI_DualFisher_Trainer' in content:
-        print("[setup] ✅ Patch 2: Import already present")
-    else:
-        print(f"[setup] ⚠️  Patch 2: Could not find import marker. Manual edit needed.")
 
-    # Patch 3: Wire trainer (more complex - add before SRT_Trainer instantiation)
-    if TRAINER_MARKER in content and 'SGWI_DualFisher_Trainer' not in content.split(TRAINER_MARKER)[0][-200:]:
-        # Find the trainer = SRT_Trainer( line and add conditional before it
-        idx = content.find(TRAINER_MARKER)
-        # Find the line start
-        line_start = content.rfind('\n', 0, idx) + 1
-        indent = ' ' * (idx - line_start)
-        
-        # Build the replacement: add SGWI path as an elif before the existing SRT_Trainer
-        # We wrap the existing SRT_Trainer in an else block
-        old_trainer_line = content[line_start:content.find('\n', idx)]
-        
-        # Find the complete SRT_Trainer constructor call (until matching closing paren)
-        paren_count = 0
-        end_idx = idx
-        for ci in range(idx, len(content)):
-            if content[ci] == '(':
-                paren_count += 1
-            elif content[ci] == ')':
-                paren_count -= 1
-                if paren_count == 0:
-                    end_idx = ci + 1
-                    break
-        
-        original_srt_block = content[line_start:end_idx]
-        
-        # Create the patched version with conditional
-        sgwi_block = original_srt_block.replace(
-            'trainer = SRT_Trainer(',
-            'trainer = SGWI_DualFisher_Trainer('
-        )
-        # Add sgwi_mode and lambda_emb params - insert before the closing paren
-        last_paren = sgwi_block.rfind(')')
-        sgwi_block = (
-            sgwi_block[:last_paren] + 
-            f'\n{indent}    sgwi_mode=training_args.sgwi_mode,\n'
-            f'{indent}    lambda_emb=training_args.lambda_emb,\n'
-            f'{indent})' 
-        )
-        # Remove the duplicate closing paren
-        sgwi_block = sgwi_block[:sgwi_block.rfind(')')] + ')'
-        
-        # Build conditional
-        patched = (
-            f'{indent}# C2: Use SGWI trainer if sgwi_mode specified\n'
-            f'{indent}if hasattr(training_args, "sgwi_mode") and '
-            f'(training_args.sgwi_mode != "inflora" or getattr(training_args, "lambda_emb", 0) > 0):\n'
-            f'{indent}    ' + sgwi_block.replace('\n', f'\n{indent}    ').strip() + '\n'
-            f'{indent}else:\n'
-            f'{indent}    ' + original_srt_block.replace('\n', f'\n{indent}    ').strip()
-        )
-        
-        content = content[:line_start] + patched + content[end_idx:]
-        print("[setup] ✅ Patch 3: Wired SGWI_DualFisher_Trainer into SRT path")
+    # ========================================================================
+    # Patch 3: Replace SRT_Trainer with conditional that uses SGWI
+    # ========================================================================
+    # Find the SRT_Trainer block and add conditional
+    ORIGINAL_SRT_BLOCK = """    elif training_args.model_name == 'gainlora_inflora' and training_args.use_srt_router:
+        # SRT Trainer: GainLoRA + SRT non-parametric router
+        from cl_trainer_srt import SRT_Trainer
+        trainer = SRT_Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset if training_args.do_train else None,
+            cur_task_id=cur_task_id,
+            task_order=task_order,
+            data_collator_replay=data_collator_replay,
+            replay_dataset_dict=replay_dataset_dict,
+            replay_label_dict=replay_label_dict,
+            eval_dataset=eval_dataset if training_args.do_eval else None,
+            tokenizer=tokenizer,
+            data_collator=data_collator,
+            compute_metrics=compute_rouge_metrics,
+            callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None,
+            srt_metric_mode=training_args.srt_metric_mode,
+            srt_shrink=training_args.srt_shrink,
+            srt_shrink_factor=training_args.srt_shrink_factor,
+            srt_max_emb_samples=training_args.srt_max_emb_samples,
+            srt_load_path=training_args.srt_load_path,
+            srt_skip_forward=training_args.srt_skip_forward,
+        )"""
+
+    PATCHED_SRT_BLOCK = """    elif training_args.model_name == 'gainlora_inflora' and training_args.use_srt_router:
+        # SRT Trainer: GainLoRA + SRT non-parametric router
+        # C2: Use SGWI_DualFisher_Trainer if SGWI mode specified
+        if (hasattr(training_args, 'sgwi_mode') and 
+            (training_args.sgwi_mode != 'inflora' or getattr(training_args, 'lambda_emb', 0) > 0)):
+            from sgwi_trainer import SGWI_DualFisher_Trainer
+            trainer = SGWI_DualFisher_Trainer(
+                model=model,
+                args=training_args,
+                train_dataset=train_dataset if training_args.do_train else None,
+                cur_task_id=cur_task_id,
+                task_order=task_order,
+                data_collator_replay=data_collator_replay,
+                replay_dataset_dict=replay_dataset_dict,
+                replay_label_dict=replay_label_dict,
+                eval_dataset=eval_dataset if training_args.do_eval else None,
+                tokenizer=tokenizer,
+                data_collator=data_collator,
+                compute_metrics=compute_rouge_metrics,
+                callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None,
+                srt_metric_mode=training_args.srt_metric_mode,
+                srt_shrink=training_args.srt_shrink,
+                srt_shrink_factor=training_args.srt_shrink_factor,
+                srt_max_emb_samples=training_args.srt_max_emb_samples,
+                srt_load_path=training_args.srt_load_path,
+                srt_skip_forward=training_args.srt_skip_forward,
+                sgwi_mode=training_args.sgwi_mode,
+                lambda_emb=training_args.lambda_emb,
+            )
+        else:
+            from cl_trainer_srt import SRT_Trainer
+            trainer = SRT_Trainer(
+                model=model,
+                args=training_args,
+                train_dataset=train_dataset if training_args.do_train else None,
+                cur_task_id=cur_task_id,
+                task_order=task_order,
+                data_collator_replay=data_collator_replay,
+                replay_dataset_dict=replay_dataset_dict,
+                replay_label_dict=replay_label_dict,
+                eval_dataset=eval_dataset if training_args.do_eval else None,
+                tokenizer=tokenizer,
+                data_collator=data_collator,
+                compute_metrics=compute_rouge_metrics,
+                callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None,
+                srt_metric_mode=training_args.srt_metric_mode,
+                srt_shrink=training_args.srt_shrink,
+                srt_shrink_factor=training_args.srt_shrink_factor,
+                srt_max_emb_samples=training_args.srt_max_emb_samples,
+                srt_load_path=training_args.srt_load_path,
+                srt_skip_forward=training_args.srt_skip_forward,
+            )"""
+
+    if ORIGINAL_SRT_BLOCK in content:
+        content = content.replace(ORIGINAL_SRT_BLOCK, PATCHED_SRT_BLOCK)
+        print("[setup] ✅ Patch 3: Added SGWI conditional into SRT trainer path")
     else:
-        print(f"[setup] ⚠️  Patch 3: Could not auto-patch trainer instantiation.")
-        print(f"         Manual edit: In run_t5.py, where SRT_Trainer is created,")
-        print(f"         add conditional to use SGWI_DualFisher_Trainer when sgwi_mode != 'inflora'")
+        print(f"[setup] ⚠️  Patch 3: Could not find exact SRT_Trainer block.")
+        print(f"         The trainer instantiation may have a different structure.")
+        print(f"         MANUAL FIX REQUIRED:")
+        print(f"         In run_t5.py, around line 869, replace the SRT_Trainer() call with:")
+        print(f"         if (hasattr(training_args, 'sgwi_mode') and")
+        print(f"             (training_args.sgwi_mode != 'inflora' or getattr(training_args, 'lambda_emb', 0) > 0)):")
+        print(f"             trainer = SGWI_DualFisher_Trainer(...)")
+        print(f"         else:")
+        print(f"             trainer = SRT_Trainer(...)")
 
     # Write patched file
     with open(RUN_T5_PATH, 'w') as f:
@@ -211,6 +193,8 @@ def revert_patch():
         return True
     else:
         print(f"[setup] ERROR: No backup found at {BACKUP_PATH}")
+        print(f"[setup] Unable to revert. You may need to restore from git:")
+        print(f"       git checkout new_gainlora/src/run_t5.py")
         return False
 
 
