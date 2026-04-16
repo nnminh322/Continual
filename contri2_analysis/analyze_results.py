@@ -65,10 +65,10 @@ def load_training_logs(result_dir):
 def analyze_phase1(output_base):
     """Phase 1: 4-arm CB comparison → Q1, Q2, Q4, O1"""
     arms = {
-        'A_inflora': f'{output_base}/phase1_arm_a_inflora',
-        'B_sgwi': f'{output_base}/phase1_arm_b_sgwi',
-        'C_sgwi_inflora': f'{output_base}/phase1_arm_c_sgwi_inflora',
-        'D_random': f'{output_base}/phase1_arm_d_random',
+        'A_inflora': f'{output_base}/2-cb_arm_a_inflora',
+        'B_sgwi': f'{output_base}/2-cb_arm_b_sgwi',
+        'C_sgwi_inflora': f'{output_base}/2-cb_arm_c_sgwi_inflora',
+        'D_random': f'{output_base}/2-cb_arm_d_random',
     }
     
     scores = {}
@@ -154,12 +154,13 @@ def analyze_phase3(output_base):
     """Phase 3: λ_emb sweep → Q3, O2"""
     scores = {}
     
-    arm_b_score = load_score(f'{output_base}/phase1_arm_b_sgwi')
+    arm_b_score = load_score(f'{output_base}/2-cb_arm_b_sgwi')
     if arm_b_score is not None:
         scores[0.0] = arm_b_score
     
     for l in [0.001, 0.005, 0.01, 0.05]:
-        score = load_score(f'{output_base}/phase3_lambda_{l}')
+        lambda_tag = str(l).replace('.', 'p')
+        score = load_score(f'{output_base}/2-cb_lambda_{lambda_tag}')
         if score is not None:
             scores[l] = score
     
@@ -258,11 +259,11 @@ def analyze_all(output_base):
     print("=" * 60 + "\n")
     
     phase1_exists = any(
-        os.path.exists(f'{output_base}/phase1_arm_{arm}')
+        os.path.exists(f'{output_base}/2-cb_arm_{arm}')
         for arm in ['a_inflora', 'b_sgwi', 'c_sgwi_inflora', 'd_random']
     )
     phase3_exists = any(
-        os.path.exists(f'{output_base}/phase3_lambda_{l}')
+        os.path.exists(f'{output_base}/2-cb_lambda_{str(l).replace(".", "p")}')
         for l in [0.001, 0.005, 0.01, 0.05]
     )
     phase4_exists = os.path.exists(f'{output_base}/phase4_baseline')

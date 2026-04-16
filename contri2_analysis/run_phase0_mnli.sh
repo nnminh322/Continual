@@ -20,12 +20,13 @@ fi
 GPU_ID=${1:-0}
 MODEL_PATH=${2:-google/flan-t5-large}
 OUTPUT_BASE=logs_and_outputs/c2_hypothesis
+MNLI_DIR=$OUTPUT_BASE/1-mnli
 
 echo "============================================================"
 echo "[Phase 0] Training MNLI (Task 1 of Order 4)"
 echo "  GPU: $GPU_ID"
 echo "  Model: $MODEL_PATH"
-echo "  Output: $OUTPUT_BASE/phase0_mnli"
+echo "  Output: $MNLI_DIR"
 echo "============================================================"
 
 # Auto-detect GPU type
@@ -51,7 +52,7 @@ CUDA_VISIBLE_DEVICES=$GPU_ID python src/run_t5.py \
    --data_dir CL_Benchmark \
    --task_order mnli,cb,wic,copa,qqp,boolq,rte,imdb,yelp,amazon,sst2,dbpedia,agnews,multirc,yahoo \
    --task_config_dir configs/gen_script_long_order4_t5_configs/mnli \
-   --output_dir $OUTPUT_BASE/phase0_mnli \
+   --output_dir $MNLI_DIR \
    --per_device_train_batch_size $BSZ \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
@@ -85,11 +86,11 @@ CUDA_VISIBLE_DEVICES=$GPU_ID python src/run_t5.py \
    $FP16_FLAG \
    $SRT_FLAGS
 
-rm -rf $OUTPUT_BASE/phase0_mnli/checkpoint*
+rm -rf $MNLI_DIR/checkpoint*
 
 echo ""
 echo "============================================================"
 echo "[Phase 0] ✅ MNLI training complete!"
-echo "  Checkpoint: $OUTPUT_BASE/phase0_mnli/saved_weights/"
+echo "  Checkpoint: $MNLI_DIR/saved_weights/"
 echo "  Next: bash ../contri2_analysis/run_phase1_cb_arms.sh $GPU_ID $MODEL_PATH"
 echo "============================================================"

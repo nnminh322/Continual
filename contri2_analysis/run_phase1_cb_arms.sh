@@ -25,7 +25,7 @@ fi
 GPU_ID=${1:-0}
 MODEL_PATH=${2:-google/flan-t5-large}
 OUTPUT_BASE=logs_and_outputs/c2_hypothesis
-MNLI_CKPT=$OUTPUT_BASE/phase0_mnli/saved_weights
+MNLI_CKPT=$OUTPUT_BASE/1-mnli/saved_weights
 
 # Verify Phase 0 checkpoint exists
 if [ ! -d "$MNLI_CKPT" ]; then
@@ -126,16 +126,16 @@ run_cb_arm() {
 # ==============================================================================
 
 # ARM A: InfLoRA baseline (current SRT behavior — get_reg_matrix runs normally)
-run_cb_arm "a_inflora" "$OUTPUT_BASE/phase1_arm_a_inflora" "inflora"
+run_cb_arm "a_inflora" "$OUTPUT_BASE/2-cb_arm_a_inflora" "inflora"
 
 # ARM B: SGWI only (warm init from mnli LoRA, skip InfLoRA)
-run_cb_arm "b_sgwi" "$OUTPUT_BASE/phase1_arm_b_sgwi" "sgwi"
+run_cb_arm "b_sgwi" "$OUTPUT_BASE/2-cb_arm_b_sgwi" "sgwi"
 
 # ARM C: SGWI + InfLoRA (SGWI first, then InfLoRA projects on top)
-run_cb_arm "c_sgwi_inflora" "$OUTPUT_BASE/phase1_arm_c_sgwi_inflora" "sgwi+inflora"
+run_cb_arm "c_sgwi_inflora" "$OUTPUT_BASE/2-cb_arm_c_sgwi_inflora" "sgwi+inflora"
 
 # ARM D: Random init (standard LoRA init, no InfLoRA, no SGWI)
-run_cb_arm "d_random" "$OUTPUT_BASE/phase1_arm_d_random" "random"
+run_cb_arm "d_random" "$OUTPUT_BASE/2-cb_arm_d_random" "random"
 
 # ==============================================================================
 # Auto-analyze results

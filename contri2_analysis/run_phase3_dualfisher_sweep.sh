@@ -20,7 +20,7 @@ fi
 GPU_ID=${1:-0}
 MODEL_PATH=${2:-google/flan-t5-large}
 OUTPUT_BASE=logs_and_outputs/c2_hypothesis
-MNLI_CKPT=$OUTPUT_BASE/phase0_mnli/saved_weights
+MNLI_CKPT=$OUTPUT_BASE/1-mnli/saved_weights
 
 # Verify prerequisites
 if [ ! -d "$MNLI_CKPT" ]; then
@@ -51,7 +51,9 @@ for LAMBDA in 0.001 0.005 0.01 0.05; do
     echo ""
     echo "============================================================"
     echo "[Phase 3] λ_emb = $LAMBDA"
-    echo "  Output: $OUTPUT_BASE/phase3_lambda_${LAMBDA}"
+    # Use LAMBDA_TAG for filesystem-safe naming (replace . with p)
+    LAMBDA_TAG=$(echo $LAMBDA | tr '.' 'p')
+    echo "  Output: $OUTPUT_BASE/2-cb_lambda_${LAMBDA_TAG}"
     echo "============================================================"
     
     CUDA_VISIBLE_DEVICES=$GPU_ID python src/run_t5.py \
@@ -65,7 +67,7 @@ for LAMBDA in 0.001 0.005 0.01 0.05; do
        --data_dir CL_Benchmark \
        --task_order mnli,cb,wic,copa,qqp,boolq,rte,imdb,yelp,amazon,sst2,dbpedia,agnews,multirc,yahoo \
        --task_config_dir configs/gen_script_long_order4_t5_configs/cb \
-       --output_dir $OUTPUT_BASE/phase3_lambda_${LAMBDA} \
+       --output_dir $OUTPUT_BASE/2-cb_lambda_${LAMBDA_TAG} \
        --per_device_train_batch_size $BSZ \
        --per_device_eval_batch_size $EVAL_BSZ \
        --gradient_accumulation_steps $GA \
@@ -102,7 +104,7 @@ for LAMBDA in 0.001 0.005 0.01 0.05; do
        $SRT_FLAGS \
        --srt_load_path $MNLI_CKPT
     
-    rm -rf $OUTPUT_BASE/phase3_lambda_${LAMBDA}/checkpoint*
+    rm -rf $OUTPUT_BASE/2-cb_lambda_${LAMBDA_TAG}/checkpoint*
     echo "[Phase 3] λ_emb=$LAMBDA complete."
     sleep 3
 done
