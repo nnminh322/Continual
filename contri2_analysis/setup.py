@@ -87,18 +87,10 @@ def apply_patch():
         print(f"[setup] ⚠️  Patch 1: Could not find marker. Manual edit needed.")
 
     # ========================================================================
-    # Patch 2: Add SGWI trainer import
+    # Patch 2+3: Replace SRT_Trainer block with SGWI conditional
+    # NOTE: Patch 2 (import) is embedded inside the replaced block below.
+    #       Do NOT add a separate import replacement - it breaks block matching.
     # ========================================================================
-    IMPORT_MARKER = "from cl_trainer_srt import SRT_Trainer"
-    if IMPORT_MARKER in content and 'SGWI_DualFisher_Trainer' not in content:
-        IMPORT_PATCH = "from cl_trainer_srt import SRT_Trainer\nfrom sgwi_trainer import SGWI_DualFisher_Trainer"
-        content = content.replace(IMPORT_MARKER, IMPORT_PATCH)
-        print("[setup] ✅ Patch 2: Added SGWI_DualFisher_Trainer import")
-
-    # ========================================================================
-    # Patch 3: Replace SRT_Trainer with conditional that uses SGWI
-    # ========================================================================
-    # Find the SRT_Trainer block and add conditional
     ORIGINAL_SRT_BLOCK = """    elif training_args.model_name == 'gainlora_inflora' and training_args.use_srt_router:
         # SRT Trainer: GainLoRA + SRT non-parametric router
         from cl_trainer_srt import SRT_Trainer
@@ -127,8 +119,8 @@ def apply_patch():
     PATCHED_SRT_BLOCK = """    elif training_args.model_name == 'gainlora_inflora' and training_args.use_srt_router:
         # SRT Trainer: GainLoRA + SRT non-parametric router
         # C2: Use SGWI_DualFisher_Trainer if SGWI mode specified
-        if (hasattr(training_args, 'sgwi_mode') and 
-            (training_args.sgwi_mode != 'inflora' or getattr(training_args, 'lambda_emb', 0) > 0)):
+        if (hasattr(training_args, 'sgwi_mode') and
+                (training_args.sgwi_mode != 'inflora' or getattr(training_args, 'lambda_emb', 0) > 0)):
             from sgwi_trainer import SGWI_DualFisher_Trainer
             trainer = SGWI_DualFisher_Trainer(
                 model=model,
@@ -179,17 +171,23 @@ def apply_patch():
 
     if ORIGINAL_SRT_BLOCK in content:
         content = content.replace(ORIGINAL_SRT_BLOCK, PATCHED_SRT_BLOCK)
-        print("[setup] ✅ Patch 3: Added SGWI conditional into SRT trainer path")
+        print("[setup] ✅ Patch 2+3: Added SGWI conditional into SRT trainer path")
     else:
-        print(f"[setup] ⚠️  Patch 3: Could not find exact SRT_Trainer block.")
-        print(f"         The trainer instantiation may have a different structure.")
-        print(f"         MANUAL FIX REQUIRED:")
-        print(f"         In run_t5.py, around line 869, replace the SRT_Trainer() call with:")
-        print(f"         if (hasattr(training_args, 'sgwi_mode') and")
-        print(f"             (training_args.sgwi_mode != 'inflora' or getattr(training_args, 'lambda_emb', 0) > 0)):")
-        print(f"             trainer = SGWI_DualFisher_Trainer(...)")
-        print(f"         else:")
-        print(f"             trainer = SRT_Trainer(...)")
+        # Debug: show what we actually find around the SRT block
+        idx = content.find("'gainlora_inflora' and training_args.use_srt_router")
+        if idx > 0:
+            snippet = content[idx:idx+500].replace('\n', '\\n\n  ')
+            print(f"[setup] ⚠️  Patch 2+3: Block mismatch. Actual content around SRT block:")
+            print(f"  {snippet[:300]}")
+        else:
+            print(f"[setup] ⚠️  Patch 2+3: Cannot find SRT block at all!")
+        print()
+        print(f"[setup] MANUAL FIX: In run_t5.py, find the 'elif gainlora_inflora and use_srt_router' block")
+        print(f"        and wrap the trainer = SRT_Trainer(...) with:")
+        print(f"          if (hasattr(training_args, 'sgwi_mode') and ...")
+        print(f"               trainer = SGWI_DualFisher_Trainer(..., sgwi_mode=..., lambda_emb=...)")
+        print(f"          else:")
+        print(f"               trainer = SRT_Trainer(...)")
 
     # Write patched file
     with open(RUN_T5_PATH, 'w') as f:
