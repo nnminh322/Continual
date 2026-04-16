@@ -98,7 +98,7 @@ run_cb_arm() {
        --logging_strategy steps \
        --logging_steps 5 \
        --metric_for_best_model eval_exact_match \
-       --eval_strategy steps \
+       --evaluation_strategy steps \
        --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
