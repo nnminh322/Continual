@@ -63,15 +63,14 @@ CUDA_VISIBLE_DEVICES=$GPU_ID python src/run_t5.py \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
    --warmup_steps 0 \
    --logging_strategy steps \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match \
-   --evaluation_strategy steps \
-   --save_strategy best \
+   --eval_strategy steps \
+   --save_strategy steps \
    --save_total_limit 1 \
    --lora_r 8 \
    --lora_alpha 32 \
