@@ -48,8 +48,26 @@ def apply_patch():
     # ========================================================================
     # Patch 1: Add SGWI arguments to TrainingArguments
     # ========================================================================
-    ARGS_MARKER = "srt_skip_forward: Optional[bool]"
-    ARGS_PATCH = '''
+    ARGS_MARKER = """    srt_skip_forward: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Skip forward-pass embedding extraction. "
+                    "Load pre-extracted embeddings from embeddings/{backbone}/{split}/{task}/train.npz instead. "
+                    "Requires pre-extracted embeddings to exist."
+        },
+    )
+
+    denser_evaluation: Optional[bool]"""
+    
+    ARGS_PATCH = """    srt_skip_forward: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Skip forward-pass embedding extraction. "
+                    "Load pre-extracted embeddings from embeddings/{backbone}/{split}/{task}/train.npz instead. "
+                    "Requires pre-extracted embeddings to exist."
+        },
+    )
+
     # ── C2: SGWI + Dual Fisher ───────────────────────────────────
     sgwi_mode: Optional[str] = field(
         default='inflora',
@@ -59,14 +77,12 @@ def apply_patch():
         default=0.0,
         metadata={"help": "Dual Fisher embedding regularization strength (0=disabled)"}
     )
-'''
+
+    denser_evaluation: Optional[bool]"""
 
     if ARGS_MARKER in content:
-        idx = content.find(ARGS_MARKER)
-        idx_after = content.find('\n        ', idx + len(ARGS_MARKER))
-        if idx_after > idx:
-            content = content[:idx_after] + ARGS_PATCH + content[idx_after:]
-            print("[setup] ✅ Patch 1: Added sgwi_mode + lambda_emb arguments")
+        content = content.replace(ARGS_MARKER, ARGS_PATCH)
+        print("[setup] ✅ Patch 1: Added sgwi_mode + lambda_emb arguments")
     else:
         print(f"[setup] ⚠️  Patch 1: Could not find marker. Manual edit needed.")
 
