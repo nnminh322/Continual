@@ -248,12 +248,23 @@ class SGWI_DualFisher_Trainer(SRT_Trainer):
                 # Compute weighted ΔW = Σ w_s * (B_s @ A_s)
                 delta_W = None
                 for past_task_id, w_s in srt_weights.items():
-                    # past_task_id is the adapter index in previous_lora_weights
-                    # In GainLoRA: task_order[0] → index 0, most recent = index 0 (reversed)
-                    # previous_lora_weights are loaded in REVERSE order in run_t5.py
-                    idx = past_task_id
-                    if idx >= len(prev_list):
-                        logger.debug(f"[SGWI] past_task_id={idx} >= len(prev_list)={len(prev_list)} for {name}.{lora_tag}")
+                    # past_task_id may be a string task name (from srt_router.signatures)
+                    # or an int. Convert to previous_lora_weights index.
+                    # In run_t5.py: previous_lora_path is "t1,t2,...,t_{n-1}" in task_order,
+                    # then reversed → prev_list[0] = most recent = task_order[cur_task_id-1]
+                    if isinstance(past_task_id, str):
+                        try:
+                            pos = self.task_order.index(past_task_id)
+                            idx = (self.cur_task_id - 1) - pos
+                        except ValueError:
+                            logger.debug(f"[SGWI] task name '{past_task_id}' not in task_order, skipping")
+                            skipped_count += 1
+                            continue
+                    else:
+                        idx = int(past_task_id)
+
+                    if idx < 0 or idx >= len(prev_list):
+                        logger.debug(f"[SGWI] idx={idx} out of range for prev_list len={len(prev_list)}, skipping")
                         skipped_count += 1
                         continue
 
