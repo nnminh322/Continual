@@ -36,11 +36,11 @@ BASE="logs_and_outputs/ablation_order${ORDER}"
 if [ "$ORDER" = "4" ]; then
     TASKS=("mnli" "cb")
     TASK_ORDER="mnli,cb"
-    DATA_DIR="CL_Benchmark/Long_Sequence"
+    DATA_DIR="CL_Benchmark"
 elif [ "$ORDER" = "3" ]; then
     TASKS=("yelp" "amazon" "mnli" "cb")
     TASK_ORDER="yelp,amazon,mnli,cb"
-    DATA_DIR="CL_Benchmark/Long_Sequence"
+    DATA_DIR="CL_Benchmark"
 else
     echo "ERROR: ORDER must be 3 or 4"
     exit 1

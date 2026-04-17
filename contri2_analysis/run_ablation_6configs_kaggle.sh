@@ -31,21 +31,23 @@ else
 fi
 
 # Detect data dir (try multiple locations)
-if [ -d "CL_Benchmark/Long_Sequence" ]; then
-    DATA_DIR="CL_Benchmark/Long_Sequence"
-    echo "[INFO] Using local CL_Benchmark/Long_Sequence"
+# NOTE: cl_dataset.py expects path to CL_Benchmark root (not Long_Sequence subdir)
+# because task_config has top-level key "Long_Sequence"
+if [ -d "CL_Benchmark" ]; then
+    DATA_DIR="CL_Benchmark"
+    echo "[INFO] Using local CL_Benchmark"
 elif [ -d "/kaggle/input/continual" ]; then
-    DATA_DIR="/kaggle/input/continual/CL_Benchmark/Long_Sequence"
+    DATA_DIR="/kaggle/input/continual/CL_Benchmark"
     echo "[INFO] Using Kaggle input: $DATA_DIR"
 elif [ -d "/content/drive/My Drive/Continual" ]; then
-    DATA_DIR="/content/drive/My Drive/Continual/CL_Benchmark/Long_Sequence"
+    DATA_DIR="/content/drive/My Drive/Continual/CL_Benchmark"
     echo "[INFO] Using Colab Drive: $DATA_DIR"
 else
     echo "ERROR: Could not find CL_Benchmark directory!"
     echo "Checked:"
-    echo "  - CL_Benchmark/Long_Sequence (local)"
-    echo "  - /kaggle/input/continual/CL_Benchmark/Long_Sequence (Kaggle)"
-    echo "  - /content/drive/My Drive/Continual/CL_Benchmark/Long_Sequence (Colab)"
+    echo "  - CL_Benchmark (local)"
+    echo "  - /kaggle/input/continual/CL_Benchmark (Kaggle)"
+    echo "  - /content/drive/My Drive/Continual/CL_Benchmark (Colab)"
     exit 1
 fi
 
