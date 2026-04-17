@@ -47,17 +47,33 @@ except NameError:
 
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
     # Handle inhomogeneous prediction shapes (ragged token lengths across batches)
+    # Step 1: unwrap tuple/list (e.g., (token_ids, decoder_hidden_states))
     if isinstance(predictions_ids, (tuple, list)):
-        # Take first element (token ids), ignore decoder hidden states etc.
         predictions_ids = predictions_ids[0]
+
+    # Step 2: convert to numpy if tensor
+    if hasattr(predictions_ids, 'cpu'):
+        predictions_ids = predictions_ids.cpu().numpy()
+
+    # Step 3: handle ragged object arrays (variable-length generations)
     if isinstance(predictions_ids, np.ndarray) and predictions_ids.dtype == object:
-        # Ragged array: pad to uniform shape
-        max_len = max(len(row) for row in predictions_ids)
+        max_len = max(len(np.asarray(row).flatten()) for row in predictions_ids)
         padded = np.full((len(predictions_ids), max_len), tokenizer.pad_token_id, dtype=np.int64)
         for i, row in enumerate(predictions_ids):
-            padded[i, :len(row)] = row
+            row_flat = np.asarray(row).flatten()
+            padded[i, :len(row_flat)] = row_flat
         predictions_ids = padded
+
+    # Step 4: ensure int64 dtype
+    if isinstance(predictions_ids, np.ndarray):
+        predictions_ids = predictions_ids.astype(np.int64)
+
+    # Step 5: replace ignore tokens with pad
     predictions_ids = np.where(predictions_ids == ignore_idx, tokenizer.pad_token_id, predictions_ids)
+
+    # Step 6: convert to list of lists (required by fast tokenizer backend)
+    if isinstance(predictions_ids, np.ndarray):
+        predictions_ids = predictions_ids.tolist()
 
     predictions = tokenizer.batch_decode(
         predictions_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True
