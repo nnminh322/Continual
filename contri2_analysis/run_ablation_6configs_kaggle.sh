@@ -79,7 +79,6 @@ COMMON_ARGS_BASE="
     --generation_max_length 50
     --max_num_instances_per_task 1000
     --max_num_instances_per_eval_task 200
-    --max_predict_samples 200
     --overwrite_cache
     --add_dataset_name False
     --add_task_name False
