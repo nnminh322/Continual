@@ -1112,7 +1112,7 @@ def main():
 
         trainer.model.encoder.is_inference = True
         _ = trainer.predict(
-            eval_dataset,
+            predict_dataset,
             metric_key_prefix="predict",
             max_new_tokens=max_new_tokens,
             num_beams=num_beams,
