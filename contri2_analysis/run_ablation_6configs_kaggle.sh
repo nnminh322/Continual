@@ -54,18 +54,8 @@ fi
 CONFIGS=("inflora" "random" "full_lora" "sgwi_freeze_a" "sgwi_train_a" "sgwi_full")
 
 # ── P100 (16GB) — FAST ablation settings ──────────────────────────
-# Goal: 6 configs × 2 tasks < 4 hours on Kaggle P100
-#
-# Training budget per task:
-#   1000 samples × 5 epochs / 32 effective_batch = ~156 steps
-#   ~156 steps × 5s/step ≈ 13 min/task
-#   Total: 6 configs × 2 tasks × 13 min = ~2.6 hours training
-#
-# Eval budget per task:
-#   200 test samples / batch=2 = 100 iterations ≈ 2 min
-#   Total eval: 12 runs × 2 min = ~24 min
-#
-# Grand total: ~3 hours (within Kaggle 12h limit)
+# Aligned with working gen_script_long_order4_t5_srt.sh
+# Only reduced: train_samples=1000, epochs=5, batch tuned for P100
 TRAIN_BATCH=4
 GRAD_ACC=8
 EVAL_BATCH=2
@@ -79,26 +69,38 @@ COMMON_ARGS_BASE="
     --per_device_train_batch_size $TRAIN_BATCH
     --gradient_accumulation_steps $GRAD_ACC
     --per_device_eval_batch_size $EVAL_BATCH
+    --predict_with_generate
     --learning_rate 3e-4
     --num_train_epochs 5
+    --lr_scheduler_type constant
+    --warmup_steps 0
     --max_source_length 512
     --max_target_length 50
     --generation_max_length 50
     --max_num_instances_per_task 1000
     --max_num_instances_per_eval_task 200
     --max_predict_samples 200
+    --overwrite_cache
     --add_dataset_name False
     --add_task_name False
     --num_examples 0
     --seed 42
+    --logging_strategy steps
+    --logging_steps 10
+    --save_total_limit 1
     --lora_r 8
-    --lora_alpha 16
+    --lora_alpha 32
+    --lora_dropout 0.0
+    --data_replay_freq -1
+    --replay_after_n_epoch 0
+    --mlp_hidden_dim 100
     --chunk 1
     --threshold 0.99
+    --transthreshold 0.99
     --use_srt_router True
     --srt_metric_mode hard
+    --srt_shrink False
     --srt_max_emb_samples 200
-    --predict_with_generate True
 "
 
 # ── Smart skip: detect task state ─────────────────────────────────
@@ -174,11 +176,19 @@ train_task() {
     fi
 
     # ── Build task_config_dir path ────────────────────────
-    local TASK_CONFIG_DIR="configs/Long_Sequence/${TASK_NAME}"
+    # Working gen scripts use: configs/gen_script_long_order{N}_t5_configs/{task}
+    local TASK_CONFIG_DIR="configs/gen_script_long_order${ORDER}_t5_configs/${TASK_NAME}"
     if [ ! -d "$TASK_CONFIG_DIR" ]; then
-        echo "ERROR: Could not find task config dir: $TASK_CONFIG_DIR"
+        # Fallback: try order3 configs (yelp,amazon,mnli,cb are there too)
+        TASK_CONFIG_DIR="configs/gen_script_long_order3_t5_configs/${TASK_NAME}"
+    fi
+    if [ ! -d "$TASK_CONFIG_DIR" ]; then
+        echo "ERROR: Could not find task config dir!"
+        echo "  Tried: configs/gen_script_long_order${ORDER}_t5_configs/${TASK_NAME}"
+        echo "  Tried: configs/gen_script_long_order3_t5_configs/${TASK_NAME}"
         return 1
     fi
+    echo "  [CONFIG] Using task_config_dir=$TASK_CONFIG_DIR"
 
     # ── Decide do_train / do_predict flags ────────────────
     local MODE_FLAGS=""
