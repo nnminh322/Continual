@@ -46,17 +46,41 @@ except NameError:
         return False
 
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
-    # Handle inhomogeneous prediction shapes (ragged token lengths across batches)
+    # ── Robust conversion: handles ANY input format ───────────────
+    # Debug: show what we received
+    _type = type(predictions_ids).__name__
+    _info = ""
+    if hasattr(predictions_ids, 'shape'):
+        _info = f"shape={predictions_ids.shape} dtype={predictions_ids.dtype}"
+    elif isinstance(predictions_ids, (tuple, list)):
+        _info = f"len={len(predictions_ids)} first_type={type(predictions_ids[0]).__name__}"
+        if hasattr(predictions_ids[0], 'shape'):
+            _info += f" first_shape={predictions_ids[0].shape}"
+    print(f"[skip_instructions] input: type={_type} {_info}")
+
     # Step 1: unwrap tuple/list (e.g., (token_ids, decoder_hidden_states))
-    if isinstance(predictions_ids, (tuple, list)):
+    while isinstance(predictions_ids, (tuple, list)) and len(predictions_ids) > 0 and isinstance(predictions_ids[0], np.ndarray) and predictions_ids[0].ndim >= 2:
         predictions_ids = predictions_ids[0]
 
     # Step 2: convert to numpy if tensor
     if hasattr(predictions_ids, 'cpu'):
         predictions_ids = predictions_ids.cpu().numpy()
 
-    # Step 3: handle ragged object arrays (variable-length generations)
-    if isinstance(predictions_ids, np.ndarray) and predictions_ids.dtype == object:
+    # Step 3: ensure proper numpy array
+    if not isinstance(predictions_ids, np.ndarray):
+        try:
+            predictions_ids = np.array(predictions_ids)
+        except ValueError:
+            # Ragged: manually pad
+            max_len = max(len(r) if hasattr(r, '__len__') else 1 for r in predictions_ids)
+            padded = np.full((len(predictions_ids), max_len), tokenizer.pad_token_id, dtype=np.int64)
+            for i, row in enumerate(predictions_ids):
+                arr = np.asarray(row).flatten()
+                padded[i, :len(arr)] = arr
+            predictions_ids = padded
+
+    # Step 4: handle ragged object arrays
+    if predictions_ids.dtype == object:
         max_len = max(len(np.asarray(row).flatten()) for row in predictions_ids)
         padded = np.full((len(predictions_ids), max_len), tokenizer.pad_token_id, dtype=np.int64)
         for i, row in enumerate(predictions_ids):
@@ -64,19 +88,23 @@ def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
             padded[i, :len(row_flat)] = row_flat
         predictions_ids = padded
 
-    # Step 4: ensure int64 dtype
-    if isinstance(predictions_ids, np.ndarray):
-        predictions_ids = predictions_ids.astype(np.int64)
+    # Step 5: squeeze extra dims (e.g., 3D → 2D)
+    while predictions_ids.ndim > 2:
+        predictions_ids = predictions_ids.reshape(-1, predictions_ids.shape[-1])
+    if predictions_ids.ndim == 1:
+        predictions_ids = predictions_ids.reshape(1, -1)
 
-    # Step 5: replace ignore tokens with pad
+    # Step 6: replace ignore tokens with pad
+    predictions_ids = predictions_ids.astype(np.int64)
     predictions_ids = np.where(predictions_ids == ignore_idx, tokenizer.pad_token_id, predictions_ids)
 
-    # Step 6: convert to list of lists (required by fast tokenizer backend)
-    if isinstance(predictions_ids, np.ndarray):
-        predictions_ids = predictions_ids.tolist()
+    # Step 7: convert to list[list[int]] (required by fast tokenizer)
+    final_ids = [[int(x) for x in row] for row in predictions_ids]
+
+    print(f"[skip_instructions] output: {len(final_ids)} sequences, first_len={len(final_ids[0])}")
 
     predictions = tokenizer.batch_decode(
-        predictions_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True
+        final_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True
     )
 
     final_predictions = []
