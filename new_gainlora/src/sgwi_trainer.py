@@ -208,74 +208,97 @@ class SGWI_DualFisher_Trainer(SRT_Trainer):
         return weights
 
     def _fuse_past_lora_adapters(self, srt_weights: Dict[int, float]):
-        """Weighted fusion of past LoRA adapters + SVD init for current task."""
+        """Weighted fusion of past LoRA adapters → warm-init current task's lora_B.
+
+        Architecture note (GainLoRA-InfLoRA):
+          - lora_A / lora_B: SINGLE nn.Parameter per module = CURRENT task's adapter
+          - previous_lora_weights_q[i] / previous_lora_weights_v[i]: past task i's LoRALayer
+            with .lora_A (nn.Parameter) and .lora_B (nn.Parameter)
+
+        Strategy:
+          1. For each past task s, get B_s and A_s from previous_lora_weights
+          2. Compute delta_W = Σ w_s * (B_s @ A_s)
+          3. Warm-init current lora_B via least-squares: B_new = delta_W @ A_cur^+ 
+        """
         model = self.model
         device = next(model.parameters()).device
-        lora_r = self.args.lora_r if hasattr(self.args, 'lora_r') else 8
-        lora_alpha = self.args.lora_alpha if hasattr(self.args, 'lora_alpha') else 32
-        scaling = lora_alpha / lora_r
-
-        # Map task_ids in srt_weights to adapter indices
-        # In GainLoRA, task 0 = adapter index 0, task 1 = index 1, etc.
-        # past_task_ids are the keys in srt_weights
 
         fused_count = 0
+        skipped_count = 0
 
         for name, module in model.named_modules():
-            # Look for GainLoRA attention modules with lora_q and lora_v
-            if not hasattr(module, 'lora_q') or not hasattr(module, 'lora_v'):
+            # Look for T5Attention modules with previous_lora_weights
+            if not (hasattr(module, 'lora_q') and hasattr(module, 'lora_v')):
+                continue
+            if not hasattr(module, 'previous_lora_weights_q'):
                 continue
 
-            for lora_name, lora_module in [('lora_q', module.lora_q), ('lora_v', module.lora_v)]:
-                if not hasattr(lora_module, 'lora_A') or not hasattr(lora_module, 'lora_B'):
+            prev_q = getattr(module, 'previous_lora_weights_q', None)
+            prev_v = getattr(module, 'previous_lora_weights_v', None)
+            if prev_q is None or len(prev_q) == 0:
+                continue
+
+            for lora_tag, lora_cur, prev_list in [
+                ('lora_q', module.lora_q, prev_q),
+                ('lora_v', module.lora_v, prev_v),
+            ]:
+                if prev_list is None or len(prev_list) == 0:
                     continue
 
                 # Compute weighted ΔW = Σ w_s * (B_s @ A_s)
                 delta_W = None
                 for past_task_id, w_s in srt_weights.items():
-                    try:
-                        # Access past adapter weights
-                        # lora_A is a dict or ModuleDict keyed by task index
-                        A_s = self._get_lora_weight(lora_module, 'lora_A', past_task_id)
-                        B_s = self._get_lora_weight(lora_module, 'lora_B', past_task_id)
-
-                        if A_s is None or B_s is None:
-                            continue
-
-                        # B_s @ A_s — handle nn.Linear (weight is transposed)
-                        BA = B_s.float() @ A_s.float()  # [out_dim, in_dim]
-
-                        if delta_W is None:
-                            delta_W = w_s * BA
-                        else:
-                            delta_W = delta_W + w_s * BA
-
-                    except (KeyError, IndexError, AttributeError) as e:
-                        logger.debug(f"[SGWI] Could not access adapter {past_task_id} for {name}.{lora_name}: {e}")
+                    # past_task_id is the adapter index in previous_lora_weights
+                    # In GainLoRA: task_order[0] → index 0, most recent = index 0 (reversed)
+                    # previous_lora_weights are loaded in REVERSE order in run_t5.py
+                    idx = past_task_id
+                    if idx >= len(prev_list):
+                        logger.debug(f"[SGWI] past_task_id={idx} >= len(prev_list)={len(prev_list)} for {name}.{lora_tag}")
+                        skipped_count += 1
                         continue
+
+                    past_lora = prev_list[idx]
+                    A_s = past_lora.lora_A.data.float()  # [r, in_features]
+                    B_s = past_lora.lora_B.data.float()  # [out_features, r]
+
+                    BA = B_s @ A_s  # [out_features, in_features]
+
+                    if delta_W is None:
+                        delta_W = w_s * BA
+                    else:
+                        delta_W = delta_W + w_s * BA
 
                 if delta_W is None:
                     continue
 
-                # Warm-init lora_B (trainable) using least-squares given frozen lora_A:
-                # lora_B_new = delta_W @ A_cur^T @ (A_cur @ A_cur^T + εI)^{-1}
-                # so that lora_B_new @ lora_A_cur ≈ delta_W
+                delta_W_norm = delta_W.norm().item()
+                if delta_W_norm < 1e-10:
+                    logger.debug(f"[SGWI] delta_W ≈ 0 for {name}.{lora_tag} (norm={delta_W_norm:.2e}), skipping")
+                    skipped_count += 1
+                    continue
+
+                # Warm-init lora_B (trainable) via least-squares given frozen lora_A:
+                # B_warm = delta_W @ A_cur^T @ (A_cur @ A_cur^T + εI)^{-1}
                 try:
-                    # Get current task's frozen lora_A
-                    A_cur = lora_module.lora_A.weight.data.float().to(device)  # [r, in_dim]
+                    A_cur = lora_cur.lora_A.data.float().to(device)  # [r, in_features]
                     AtA = A_cur @ A_cur.T  # [r, r]
                     eps_mat = 1e-4 * torch.eye(A_cur.shape[0], device=device)
-                    B_warm = delta_W.to(device) @ A_cur.T @ torch.linalg.inv(AtA + eps_mat)  # [out_dim, r]
+                    B_warm = delta_W.to(device) @ A_cur.T @ torch.linalg.inv(AtA + eps_mat)  # [out_features, r]
 
-                    # Assign to current task's trainable lora_B (direct nn.Linear)
-                    lora_module.lora_B.weight.data.copy_(B_warm.to(lora_module.lora_B.weight.device))
+                    old_norm = lora_cur.lora_B.data.norm().item()
+                    lora_cur.lora_B.data.copy_(B_warm.to(lora_cur.lora_B.data.device))
+                    new_norm = lora_cur.lora_B.data.norm().item()
+
+                    if fused_count < 3:
+                        logger.info(f"[SGWI] {name}.{lora_tag}: delta_W={delta_W_norm:.4f}, "
+                                    f"B_warm={new_norm:.4f} (was {old_norm:.4f})")
                     fused_count += 1
 
                 except Exception as e:
-                    logger.warning(f"[SGWI] lora_B warm init failed for {name}.{lora_name}: {e}")
+                    logger.warning(f"[SGWI] lora_B warm init failed for {name}.{lora_tag}: {e}")
                     continue
 
-        logger.info(f"[SGWI] Fused {fused_count} LoRA modules from {len(srt_weights)} past tasks")
+        logger.info(f"[SGWI] Fused {fused_count} LoRA modules, skipped {skipped_count}")
 
     def _get_lora_weight(self, lora_module, attr_name, task_id):
         """Safely get LoRA weight tensor for a given task_id."""
