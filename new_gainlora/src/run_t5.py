@@ -173,6 +173,12 @@ class ModelArguments:
         metadata={"help": "the path to load previous prompts."}
     )
 
+    current_lora_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to saved_weights/ of current task for eval-only resume. "
+                          "Loads lora_weights_A.pt and lora_weights_B.pt into the current task's lora_A/B."}
+    )
+
     previous_prompt_key_path: Optional[str] = field(
         default=None,
         metadata={"help": "the path to load previous prompts."}
@@ -688,6 +694,31 @@ def main():
                 if prev is not None:
                     prev.to('cpu')
         print("[FIX] Moved all previous LoRA weights to CPU")
+
+    # ── Load current task's saved LoRA weights (eval-only resume) ───
+    if model_args.current_lora_path:
+        _cur_lora_A_path = os.path.join(model_args.current_lora_path, "lora_weights_A.pt")
+        _cur_lora_B_path = os.path.join(model_args.current_lora_path, "lora_weights_B.pt")
+        if os.path.exists(_cur_lora_A_path) and os.path.exists(_cur_lora_B_path):
+            print(f"[EVAL-ONLY] Loading current task LoRA from {model_args.current_lora_path}")
+            _cur_lora_A = torch.load(_cur_lora_A_path, map_location=device)
+            _cur_lora_B = torch.load(_cur_lora_B_path, map_location=device)
+            for _name, _param in model.named_parameters():
+                if _name in _cur_lora_A:
+                    _param.data.copy_(_cur_lora_A[_name].to(device))
+                elif _name in _cur_lora_B:
+                    _param.data.copy_(_cur_lora_B[_name].to(device))
+            # Also load trans_input if available
+            _trans_path = os.path.join(model_args.current_lora_path, "trans_input.pt")
+            if os.path.exists(_trans_path):
+                model.encoder.trans_input.load_state_dict(
+                    torch.load(_trans_path, map_location=device, weights_only=True))
+            # Load SRT signatures
+            if training_args.use_srt_router and training_args.srt_load_path is None:
+                training_args.srt_load_path = model_args.current_lora_path
+            print(f"[EVAL-ONLY] Loaded current task weights for eval-only mode")
+        else:
+            logger.warning(f"[EVAL-ONLY] current_lora_path set but files not found: {_cur_lora_A_path}")
 
     for name, param in model.named_parameters():
         if  training_args.model_name in ['gainlora_olora', 'olora']:

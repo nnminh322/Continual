@@ -53,13 +53,20 @@ fi
 
 CONFIGS=("inflora" "random" "full_lora" "sgwi_freeze_a" "sgwi_train_a" "sgwi_full")
 
-COMMON_ARGS="
+# ── P100 (16GB) optimal batch settings ────────────────────────────
+# flan-t5-large ~780M params, seq_len=512
+# per_device_train_batch_size=2, accumulate=16 → effective_batch=32
+# This keeps peak VRAM ~12GB with BF16 disabled
+TRAIN_BATCH=2
+GRAD_ACC=16
+EVAL_BATCH=8
+
+COMMON_ARGS_BASE="
     --model_name gainlora_inflora
     --model_name_or_path $MODEL
-    --do_train --do_predict
-    --per_device_train_batch_size 4
-    --gradient_accumulation_steps 8
-    --per_device_eval_batch_size 16
+    --per_device_train_batch_size $TRAIN_BATCH
+    --gradient_accumulation_steps $GRAD_ACC
+    --per_device_eval_batch_size $EVAL_BATCH
     --learning_rate 3e-4
     --num_train_epochs 10
     --max_source_length 512
@@ -70,7 +77,6 @@ COMMON_ARGS="
     --add_dataset_name False
     --add_task_name False
     --num_examples 0
-    --overwrite_output_dir
     --seed 42
     --lora_r 8
     --lora_alpha 16
@@ -81,22 +87,60 @@ COMMON_ARGS="
     --srt_max_emb_samples 500
 "
 
+# ── Smart skip: detect task state ─────────────────────────────────
+# Returns:
+#   "done"          → train + eval complete, skip
+#   "eval_only"     → train done, eval pending → run --do_predict only
+#   "fresh"         → nothing done → run --do_train --do_predict
+task_state() {
+    local OUT_DIR=$1
+    local SAVED="${OUT_DIR}/saved_weights"
+    local TRAIN_DONE=false
+    local EVAL_DONE=false
+
+    # Training done markers: lora weights + SRT signatures saved
+    if [ -f "${SAVED}/lora_weights_A.pt" ] && [ -f "${SAVED}/lora_weights_B.pt" ]; then
+        TRAIN_DONE=true
+    fi
+
+    # Eval done markers: predict metrics written
+    if [ -f "${OUT_DIR}/predict_results.json" ] || [ -f "${OUT_DIR}/all_results.json" ]; then
+        EVAL_DONE=true
+    fi
+
+    if $TRAIN_DONE && $EVAL_DONE; then
+        echo "done"
+    elif $TRAIN_DONE; then
+        echo "eval_only"
+    else
+        echo "fresh"
+    fi
+}
+
 train_task() {
     local CONFIG=$1
     local TASK_IDX=$2
     local TASK_NAME=${TASKS[$TASK_IDX]}
     local RUN_NAME="ablation_order${ORDER}_${CONFIG}"
     local OUT_DIR="${BASE}/${CONFIG}/$((TASK_IDX+1))-${TASK_NAME}"
-    
+
+    # ── Smart skip detection ──────────────────────────────
+    local STATE=$(task_state "$OUT_DIR")
     echo "============================================================"
-    echo "[Ablation] Config=${CONFIG}, Task=${TASK_NAME} (${TASK_IDX}/${#TASKS[@]})"
+    echo "[Ablation] Config=${CONFIG}, Task=${TASK_NAME} [${TASK_IDX}/${#TASKS[@]}] — state=${STATE}"
     echo "============================================================"
-    
+
+    if [ "$STATE" = "done" ]; then
+        echo "  [SKIP] Already complete. Skipping."
+        return 0
+    fi
+
+    # ── Build path arguments ──────────────────────────────
     local PREV_LORA=""
     local LOAD_CKPT=""
     local PREV_KEYS=""
     local SRT_LOAD=""
-    
+
     if [ $TASK_IDX -gt 0 ]; then
         for ((i=0; i<TASK_IDX; i++)); do
             local prev_task=${TASKS[$i]}
@@ -107,27 +151,36 @@ train_task() {
                 PREV_LORA="${PREV_LORA},${prev_dir}"
             fi
         done
-        
+
         local prev_idx=$((TASK_IDX-1))
         local prev_task=${TASKS[$prev_idx]}
         LOAD_CKPT="${BASE}/${CONFIG}/$((prev_idx+1))-${prev_task}/saved_weights/trans_input.pt"
         PREV_KEYS="${BASE}/${CONFIG}/$((prev_idx+1))-${prev_task}/saved_weights/prompts_keys_till_now.pt"
         SRT_LOAD="${BASE}/${CONFIG}/$((prev_idx+1))-${prev_task}/saved_weights"
     fi
-    
+
     # ── Build task_config_dir path ────────────────────────
     local TASK_CONFIG_DIR="configs/Long_Sequence/${TASK_NAME}"
     if [ ! -d "$TASK_CONFIG_DIR" ]; then
-        # Try in data_dir
-        TASK_CONFIG_DIR="${DATA_DIR}/../config_${TASK_NAME}"
-        if [ ! -d "$TASK_CONFIG_DIR" ]; then
-            echo "ERROR: Could not find task config for $TASK_NAME"
-            return 1
-        fi
+        echo "ERROR: Could not find task config dir: $TASK_CONFIG_DIR"
+        return 1
     fi
-    
+
+    # ── Decide do_train / do_predict flags ────────────────
+    local MODE_FLAGS=""
+    local CURRENT_LORA_FLAG=""
+    if [ "$STATE" = "eval_only" ]; then
+        echo "  [RESUME] Training done. Running eval-only."
+        MODE_FLAGS="--do_predict"
+        CURRENT_LORA_FLAG="--current_lora_path ${OUT_DIR}/saved_weights"
+    else
+        MODE_FLAGS="--do_train --do_predict --overwrite_output_dir"
+    fi
+
+    # ── Build command ──────────────────────────────────────
     local CMD="python src/run_t5.py \
-        $COMMON_ARGS \
+        $COMMON_ARGS_BASE \
+        $MODE_FLAGS \
         --data_dir $DATA_DIR \
         --task_config_dir $TASK_CONFIG_DIR \
         --task_order $TASK_ORDER \
@@ -135,7 +188,11 @@ train_task() {
         --run_name $RUN_NAME \
         --sgwi_mode $CONFIG \
         --lambda_emb 0.0"
-    
+
+    if [ -n "$CURRENT_LORA_FLAG" ]; then
+        CMD="$CMD $CURRENT_LORA_FLAG"
+    fi
+
     if [ -n "$PREV_LORA" ]; then
         CMD="$CMD --previous_lora_path $PREV_LORA"
     fi
@@ -148,10 +205,9 @@ train_task() {
     if [ -n "$SRT_LOAD" ] && [ -d "$SRT_LOAD" ]; then
         CMD="$CMD --srt_load_path $SRT_LOAD"
     fi
-    
+
     echo "[CMD] $CMD"
     eval $CMD
-    
     echo "[Done] Config=${CONFIG}, Task=${TASK_NAME}"
 }
 
