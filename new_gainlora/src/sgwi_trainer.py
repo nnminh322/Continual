@@ -257,30 +257,22 @@ class SGWI_DualFisher_Trainer(SRT_Trainer):
                 if delta_W is None:
                     continue
 
-                # SVD decomposition
+                # Warm-init lora_B (trainable) using least-squares given frozen lora_A:
+                # lora_B_new = delta_W @ A_cur^T @ (A_cur @ A_cur^T + εI)^{-1}
+                # so that lora_B_new @ lora_A_cur ≈ delta_W
                 try:
-                    U, S, Vt = torch.linalg.svd(delta_W.to(device), full_matrices=False)
+                    # Get current task's frozen lora_A
+                    A_cur = lora_module.lora_A.weight.data.float().to(device)  # [r, in_dim]
+                    AtA = A_cur @ A_cur.T  # [r, r]
+                    eps_mat = 1e-4 * torch.eye(A_cur.shape[0], device=device)
+                    B_warm = delta_W.to(device) @ A_cur.T @ torch.linalg.inv(AtA + eps_mat)  # [out_dim, r]
 
-                    # Take top-r components
-                    r = min(lora_r, len(S))
-                    S_r = S[:r]
-                    U_r = U[:, :r]   # [out_dim, r]
-                    Vt_r = Vt[:r, :] # [r, in_dim]
-
-                    # Scale: B_new @ A_new should approximate delta_W / scaling
-                    # so that with LoRA scaling, output = scaling * B @ A @ x ≈ delta_W @ x
-                    S_sqrt = torch.sqrt(S_r + 1e-12)
-                    A_new = (S_sqrt.unsqueeze(1) * Vt_r) / math.sqrt(scaling + 1e-12)
-                    B_new = (U_r * S_sqrt.unsqueeze(0)) / math.sqrt(scaling + 1e-12)
-
-                    # Assign to current task's LoRA
-                    cur_idx = self.cur_task_id
-                    self._set_lora_weight(lora_module, 'lora_A', cur_idx, A_new)
-                    self._set_lora_weight(lora_module, 'lora_B', cur_idx, B_new)
+                    # Assign to current task's trainable lora_B (direct nn.Linear)
+                    lora_module.lora_B.weight.data.copy_(B_warm.to(lora_module.lora_B.weight.device))
                     fused_count += 1
 
                 except Exception as e:
-                    logger.warning(f"[SGWI] SVD failed for {name}.{lora_name}: {e}")
+                    logger.warning(f"[SGWI] lora_B warm init failed for {name}.{lora_name}: {e}")
                     continue
 
         logger.info(f"[SGWI] Fused {fused_count} LoRA modules from {len(srt_weights)} past tasks")

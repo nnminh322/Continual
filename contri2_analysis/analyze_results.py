@@ -15,15 +15,8 @@ import glob
 from pathlib import Path
 
 
-def load_score(result_dir, key_priority=None):
-    """Load best score from all_results.json in a result directory."""
-    if key_priority is None:
-        key_priority = [
-            'predict_exact_match',
-            'eval_exact_match_for_cb',
-            'eval_exact_match',
-        ]
-    
+def load_results_json(result_dir):
+    """Load all_results.json from a result directory, return full dict or None."""
     results_file = os.path.join(result_dir, 'all_results.json')
     if not os.path.exists(results_file):
         for f in glob.glob(os.path.join(result_dir, '**/all_results.json'), recursive=True):
@@ -34,15 +27,32 @@ def load_score(result_dir, key_priority=None):
         return None
     
     with open(results_file) as f:
-        data = json.load(f)
-    
+        return json.load(f)
+
+
+def extract_score(data, key_priority):
+    """Extract first matching score from results dict."""
+    if data is None:
+        return None
     for key in key_priority:
         if key in data:
             val = data[key]
             if isinstance(val, (int, float)):
                 return val * 100 if val <= 1.0 else val
-    
     return None
+
+
+def load_score(result_dir, key_priority=None):
+    """Load best score from all_results.json in a result directory."""
+    if key_priority is None:
+        key_priority = [
+            'predict_exact_match_for_cb',
+            'eval_exact_match_for_cb',
+            'predict_exact_match',
+            'eval_exact_match',
+        ]
+    data = load_results_json(result_dir)
+    return extract_score(data, key_priority)
 
 
 def load_training_logs(result_dir):
@@ -71,23 +81,51 @@ def analyze_phase1(output_base):
         'D_random': f'{output_base}/2-cb_arm_d_random',
     }
     
-    scores = {}
+    # CB-specific metric is what matters for task 2 performance
+    CB_KEYS = ['predict_exact_match_for_cb', 'eval_exact_match_for_cb']
+    MNLI_KEYS = ['predict_exact_match_for_mnli', 'eval_exact_match_for_mnli']
+    OVERALL_KEYS = ['predict_exact_match', 'eval_exact_match']
+    
+    cb_scores = {}
+    mnli_scores = {}
+    overall_scores = {}
+    train_losses = {}
+    
     for arm_name, arm_path in arms.items():
-        score = load_score(arm_path)
-        if score is not None:
-            scores[arm_name] = score
+        data = load_results_json(arm_path)
+        if data is not None:
+            cb = extract_score(data, CB_KEYS)
+            mnli = extract_score(data, MNLI_KEYS)
+            ovr = extract_score(data, OVERALL_KEYS)
+            if cb is not None:
+                cb_scores[arm_name] = cb
+            if mnli is not None:
+                mnli_scores[arm_name] = mnli
+            if ovr is not None:
+                overall_scores[arm_name] = ovr
+            if 'train_loss' in data:
+                train_losses[arm_name] = data['train_loss']
     
     print("=" * 60)
     print("PHASE 1 RESULTS: CB Initialization Comparison")
     print("=" * 60)
     
-    if not scores:
+    if not cb_scores and not overall_scores:
         print("  ERROR: No results found. Check output paths.")
         print(f"  Expected paths: {list(arms.values())}")
         return
     
-    for arm, score in sorted(scores.items(), key=lambda x: -x[1]):
-        print(f"  {arm:25s}: {score:.2f}%")
+    # Use CB-specific scores; fall back to overall if not available
+    scores = cb_scores if cb_scores else overall_scores
+    score_label = "CB" if cb_scores else "Overall"
+    
+    print(f"\n  {'Arm':25s} | {score_label+' EM':>8s} | {'MNLI EM':>8s} | {'Train Loss':>10s}")
+    print(f"  {'-'*25}-+-{'-'*8}-+-{'-'*8}-+-{'-'*10}")
+    for arm in ['A_inflora', 'B_sgwi', 'C_sgwi_inflora', 'D_random']:
+        cb = f"{scores.get(arm, 0):.2f}%" if arm in scores else "  N/A  "
+        mnli = f"{mnli_scores.get(arm, 0):.2f}%" if arm in mnli_scores else "  N/A  "
+        tloss = f"{train_losses.get(arm, 0):.4f}" if arm in train_losses else "   N/A   "
+        print(f"  {arm:25s} | {cb:>8s} | {mnli:>8s} | {tloss:>10s}")
     print()
     
     a = scores.get('A_inflora')
