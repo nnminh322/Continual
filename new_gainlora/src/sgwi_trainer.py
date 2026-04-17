@@ -91,41 +91,79 @@ class SGWI_DualFisher_Trainer(SRT_Trainer):
     # =========================================================================
 
     def get_reg_matrix(self):
-        """Override InfLoRA initialization with SGWI or other modes."""
+        """Override InfLoRA initialization with SGWI or other modes.
 
-        if self.sgwi_mode == 'inflora':
-            # Arm A: Standard InfLoRA baseline
-            logger.info("[SGWI] Mode=inflora → calling parent get_reg_matrix()")
+        6 Ablation Configs:
+          Config 1 'inflora':       InfLoRA baseline (null-space + GPM)
+          Config 2 'random':        No GPM, freeze A(kaiming), B=0
+          Config 3 'full_lora':     No GPM, train A(kaiming)+B(0)
+          Config 5 'sgwi_freeze_a': No GPM, SGWI→A(frozen), B=0
+          Config 6 'sgwi_train_a':  No GPM, SGWI→A(trainable), B=0
+          Config 4 'sgwi_full':     No GPM, SGWI→A(trainable)+B(warm)
+        """
+        mode = self.sgwi_mode
+        logger.info(f"[SGWI] get_reg_matrix: mode={mode}, task_id={self.cur_task_id}")
+
+        # ── Config 1: InfLoRA baseline ──────────────────────────────
+        if mode == 'inflora':
             super().get_reg_matrix()
             return
 
-        if self.sgwi_mode == 'random':
-            # Arm D: Skip all initialization — but still must set _cur_task etc.
-            logger.info("[SGWI] Mode=random → skipping all initialization")
-            self._init_gpm_attrs_skip()
-            return
+        # ── All other configs: NO GPM, NO null-space ────────────────
+        self._init_gpm_attrs_skip()
 
+        # Task 0: no prior tasks → nothing to warm-init
         if self.cur_task_id == 0:
-            # Task 0: no prior tasks → use standard init
-            logger.info("[SGWI] Task 0 → calling parent get_reg_matrix()")
+            logger.info(f"[SGWI] Task 0, mode={mode} → standard init (no prior tasks)")
+            return
+
+        # ── Config 2: random (freeze A kaiming, B=0) ────────────────
+        if mode == 'random':
+            logger.info("[SGWI] Config 2: random — no warm init")
+            return
+
+        # ── Config 3: full_lora (train A kaiming, B=0) ──────────────
+        if mode == 'full_lora':
+            logger.info("[SGWI] Config 3: full_lora — no warm init, A will be unfrozen by run_t5.py")
+            return
+
+        # ── Configs 4,5,6: need SGWI weights ────────────────────────
+        srt_weights = self._compute_sgwi_weights()
+        if not srt_weights:
+            logger.warning("[SGWI] No SRT weights. Falling back to random init.")
+            return
+
+        logger.info(f"[SGWI] SRT weights: {srt_weights}")
+
+        # ── Config 5: sgwi_freeze_a (SGWI→A frozen, B=0) ────────────
+        if mode == 'sgwi_freeze_a':
+            logger.info("[SGWI] Config 5: warm-init A only (frozen)")
+            self._sgwi_init_a(srt_weights)
+            return
+
+        # ── Config 6: sgwi_train_a (SGWI→A trainable, B=0) ──────────
+        if mode == 'sgwi_train_a':
+            logger.info("[SGWI] Config 6: warm-init A only (will be unfrozen by run_t5.py)")
+            self._sgwi_init_a(srt_weights)
+            return
+
+        # ── Config 4: sgwi_full (SGWI→A+B, both trainable) ──────────
+        if mode == 'sgwi_full':
+            logger.info("[SGWI] Config 4: warm-init both A and B")
+            self._sgwi_init_a(srt_weights)
+            self._fuse_past_lora_adapters(srt_weights)  # warm-init B
+            return
+
+        # Legacy modes
+        if mode == 'sgwi':
+            self._sgwi_init()
+            return
+        if mode == 'sgwi+inflora':
+            self._sgwi_init()
             super().get_reg_matrix()
             return
 
-        if self.sgwi_mode == 'sgwi':
-            # Arm B: SGWI warm init, NO InfLoRA projection during training
-            logger.info("[SGWI] Mode=sgwi → running SGWI initialization")
-            self._init_gpm_attrs_skip()  # set _cur_task=0, empty feature lists
-            self._sgwi_init()
-            return
-
-        if self.sgwi_mode == 'sgwi+inflora':
-            # Arm C: SGWI first, then InfLoRA (InfLoRA sets _cur_task etc.)
-            logger.info("[SGWI] Mode=sgwi+inflora → SGWI then InfLoRA")
-            self._sgwi_init()
-            super().get_reg_matrix()
-            return
-
-        raise ValueError(f"Unknown sgwi_mode: {self.sgwi_mode}")
+        raise ValueError(f"Unknown sgwi_mode: {mode}")
 
     def _init_gpm_attrs_skip(self):
         """Initialize GPM attributes to safe defaults so _inner_training_loop doesn't crash.
@@ -137,6 +175,82 @@ class SGWI_DualFisher_Trainer(SRT_Trainer):
         self.feature_mat = []
         self.feature_trans_mat = []
         logger.info("[SGWI] GPM attrs initialized (skip mode): _cur_task=0, feature_list=[]")
+
+    def _sgwi_init_a(self, srt_weights: Dict[int, float]):
+        """SGWI warm-init for lora_A only, via SVD of weighted past ΔW.
+        
+        delta_W = Σ w_s * (B_s @ A_s)  [out_dim, in_dim]
+        SVD: delta_W = U @ S @ V^T
+        A_new = sqrt(S[:r]) * V^T[:r, :]  — captures the important input directions
+        """
+        model = self.model
+        device = next(model.parameters()).device
+        lora_r = self.args.lora_r if hasattr(self.args, 'lora_r') else 8
+
+        fused_count = 0
+        skipped_count = 0
+
+        for name, module in model.named_modules():
+            if not (hasattr(module, 'lora_q') and hasattr(module, 'lora_v')):
+                continue
+            if not hasattr(module, 'previous_lora_weights_q'):
+                continue
+
+            prev_q = getattr(module, 'previous_lora_weights_q', None)
+            prev_v = getattr(module, 'previous_lora_weights_v', None)
+            if prev_q is None or len(prev_q) == 0:
+                continue
+
+            for lora_tag, lora_cur, prev_list in [
+                ('lora_q', module.lora_q, prev_q),
+                ('lora_v', module.lora_v, prev_v),
+            ]:
+                if prev_list is None or len(prev_list) == 0:
+                    continue
+
+                # Compute delta_W from past tasks
+                delta_W = None
+                for past_task_id, w_s in srt_weights.items():
+                    if isinstance(past_task_id, str):
+                        try:
+                            pos = self.task_order.index(past_task_id)
+                            idx = (self.cur_task_id - 1) - pos
+                        except ValueError:
+                            skipped_count += 1
+                            continue
+                    else:
+                        idx = int(past_task_id)
+                    if idx < 0 or idx >= len(prev_list):
+                        skipped_count += 1
+                        continue
+
+                    past_lora = prev_list[idx]
+                    BA = past_lora.lora_B.data.float() @ past_lora.lora_A.data.float()
+                    delta_W = w_s * BA if delta_W is None else delta_W + w_s * BA
+
+                if delta_W is None or delta_W.norm().item() < 1e-10:
+                    skipped_count += 1
+                    continue
+
+                # SVD decomposition → extract top-r input directions for A
+                try:
+                    U, S, Vt = torch.linalg.svd(delta_W.to(device), full_matrices=False)
+                    r = min(lora_r, len(S))
+                    S_sqrt = torch.sqrt(S[:r] + 1e-12)
+                    A_new = S_sqrt.unsqueeze(1) * Vt[:r, :]  # [r, in_dim]
+
+                    old_norm = lora_cur.lora_A.data.norm().item()
+                    lora_cur.lora_A.data.copy_(A_new.to(lora_cur.lora_A.data.device))
+                    new_norm = lora_cur.lora_A.data.norm().item()
+
+                    if fused_count < 3:
+                        logger.info(f"[SGWI-A] {name}.{lora_tag}: A_new norm={new_norm:.4f} (was {old_norm:.4f})")
+                    fused_count += 1
+                except Exception as e:
+                    logger.warning(f"[SGWI-A] SVD failed for {name}.{lora_tag}: {e}")
+                    skipped_count += 1
+
+        logger.info(f"[SGWI-A] Warm-init A for {fused_count} modules, skipped {skipped_count}")
 
     def _sgwi_init(self):
         """SRT-Guided Warm Initialization for current task's LoRA."""

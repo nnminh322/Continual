@@ -699,6 +699,17 @@ def main():
             if ("lora_B" in name and "previous_lora_weights" not in name) or ("trans_input" in name and "previous_trans_input" not in name) or "prompt_key" in name:
                 param.requires_grad = True
 
+    # ── Unfreeze lora_A for full-LoRA configs (3, 4, 6) ─────────────
+    _sgwi_mode = getattr(training_args, 'sgwi_mode', 'inflora')
+    _train_lora_a_modes = {'full_lora', 'sgwi_train_a', 'sgwi_full'}
+    if _sgwi_mode in _train_lora_a_modes and training_args.use_srt_router:
+        _n_unfrozen = 0
+        for name, param in model.named_parameters():
+            if "lora_A" in name and "previous_lora_weights" not in name:
+                param.requires_grad = True
+                _n_unfrozen += 1
+        print(f"[SRT-Clean] Unfroze lora_A: {_n_unfrozen} params (sgwi_mode={_sgwi_mode})")
+
     total_params, params = 0, 0
     for n, p in model.named_parameters():
         if p.requires_grad:
