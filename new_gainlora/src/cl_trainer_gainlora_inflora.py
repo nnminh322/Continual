@@ -46,6 +46,17 @@ except NameError:
         return False
 
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
+    # Handle inhomogeneous prediction shapes (ragged token lengths across batches)
+    if isinstance(predictions_ids, (tuple, list)):
+        # Take first element (token ids), ignore decoder hidden states etc.
+        predictions_ids = predictions_ids[0]
+    if isinstance(predictions_ids, np.ndarray) and predictions_ids.dtype == object:
+        # Ragged array: pad to uniform shape
+        max_len = max(len(row) for row in predictions_ids)
+        padded = np.full((len(predictions_ids), max_len), tokenizer.pad_token_id, dtype=np.int64)
+        for i, row in enumerate(predictions_ids):
+            padded[i, :len(row)] = row
+        predictions_ids = padded
     predictions_ids = np.where(predictions_ids == ignore_idx, tokenizer.pad_token_id, predictions_ids)
 
     predictions = tokenizer.batch_decode(
