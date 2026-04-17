@@ -55,11 +55,15 @@ CONFIGS=("inflora" "random" "full_lora" "sgwi_freeze_a" "sgwi_train_a" "sgwi_ful
 
 # ── P100 (16GB) optimal batch settings ────────────────────────────
 # flan-t5-large ~780M params, seq_len=512
-# per_device_train_batch_size=2, accumulate=16 → effective_batch=32
-# This keeps peak VRAM ~12GB with BF16 disabled
+# Training: batch=2, accumulate=16 → effective_batch=32
+# Eval: batch=1 (OOM during predict due to preds_host accumulation)
+# max_num_instances_per_eval_task=50 to limit test set size
 TRAIN_BATCH=2
 GRAD_ACC=16
-EVAL_BATCH=8
+EVAL_BATCH=1
+
+# CUDA allocator: reduce fragmentation on P100
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 COMMON_ARGS_BASE="
     --model_name gainlora_inflora
@@ -73,7 +77,7 @@ COMMON_ARGS_BASE="
     --max_target_length 50
     --generation_max_length 50
     --max_num_instances_per_task 10000
-    --max_num_instances_per_eval_task 200
+    --max_num_instances_per_eval_task 50
     --add_dataset_name False
     --add_task_name False
     --num_examples 0
@@ -84,7 +88,7 @@ COMMON_ARGS_BASE="
     --threshold 0.99
     --use_srt_router True
     --srt_metric_mode hard
-    --srt_max_emb_samples 500
+    --srt_max_emb_samples 200
 "
 
 # ── Smart skip: detect task state ─────────────────────────────────
