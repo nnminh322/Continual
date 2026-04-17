@@ -98,6 +98,7 @@ COMMON_ARGS_BASE="
     --use_srt_router True
     --srt_metric_mode hard
     --srt_max_emb_samples 200
+    --predict_with_generate True
 "
 
 # ── Smart skip: detect task state ─────────────────────────────────
