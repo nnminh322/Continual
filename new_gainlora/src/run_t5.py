@@ -347,7 +347,7 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         },
     )
 
-    # ── C2: SGWI (SRT-Guided Warm Initialization) ───────────────────────
+    # ── C2: SGWI (SRT-Guided Warm Initialization) + Dual Fisher ─────────
     sgwi: Optional[bool] = field(
         default=True,
         metadata={
@@ -356,10 +356,21 @@ class TrainingArguments(Seq2SeqTrainingArguments):
                     "False = full_lora (standard LoRA, both A+B trainable, no warm-init)."
         },
     )
+    dual_fisher: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Enable Dual Fisher regularization (L2 penalty around past θ*). "
+                    "Only effective when --sgwi True. "
+                    "When True: uses --lambda_emb as regularization strength (default 0.01 if not set). "
+                    "When False: forces lambda_emb=0.0 (no regularization)."
+        },
+    )
     lambda_emb: Optional[float] = field(
         default=0.0,
         metadata={
-            "help": "Dual Fisher regularization strength (λ=0 = disabled)."
+            "help": "Dual Fisher regularization strength. "
+                    "Auto-set to 0.01 when --dual_fisher True and lambda_emb not explicitly provided. "
+                    "Ignored when --dual_fisher False."
         },
     )
 
@@ -904,8 +915,16 @@ def main():
     if training_args.model_name == 'gainlora_inflora':
         # ── C2: Always use SGWI_DualFisher_Trainer (supports both full_lora and sgwi_full) ──
         _sgwi_mode = 'sgwi_full' if training_args.sgwi else 'full_lora'
-        _lambda_emb = getattr(training_args, 'lambda_emb', 0.0)
-        print(f"[C2] sgwi={training_args.sgwi} → mode={_sgwi_mode}, lambda_emb={_lambda_emb}")
+        # Dual Fisher: --dual_fisher True enables regularization
+        if training_args.dual_fisher:
+            # Auto-set lambda_emb to 0.01 if not explicitly provided (still 0.0 default)
+            if training_args.lambda_emb == 0.0:
+                training_args.lambda_emb = 0.01
+                print(f"[C2] dual_fisher=True, auto-setting lambda_emb=0.01")
+        else:
+            training_args.lambda_emb = 0.0  # Force disable
+        _lambda_emb = training_args.lambda_emb
+        print(f"[C2] sgwi={training_args.sgwi} → mode={_sgwi_mode}, dual_fisher={training_args.dual_fisher}, lambda_emb={_lambda_emb}")
 
         from sgwi_trainer import SGWI_DualFisher_Trainer
         trainer = SGWI_DualFisher_Trainer(
