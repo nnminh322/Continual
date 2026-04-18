@@ -67,7 +67,7 @@ else
        --logging_steps 10 \
        --metric_for_best_model eval_rougeL \
        --evaluation_strategy steps \
-       --save_strategy best \
+       --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
        --lora_alpha 32 \
@@ -124,7 +124,7 @@ else
        --logging_steps 10 \
        --metric_for_best_model eval_rougeL \
        --evaluation_strategy steps \
-       --save_strategy best \
+       --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
        --lora_alpha 32 \
@@ -181,7 +181,7 @@ else
        --logging_steps 10 \
        --metric_for_best_model eval_rougeL \
        --evaluation_strategy steps \
-       --save_strategy best \
+       --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
        --lora_alpha 32 \
@@ -238,7 +238,7 @@ else
        --logging_steps 10 \
        --metric_for_best_model eval_rougeL \
        --evaluation_strategy steps \
-       --save_strategy best \
+       --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
        --lora_alpha 32 \
@@ -295,7 +295,7 @@ else
        --logging_steps 10 \
        --metric_for_best_model eval_rougeL \
        --evaluation_strategy steps \
-       --save_strategy best \
+       --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
        --lora_alpha 32 \
@@ -352,7 +352,7 @@ else
        --logging_steps 10 \
        --metric_for_best_model eval_exact_match \
        --evaluation_strategy steps \
-       --save_strategy best \
+       --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
        --lora_alpha 32 \
@@ -409,7 +409,7 @@ else
        --logging_steps 10 \
        --metric_for_best_model eval_rougeL \
        --evaluation_strategy steps \
-       --save_strategy best \
+       --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
        --lora_alpha 32 \
@@ -466,7 +466,7 @@ else
        --logging_steps 10 \
        --metric_for_best_model eval_exact_match \
        --evaluation_strategy steps \
-       --save_strategy best \
+       --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
        --lora_alpha 32 \
@@ -523,7 +523,7 @@ else
        --logging_steps 10 \
        --metric_for_best_model eval_rougeL \
        --evaluation_strategy steps \
-       --save_strategy best \
+       --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
        --lora_alpha 32 \
@@ -580,7 +580,7 @@ else
        --logging_steps 10 \
        --metric_for_best_model eval_rougeL \
        --evaluation_strategy steps \
-       --save_strategy best \
+       --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
        --lora_alpha 32 \
@@ -637,7 +637,7 @@ else
        --logging_steps 10 \
        --metric_for_best_model eval_rougeL \
        --evaluation_strategy steps \
-       --save_strategy best \
+       --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
        --lora_alpha 32 \
@@ -694,7 +694,7 @@ else
        --logging_steps 10 \
        --metric_for_best_model eval_rougeL \
        --evaluation_strategy steps \
-       --save_strategy best \
+       --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
        --lora_alpha 32 \
@@ -751,7 +751,7 @@ else
        --logging_steps 10 \
        --metric_for_best_model eval_rougeL \
        --evaluation_strategy steps \
-       --save_strategy best \
+       --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
        --lora_alpha 32 \
@@ -808,7 +808,7 @@ else
        --logging_steps 10 \
        --metric_for_best_model eval_rougeL \
        --evaluation_strategy steps \
-       --save_strategy best \
+       --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
        --lora_alpha 32 \
@@ -865,7 +865,7 @@ else
        --logging_steps 10 \
        --metric_for_best_model eval_exact_match \
        --evaluation_strategy steps \
-       --save_strategy best \
+       --save_strategy steps \
        --save_total_limit 1 \
        --lora_r 8 \
        --lora_alpha 32 \

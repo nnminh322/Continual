@@ -96,7 +96,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --metric_for_best_model eval_rougeL \
    --evaluation_strategy steps \
    --save_strategy steps \
-   --save_strategy best \
+   --save_strategy steps \
    --save_total_limit 1 \
    --lora_r 4 \
    --lora_alpha 32 \
