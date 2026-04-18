@@ -1287,129 +1287,76 @@ class T5Stack(T5PreTrainedModel):
         batch_size, seq_length = input_shape
 
         self.key_attention_weights = None
-        # ipdb.set_trace()
         if not self.is_decoder and not self.prompt_config["run_single"]:
             self.reduce_sim = None
-            prompt_key = self.prompt_key
-            if self.previous_prompts_keys is not None:
-                prompt_key = self.prompt_key.to(prompt_key.device)
-                past_prompt_key = torch.cat([prompt_key.repeat(batch_size, 1, 1), self.previous_prompts_keys.repeat(batch_size, 1, 1)], dim=1)
 
-                # avg_inputs_embeds = inputs_embeds.max(dim=1, keepdim=True).values
-                # avg_inputs_embeds = inputs_embeds.mean(dim=1, keepdim=True)
-                avg_inputs_embeds = (attention_mask.unsqueeze(-1)*inputs_embeds).mean(dim=1, keepdim=True)
-                # x = self.trans_input(avg_inputs_embeds)
+            # ── SRT: Hard one-hot routing (task isolation) ─────────────────
+            # Design: each sample is assigned to EXACTLY one adapter.
+            #   Training:  w = [1, 0, 0, ...] → current adapter only
+            #   Inference: w from SRT router   → hard one-hot per sample
+            # No soft weights. No cal_attention in routing path.
 
-                medium = self.trans_input[1](self.trans_input[0](avg_inputs_embeds))
-                x = self.trans_input[3](self.trans_input[2](medium))
-                # modified
-                if self.get_trans_feature:
-                    self.get_matrix3(avg_inputs_embeds, medium, x)
+            n_prev = self.previous_prompts_keys.shape[0] if self.previous_prompts_keys is not None else 0
+            n_slots = 1 + n_prev  # slot 0 = current, slots 1..N = previous (reverse chronological)
 
-                past_x = torch.cat([x, self.previous_trans_input(avg_inputs_embeds)], dim=1)
-                key_attention_weights = self.cal_attention(past_prompt_key, past_x)
-                # if not self.training: print(key_attention_weights[:,0,0].detach())
+            if self.training:
+                # ── TRAINING: current adapter only ─────────────────────────
+                key_attention_weights = torch.zeros(
+                    batch_size, n_slots, 1,
+                    dtype=inputs_embeds.dtype, device=inputs_embeds.device)
+                key_attention_weights[:, 0, :] = 1.0
 
-                # print(key_attention_weights.squeeze().mean(dim=0).detach().to(torch.float).cpu().numpy())
+            elif self.use_srt_routing and self.srt_router is not None and self.encoder_frozen is not None:
+                # ── INFERENCE: SRT hard routing ────────────────────────────
+                # Frozen encoder → mean-pool → route via {μ_t, Σ_t} signatures
+                with torch.no_grad():
+                    h_raw = self.encoder_frozen(
+                        input_ids=input_ids, attention_mask=attention_mask)
+                    h_hidden = h_raw.last_hidden_state if hasattr(h_raw, 'last_hidden_state') else h_raw[0]
+                    mask_f = attention_mask.unsqueeze(-1).float()
+                    h_pooled = (h_hidden * mask_f).sum(dim=1) / mask_f.sum(dim=1).clamp(min=1)
+                    h_route = h_pooled.detach().cpu().numpy()
 
-                if self.is_inference:
-                    self.all_attn_weights.append(key_attention_weights.squeeze().mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy())
+                srt_preds, _ = self.srt_router.route(h_route)
+                key_attention_weights = torch.zeros(
+                    batch_size, n_slots, 1,
+                    dtype=torch.float32, device=inputs_embeds.device)
+                for b in range(batch_size):
+                    pred_id = srt_preds[b]
+                    if pred_id in self.srt_task_id_to_idx:
+                        pos = self.srt_task_id_to_idx[pred_id]
+                        key_attention_weights[b, pos, 0] = 1.0
 
-                # ── SRT ROUTING INJECTION ────────────────────────────────────
-                # Replace learned attention routing with non-parametric SRT routing.
-                #
-                # key_attention_weights shape: (B, 1+N_prev, 1)
-                #   index 0         = current task  (prompt_key, LoRA branch 0)
-                #   index 1..N_prev = previous tasks (previous_prompts_keys, LoRA branches 1..N_prev)
-                #
-                # self.srt_task_id_to_idx: maps srt_router task_id → position index
-                #   Maps current_task → 0, previous tasks → 1..N_prev (by task_order)
-                #
-                # BUG B.1 fix: use key_attention_weights.shape[1], NOT srt_n_tasks
-                #   (srt_n_tasks includes current task; slot count = 1 + N_prev)
-                # BUG B.2 fix: srt_task_id_to_idx built from task_order, not sorted keys
-                # BUG B.3 fix: always use mapping lookup, include pos==0 assignment
-                # BUG #24 fix: SRT routing ONLY at inference, NOT during training.
-                #   During training, the original learned router (cal_attention) must be used
-                #   so that the current task's LoRA receives gradient via w_cur > 0.
-                if not self.training and self.use_srt_routing and self.srt_router is not None and self.encoder_frozen is not None:
-                    # ── SRT FIX: Use FROZEN encoder for routing ─────────────
-                    #
-                    # Theory: {μ_t, Σ_t} are computed from FROZEN backbone embeddings.
-                    # Bug: previously used `avg_inputs_embeds` = embed_tokens(input_ids),
-                    # which is the WRONG embedding space (lexical, not semantic).
-                    #
-                    # Fix: extract embeddings from the FROZEN encoder to match the
-                    # space used during signature computation in SRT_Trainer.
-                    #
-                    # SRT routing path: embed_tokens → frozen encoder → last hidden → mean-pool → route
-                    with torch.no_grad():
-                        h_for_route_raw = self.encoder_frozen(
-                            input_ids=input_ids,
-                            attention_mask=attention_mask,
-                        )
-                        if hasattr(h_for_route_raw, 'last_hidden_state'):
-                            h_hidden = h_for_route_raw.last_hidden_state
-                        else:
-                            h_hidden = h_for_route_raw[0]
-                        # Mean pooling (same as routing_analysis/extract_embeddings_t5.py)
-                        mask = attention_mask.unsqueeze(-1).float()
-                        h_for_route = (h_hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)  # (B, d)
-                        h_route = h_for_route.detach().cpu().numpy()
+                # Debug logging
+                if not hasattr(self, '_srt_debug_count'):
+                    self._srt_debug_count = 0
+                self._srt_debug_count += 1
+                if self._srt_debug_count % 500 == 0:
+                    print(f"[SRT] step={self._srt_debug_count} "
+                          f"slots={n_slots} mapping={self.srt_task_id_to_idx} "
+                          f"preds[:3]={srt_preds[:3].tolist()}")
 
-                    srt_preds, _ = self.srt_router.route(h_route)
-                    B_batch = h_route.shape[0]
-
-                    n_slots = key_attention_weights.shape[1]   # = 1 + N_prev
-                    srt_weights = torch.zeros(
-                        B_batch, n_slots, 1,
-                        dtype=torch.float32, device=key_attention_weights.device
-                    )
-                    for b in range(B_batch):
-                        pred_id = srt_preds[b]   # task ID from SRT router (str or int)
-                        if pred_id in self.srt_task_id_to_idx:
-                            pos = self.srt_task_id_to_idx[pred_id]
-                            # pos is guaranteed < n_slots if wiring is correct
-                            srt_weights[b, pos, 0] = 1.0
-                        # else: all zeros (no matching signature — shouldn't happen)
-
-                    # ── DEBUG ────────────────────────────────────────────────
-                    # Print first sample's routing decision every 500 forward passes
-                    if not hasattr(self, '_srt_debug_count'):
-                        self._srt_debug_count = 0
-                    self._srt_debug_count += 1
-                    if self._srt_debug_count % 500 == 0:
-                        print(f"[SRT-DEBUG] step={self._srt_debug_count} "
-                              f"training={self.training} "
-                              f"use_srt={self.use_srt_routing} "
-                              f"router={'Yes' if self.srt_router else 'No'} "
-                              f"encoder_frozen={'Yes' if self.encoder_frozen else 'No'} "
-                              f"slots={n_slots} "
-                              f"task_ids={self.srt_task_id_to_idx} "
-                              f"srt_preds[:3]={srt_preds[:3].tolist()} "
-                              f"srt_weights[:3,:,0]={srt_weights[:3,:,0].tolist()}")
-
-                    # Inject SRT one-hot weights — overrides learned attention routing
-                    key_attention_weights[:] = srt_weights
             else:
-                # avg_inputs_embeds = inputs_embeds.max(dim=1, keepdim=True).values
-                # avg_inputs_embeds = inputs_embeds.mean(dim=1, keepdim=True)
-                avg_inputs_embeds = (attention_mask.unsqueeze(-1)*inputs_embeds).mean(dim=1, keepdim=True)
+                # ── FALLBACK: no SRT available yet → current adapter only ──
+                key_attention_weights = torch.zeros(
+                    batch_size, n_slots, 1,
+                    dtype=inputs_embeds.dtype, device=inputs_embeds.device)
+                key_attention_weights[:, 0, :] = 1.0
+
+            # Collect routing stats for analysis
+            if self.is_inference:
+                self.all_attn_weights.append(
+                    key_attention_weights.squeeze().mean(dim=0, keepdim=True)
+                    .detach().to(torch.float).cpu().numpy())
+
+            self.key_attention_weights = key_attention_weights
+
+            # Optional: feature extraction for analysis (not used for routing)
+            if self.get_trans_feature:
+                avg_inputs_embeds = (attention_mask.unsqueeze(-1) * inputs_embeds).mean(dim=1, keepdim=True)
                 medium = self.trans_input[1](self.trans_input[0](avg_inputs_embeds))
                 x = self.trans_input[3](self.trans_input[2](medium))
-                # modified
-                if self.get_trans_feature:
-                    self.get_matrix3(avg_inputs_embeds, medium, x)
-
-                key_attention_weights = self.cal_attention(prompt_key.repeat(batch_size, 1, 1), x)
-
-                if self.is_inference:
-                    self.all_attn_weights.append(key_attention_weights.squeeze(2).mean(dim=0, keepdim=True).detach().to(torch.float).cpu().numpy())
-            # self.key_attention_weights = torch.ones_like(key_attention_weights)
-            self.key_attention_weights = key_attention_weights
-        else:
-            # key_attention_weights = torch.ones_like(key_attention_weights)
-            key_attention_weights = key_attention_weights
+                self.get_matrix3(avg_inputs_embeds, medium, x)
 
         # required mask seq length can be calculated via length of past
         mask_seq_length = past_key_values[0][0].shape[2] + seq_length if past_key_values is not None else seq_length

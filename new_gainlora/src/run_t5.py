@@ -1048,13 +1048,14 @@ def main():
     if training_args.do_predict or training_args.do_train:
         print("*** Prediction ***")
         logger.info("*** Prediction ***")
-        logger.info("*** Loading CheckPoint ***")
 
         if data_args.max_predict_samples is not None:
             predict_dataset = predict_dataset.select(range(data_args.max_predict_samples))
 
+        # SRT: single predict pass with is_inference=True to collect routing stats.
+        # Routing is ALWAYS hard one-hot (same result regardless of is_inference).
         trainer.model.encoder.is_inference = True
-        _ = trainer.predict(
+        predict_results = trainer.predict(
             predict_dataset,
             metric_key_prefix="predict",
             max_new_tokens=max_new_tokens,
@@ -1062,25 +1063,19 @@ def main():
             repetition_penalty=repetition_penalty,
             pad_token_id=tokenizer.pad_token_id
         )
-        
+
+        # Save routing stats (attention_weights.pkl)
         if not prompt_config["run_single"]:
-            # ipdb.set_trace()
             save_path = training_args.output_dir + "/saved_weights"
             with open(os.path.join(save_path, "attention_weights.pkl"), 'wb') as f:
-                print("*"*20, "Saving Attention Weights", "*"*20)
-                print(np.array(np.concatenate(trainer.model.encoder.all_attn_weights)).mean(axis=0))
-                pickle.dump(np.array(np.concatenate(trainer.model.encoder.all_attn_weights)).mean(axis=0), f)
-            trainer.model.encoder.is_inference = False
+                attn_w = np.array(np.concatenate(trainer.model.encoder.all_attn_weights)).mean(axis=0)
+                print(f"{'*'*20} Saving Attention Weights {'*'*20}")
+                print(attn_w)
+                pickle.dump(attn_w, f)
+        trainer.model.encoder.is_inference = False
 
+        # Save metrics
         if training_args.do_predict:
-            predict_results = trainer.predict(
-                predict_dataset,
-                metric_key_prefix="predict",
-                max_new_tokens=max_new_tokens,
-                num_beams=num_beams,
-                repetition_penalty=repetition_penalty,
-                pad_token_id=tokenizer.pad_token_id
-            )
             metrics = predict_results.metrics
             max_predict_samples = (
                 data_args.max_predict_samples if data_args.max_predict_samples is not None else len(predict_dataset)
