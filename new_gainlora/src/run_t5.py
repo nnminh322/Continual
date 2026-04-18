@@ -347,23 +347,19 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         },
     )
 
-    # ── C2: SGWI (SRT-Guided Warm Initialization) + Dual Fisher ─────────
-    sgwi_mode: Optional[str] = field(
-        default='inflora',
+    # ── C2: SGWI (SRT-Guided Warm Initialization) ───────────────────────
+    sgwi: Optional[bool] = field(
+        default=True,
         metadata={
-            "help": "SGWI initialization mode: "
-                    "'inflora' = InfLoRA baseline (no SGWI), "
-                    "'sgwi' = SGWI warm init from SRT-weighted past LoRAs, "
-                    "'sgwi+inflora' = SGWI + InfLoRA combined, "
-                    "'random' = random baseline."
+            "help": "Enable SGWI warm initialization from past LoRA adapters. "
+                    "True = sgwi_full (warm-init A+B from weighted past adapters), "
+                    "False = full_lora (standard LoRA, both A+B trainable, no warm-init)."
         },
     )
     lambda_emb: Optional[float] = field(
         default=0.0,
         metadata={
-            "help": "Dual Fisher regularization strength: "
-                    "L2 penalty on parameters relative to warm-init solution. "
-                    "λ=0 = no regularization (SGWI only), λ>0 = apply penalty."
+            "help": "Dual Fisher regularization strength (λ=0 = disabled)."
         },
     )
 
@@ -730,16 +726,15 @@ def main():
             if ("lora_B" in name and "previous_lora_weights" not in name) or ("trans_input" in name and "previous_trans_input" not in name) or "prompt_key" in name:
                 param.requires_grad = True
 
-    # ── Unfreeze lora_A for full-LoRA configs (3, 4, 6) ─────────────
-    _sgwi_mode = getattr(training_args, 'sgwi_mode', 'inflora')
-    _train_lora_a_modes = {'full_lora', 'sgwi_train_a', 'sgwi_full'}
-    if _sgwi_mode in _train_lora_a_modes and training_args.use_srt_router:
+    # ── C2: Always unfreeze lora_A (both full_lora and sgwi_full need trainable A+B) ──
+    if training_args.model_name == 'gainlora_inflora':
         _n_unfrozen = 0
         for name, param in model.named_parameters():
             if "lora_A" in name and "previous_lora_weights" not in name:
                 param.requires_grad = True
                 _n_unfrozen += 1
-        print(f"[SRT-Clean] Unfroze lora_A: {_n_unfrozen} params (sgwi_mode={_sgwi_mode})")
+        _sgwi_mode = 'sgwi_full' if training_args.sgwi else 'full_lora'
+        print(f"[C2] Unfroze lora_A: {_n_unfrozen} params (sgwi={training_args.sgwi} → mode={_sgwi_mode})")
 
     total_params, params = 0, 0
     for n, p in model.named_parameters():
@@ -906,33 +901,14 @@ def main():
             model.encoder.get_chunk(training_args.chunk)
     elif training_args.model_name in ['gainlora_olora']:
         model.encoder.get_chunk(training_args.chunk)
-    if training_args.model_name == 'gainlora_inflora' and not training_args.use_srt_router:
-        from cl_trainer_gainlora_inflora import GainLoRA_InfLoRA_Trainer
-        trainer = GainLoRA_InfLoRA_Trainer(
-            model=model,
-            args=training_args,
-            train_dataset=train_dataset if training_args.do_train else None,
-            cur_task_id=cur_task_id,
-            task_order=task_order,
-            data_collator_replay=data_collator_replay,
-            replay_dataset_dict=replay_dataset_dict,
-            replay_label_dict=replay_label_dict,
-            eval_dataset=eval_dataset if training_args.do_eval else None,
-            tokenizer=tokenizer,
-            data_collator=data_collator,
-            compute_metrics=compute_rouge_metrics,
-            callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
-        )
-        if training_args.do_train:
-            trainer.get_reg_matrix()
-    elif training_args.model_name == 'gainlora_inflora' and training_args.use_srt_router:
-        # C2: dispatch to SGWI_DualFisher_Trainer if sgwi_mode != 'inflora'
-        _sgwi_mode = getattr(training_args, 'sgwi_mode', 'inflora')
+    if training_args.model_name == 'gainlora_inflora':
+        # ── C2: Always use SGWI_DualFisher_Trainer (supports both full_lora and sgwi_full) ──
+        _sgwi_mode = 'sgwi_full' if training_args.sgwi else 'full_lora'
         _lambda_emb = getattr(training_args, 'lambda_emb', 0.0)
-        _use_sgwi = _sgwi_mode != 'inflora'
-        print(f"[C2] sgwi_mode={_sgwi_mode}, lambda_emb={_lambda_emb}, use_sgwi={_use_sgwi}")
+        print(f"[C2] sgwi={training_args.sgwi} → mode={_sgwi_mode}, lambda_emb={_lambda_emb}")
 
-        _srt_kwargs = dict(
+        from sgwi_trainer import SGWI_DualFisher_Trainer
+        trainer = SGWI_DualFisher_Trainer(
             model=model,
             args=training_args,
             train_dataset=train_dataset if training_args.do_train else None,
@@ -952,17 +928,9 @@ def main():
             srt_max_emb_samples=training_args.srt_max_emb_samples,
             srt_load_path=training_args.srt_load_path,
             srt_skip_forward=training_args.srt_skip_forward,
+            sgwi_mode=_sgwi_mode,
+            lambda_emb=_lambda_emb,
         )
-        if _use_sgwi:
-            from sgwi_trainer import SGWI_DualFisher_Trainer
-            trainer = SGWI_DualFisher_Trainer(
-                **_srt_kwargs,
-                sgwi_mode=_sgwi_mode,
-                lambda_emb=_lambda_emb,
-            )
-        else:
-            from cl_trainer_srt import SRT_Trainer
-            trainer = SRT_Trainer(**_srt_kwargs)
         if training_args.do_train:
             trainer.get_reg_matrix()
     elif training_args.model_name == 'gainlora_olora':
@@ -1111,11 +1079,13 @@ def main():
         logger.info(f"Metrics {metrics}")
         all_metrics.update(metrics)
 
-        if training_args.model_name in ['inflora', 'gainlora_inflora', 'gainlora_olora']:
+        # C2: GPM representation no longer needed (removed InfLoRA null-space + GPM)
+        # Only keep for non-gainlora_inflora models that still use GPM
+        if training_args.model_name in ['inflora', 'gainlora_olora']:
             trainer.get_repsentation()
 
         # SRT: compute and store statistical signature AFTER training this task
-        if training_args.model_name == 'gainlora_inflora' and training_args.use_srt_router:
+        if training_args.model_name == 'gainlora_inflora':
             if hasattr(trainer, 'on_task_end'):
                 trainer.on_task_end(task_order[cur_task_id])
             if hasattr(trainer, 'save_srt_signatures'):
