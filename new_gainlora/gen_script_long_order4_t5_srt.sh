@@ -134,9 +134,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -197,9 +196,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_cb \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -261,9 +259,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_wic \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -325,9 +322,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_copa \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -389,9 +385,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_qqp \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -453,9 +448,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_boolq \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -517,9 +511,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_rte \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -581,9 +574,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_imdb \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -645,9 +637,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_yelp \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -709,9 +700,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_amazon \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -773,9 +763,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_sst2 \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -837,9 +826,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_dbpedia \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -901,9 +889,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_agnews \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -965,9 +952,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_multirc \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -1029,9 +1015,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --logging_steps 10 \
    --metric_for_best_model eval_exact_match_for_yahoo \
    --evaluation_strategy steps \
-   --save_strategy steps \
+   --save_strategy best \
    --save_total_limit 1 \
-   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
