@@ -126,7 +126,6 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --gradient_checkpointing \
    --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
@@ -182,14 +181,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
-   --num_train_epochs 10 \
+   --num_train_epochs 10\
    --run_name long_order3_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --gradient_checkpointing \
    --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
@@ -246,14 +244,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
-   --num_train_epochs 10 \
+   --num_train_epochs 10\
    --run_name long_order3_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --gradient_checkpointing \
    --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
@@ -310,14 +307,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
-   --num_train_epochs 10 \
+   --num_train_epochs 10\
    --run_name long_order3_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --gradient_checkpointing \
    --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
@@ -374,14 +370,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
-   --num_train_epochs 10 \
+   --num_train_epochs 10\
    --run_name long_order3_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --gradient_checkpointing \
    --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
@@ -438,14 +433,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
-   --num_train_epochs 10 \
+   --num_train_epochs 10\
    --run_name long_order3_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --gradient_checkpointing \
    --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
@@ -502,14 +496,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
-   --num_train_epochs 10 \
+   --num_train_epochs 10\
    --run_name long_order3_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --gradient_checkpointing \
    --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
@@ -566,14 +559,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
-   --num_train_epochs 10 \
+   --num_train_epochs 10\
    --run_name long_order3_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --gradient_checkpointing \
    --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
@@ -630,14 +622,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
-   --num_train_epochs 10 \
+   --num_train_epochs 10\
    --run_name long_order3_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --gradient_checkpointing \
    --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
@@ -694,14 +685,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
-   --num_train_epochs 10 \
+   --num_train_epochs 10\
    --run_name long_order3_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --gradient_checkpointing \
    --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
@@ -758,14 +748,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
-   --num_train_epochs 10 \
+   --num_train_epochs 10\
    --run_name long_order3_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --gradient_checkpointing \
    --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
@@ -822,14 +811,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
-   --num_train_epochs 10 \
+   --num_train_epochs 10\
    --run_name long_order3_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --gradient_checkpointing \
    --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
@@ -886,14 +874,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
-   --num_train_epochs 10 \
+   --num_train_epochs 10\
    --run_name long_order3_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --gradient_checkpointing \
    --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
@@ -950,14 +937,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
-   --num_train_epochs 10 \
+   --num_train_epochs 10\
    --run_name long_order3_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --gradient_checkpointing \
    --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
@@ -1000,7 +986,6 @@ fi
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
    --do_predict \
-   --do_predict \
    --predict_with_generate \
    --model_name_or_path $2 \
    --load_checkpoint_from logs_and_outputs/long_order3_t5_srt/outputs/14-boolq/saved_weights/trans_input.pt \
@@ -1015,14 +1000,13 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --per_device_eval_batch_size $EVAL_BSZ \
    --gradient_accumulation_steps $GA \
    --learning_rate 0.0003 \
-   --num_train_epochs 10 \
+   --num_train_epochs 10\
    --run_name long_order3_t5_srt \
    --max_source_length 512 \
    --max_target_length 50 \
    --generation_max_length 50 \
    --add_task_name False \
    --add_dataset_name False \
-   --gradient_checkpointing \
    --overwrite_output_dir \
    --overwrite_cache \
    --lr_scheduler_type constant \
@@ -1052,6 +1036,3 @@ rm -rf logs_and_outputs/long_order3_t5_srt/outputs/15-wic/checkpoint*
 sleep 5
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python score.py long_order3_t5_srt long_order3_t5_srt
-
-
-
