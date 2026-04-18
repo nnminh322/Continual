@@ -72,7 +72,7 @@ CUDA_VISIBLE_DEVICES=$GPU_ID python src/run_t5.py \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
    --mlp_hidden_dim 100 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --threshold 0.995 \
    --transthreshold 0.995 \
    $FP16_FLAG \

@@ -60,7 +60,7 @@ from cl_dataset import gen_cache_path
 
 from assets import task_config, lora_state_dict_A, lora_state_dict_B
 
-from cl_trainer_gainlora_inflora import DenserEvalCallback, skip_instructions
+from cl_trainer_gainlora import DenserEvalCallback, skip_instructions
 from compute_metrics import compute_metrics, compute_grouped_metrics
 from datasets.download import DownloadConfig
 
@@ -556,12 +556,7 @@ def main():
         'lora_dropout': model_args.lora_dropout
     }
 
-    if training_args.model_name in ['inflora', 'olora']:
-        from t5_inflora import T5ForConditionalGeneration
-    elif training_args.model_name in ['gainlora_inflora', 'gainlora_olora']:
-        from t5_gainlora_inflora import T5ForConditionalGeneration
-    else:
-        raise NotImplementedError
+    from t5_gainlora import T5ForConditionalGeneration
 
     model = T5ForConditionalGeneration.from_pretrained(
             model_args.model_name_or_path,
@@ -634,13 +629,12 @@ def main():
         else:
             print("----------Loading Previous Query Projection Layer----------")
             model.encoder.trans_input.load_state_dict(torch.load(model_args.load_checkpoint_from, map_location=device, weights_only=True))
-            if training_args.model_name in ['gainlora_inflora', 'gainlora_olora']:
-                model.encoder.previous_trans_input.input_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device, weights_only=True)['0.weight'])
-                model.encoder.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device, weights_only=True)['2.weight'])
-                model.encoder.previous_trans_input.state_dict()
-                if cur_task_id > 1:
-                    model.encoder.previous_trans_input.input_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device, weights_only=True)['input_linear'])
-                    model.encoder.previous_trans_input.output_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device, weights_only=True)['output_linear'])
+            model.encoder.previous_trans_input.input_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device, weights_only=True)['0.weight'])
+            model.encoder.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device, weights_only=True)['2.weight'])
+            model.encoder.previous_trans_input.state_dict()
+            if cur_task_id > 1:
+                model.encoder.previous_trans_input.input_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device, weights_only=True)['input_linear'])
+                model.encoder.previous_trans_input.output_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device, weights_only=True)['output_linear'])
             print("----------Loading Previous Query Projection Layer Done----------")
 
     if model_args.previous_lora_path:
@@ -728,17 +722,12 @@ def main():
             logger.warning(f"[EVAL-ONLY] current_lora_path set but files not found: {_cur_lora_A_path}")
 
     for name, param in model.named_parameters():
-        if  training_args.model_name in ['gainlora_olora', 'olora']:
-            param.requires_grad = False
-            if ("lora" in name and "previous_lora_weights" not in name) or ("trans_input" in name and "previous_trans_input" not in name) or "prompt_key" in name:
-                param.requires_grad = True
-        elif training_args.model_name in ['gainlora_inflora', 'inflora']:
-            param.requires_grad = False
-            if ("lora_B" in name and "previous_lora_weights" not in name) or ("trans_input" in name and "previous_trans_input" not in name) or "prompt_key" in name:
-                param.requires_grad = True
+        param.requires_grad = False
+        if ("lora" in name and "previous_lora_weights" not in name) or ("trans_input" in name and "previous_trans_input" not in name) or "prompt_key" in name:
+            param.requires_grad = True
 
     # ── C2: Always unfreeze lora_A (both full_lora and sgwi_full need trainable A+B) ──
-    if training_args.model_name == 'gainlora_inflora':
+    if training_args.model_name == 'gainlora':
         _n_unfrozen = 0
         for name, param in model.named_parameters():
             if "lora_A" in name and "previous_lora_weights" not in name:
@@ -904,15 +893,11 @@ def main():
     training_args.eval_steps = 5 * training_args.step_per_epoch
     training_args.save_steps = 5 * training_args.step_per_epoch
 
-    if training_args.model_name in ['gainlora_inflora', 'inflora']:
-        for module in model.modules():
-            if hasattr(module, 'get_feature'):
-                module.get_chunk(training_args.chunk)
-        if training_args.model_name in ['gainlora_inflora']:
-            model.encoder.get_chunk(training_args.chunk)
-    elif training_args.model_name in ['gainlora_olora']:
-        model.encoder.get_chunk(training_args.chunk)
-    if training_args.model_name == 'gainlora_inflora':
+    for module in model.modules():
+        if hasattr(module, 'get_feature'):
+            module.get_chunk(training_args.chunk)
+    model.encoder.get_chunk(training_args.chunk)
+    if training_args.model_name == 'gainlora':
         # ── C2: Always use SGWI_DualFisher_Trainer (supports both full_lora and sgwi_full) ──
         _sgwi_mode = 'sgwi_full' if training_args.sgwi else 'full_lora'
         # Dual Fisher: --dual_fisher True enables regularization
@@ -952,63 +937,8 @@ def main():
         )
         if training_args.do_train:
             trainer.get_reg_matrix()
-    elif training_args.model_name == 'gainlora_olora':
-        from cl_trainer_gainlora_olora import GainLoRA_OLoRA_Trainer
-        trainer = GainLoRA_OLoRA_Trainer(
-            model=model,
-            args=training_args,
-            train_dataset=train_dataset if training_args.do_train else None,
-            cur_task_id=cur_task_id,
-            task_order=task_order,
-            data_collator_replay=data_collator_replay,
-            replay_dataset_dict=replay_dataset_dict,
-            replay_label_dict=replay_label_dict,
-            eval_dataset=eval_dataset if training_args.do_eval else None,
-            tokenizer=tokenizer,
-            data_collator=data_collator,
-            compute_metrics=compute_rouge_metrics,
-            callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
-        )
-        if training_args.do_train:
-            trainer.get_reg_matrix()
-    elif training_args.model_name == 'inflora':
-        from cl_trainer_inflora import InfLoRATrainer
-        trainer = InfLoRATrainer(
-            model=model,
-            args=training_args,
-            train_dataset=train_dataset if training_args.do_train else None,
-            cur_task_id=cur_task_id,
-            task_order=task_order,
-            data_collator_replay=data_collator_replay,
-            replay_dataset_dict=replay_dataset_dict,
-            replay_label_dict=replay_label_dict,
-            eval_dataset=eval_dataset if training_args.do_eval else None,
-            tokenizer=tokenizer,
-            data_collator=data_collator,
-            compute_metrics=compute_rouge_metrics,
-            callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
-        )
-        if training_args.do_train:
-            trainer.get_reg_matrix()
-    elif training_args.model_name == 'olora':
-        from cl_trainer_olora import OLoRATrainer
-        trainer = OLoRATrainer(
-            model=model,
-            args=training_args,
-            train_dataset=train_dataset if training_args.do_train else None,
-            cur_task_id=cur_task_id,
-            task_order=task_order,
-            data_collator_replay=data_collator_replay,
-            replay_dataset_dict=replay_dataset_dict,
-            replay_label_dict=replay_label_dict,
-            eval_dataset=eval_dataset if training_args.do_eval else None,
-            tokenizer=tokenizer,
-            data_collator=data_collator,
-            compute_metrics=compute_rouge_metrics,
-            callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
-        )
     else:
-        raise NotImplementedError
+        raise NotImplementedError(f"Unknown model_name: {training_args.model_name}")
 
     trainer.is_deepspeed_enabled = False
     print("is_deepspeed_enabled", trainer.is_deepspeed_enabled)
@@ -1066,13 +996,11 @@ def main():
                 pass
 
         if not prompt_config["run_single"]:
-            if training_args.model_name in ['gainlora_inflora', 'gainlora_olora']:
-                # Save previous_trans_input (needed for both SRT and non-SRT:
-                # SRT still uses previous_trans_input for feature extraction before overriding routing)
-                if prompt_config["previous_prompt_key_path"] is not None:
-                    previous_trans_input = deepcopy(trainer.model.encoder.previous_trans_input.state_dict())
-                    torch.save(previous_trans_input, os.path.join(save_path, 'previous_trans_input.pt'))
-                torch.save(trainer.model.encoder.trans_input.state_dict(), os.path.join(save_path, 'trans_input.pt'))
+            # Save previous_trans_input (needed for both SRT and non-SRT)
+            if prompt_config["previous_prompt_key_path"] is not None:
+                previous_trans_input = deepcopy(trainer.model.encoder.previous_trans_input.state_dict())
+                torch.save(previous_trans_input, os.path.join(save_path, 'previous_trans_input.pt'))
+            torch.save(trainer.model.encoder.trans_input.state_dict(), os.path.join(save_path, 'trans_input.pt'))
 
         if prompt_config["previous_prompt_key_path"] is not None:
             torch.save(lora_state_dict_A(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_A.pt'))
@@ -1098,13 +1026,8 @@ def main():
         logger.info(f"Metrics {metrics}")
         all_metrics.update(metrics)
 
-        # C2: GPM representation no longer needed (removed InfLoRA null-space + GPM)
-        # Only keep for non-gainlora_inflora models that still use GPM
-        if training_args.model_name in ['inflora', 'gainlora_olora']:
-            trainer.get_repsentation()
-
         # SRT: compute and store statistical signature AFTER training this task
-        if training_args.model_name == 'gainlora_inflora':
+        if training_args.model_name == 'gainlora':
             if hasattr(trainer, 'on_task_end'):
                 trainer.on_task_end(task_order[cur_task_id])
             if hasattr(trainer, 'save_srt_signatures'):

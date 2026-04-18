@@ -25,7 +25,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from typing import Dict, Union, Any, Tuple, List, Optional
 
-from cl_trainer_gainlora_inflora import GainLoRA_InfLoRA_Trainer
+from cl_trainer_gainlora import GainLoRATrainer
 
 try:
     from srt_router import SRTRouter, TaskSignature
@@ -127,11 +127,11 @@ def extract_embeddings_from_batch(model, inputs: Dict) -> torch.Tensor:
 #  SRT TRAINER
 # ─────────────────────────────────────────────────────────────────────────────
 
-class SRT_Trainer(GainLoRA_InfLoRA_Trainer):
+class SRT_Trainer(GainLoRATrainer):
     """
     GainLoRA + SRT Router.
 
-    Changes from GainLoRA_InfLoRA_Trainer:
+    Changes from GainLoRATrainer:
       1. After training task t: extract embeddings → compute {μ_t, Σ_t}
       2. Store in SRTRouter (zero-rehearsal compliant)
       3. At inference: SRT router replaces attention-based routing

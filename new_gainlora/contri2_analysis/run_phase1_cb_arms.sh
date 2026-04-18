@@ -101,7 +101,7 @@ run_cb_arm() {
        --kl_ratio 0.1 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        --sgwi_mode $SGWI_MODE \

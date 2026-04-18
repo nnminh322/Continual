@@ -50,7 +50,7 @@ from cl_collator import DataCollator
 from cl_dataset import gen_cache_path
 from assets import task_config, lora_state_dict_A, lora_state_dict_B, lora_state_dict_s
 
-from cl_trainer_gainlora_inflora_llama import DenserEvalCallback, skip_instructions
+from cl_trainer_gainlora_llama import DenserEvalCallback, skip_instructions
 from compute_metrics import compute_metrics, compute_grouped_metrics
 
 import ipdb
@@ -524,9 +524,9 @@ def main():
             from llama_3_inflora import LlamaForCausalLM
         else:
             raise NotImplementedError
-    elif training_args.model_name in ['gainlora_inflora', 'gainlora_olora']:
+    elif training_args.model_name in ['gainlora', 'gainlora']:
         if 'llama-2' in  model_args.model_name_or_path.lower():
-            from llama_gainlora_inflora import LlamaForCausalLM
+            from llama_gainlora import LlamaForCausalLM
         elif 'llama-3' in model_args.model_name_or_path.lower():
             from llama_3_inflorap1 import LlamaForCausalLM
         else:
@@ -580,7 +580,7 @@ def main():
     #     use_auth_token=True if model_args.use_auth_token else None,
     #     use_safetensors=True,
     # )
-    # if training_args.model_name in ['inflora', 'gainlora_inflora']:
+    # if training_args.model_name in ['inflora', 'gainlora']:
     #     model.bfloat16().to(torch.device(f"cuda:{int(os.environ['LOCAL_RANK'])}"))
 
     # ipdb.set_trace()
@@ -596,7 +596,7 @@ def main():
         model.model.load_checkpoint_from = model_args.load_checkpoint_from
         print("----------Loading Previous Query Projection Layer----------")
         model.model.trans_input.load_state_dict(torch.load(model_args.load_checkpoint_from))
-        if training_args.model_name in ['gainlora_inflora', 'gainlora_olora']:
+        if training_args.model_name in ['gainlora', 'gainlora']:
             model.model.previous_trans_input.input_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from)['0.weight'])
             model.model.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from)['1.weight'])
             # ipdb.set_trace()
@@ -629,11 +629,11 @@ def main():
                 )
     
     for name, param in model.named_parameters():
-        if  training_args.model_name in ['olora', 'gainlora_olora']:
+        if  training_args.model_name in ['olora', 'gainlora']:
             param.requires_grad = False
             if ("lora" in name and "previous_lora_weights" not in name) or ("trans_input" in name and "previous_trans_input" not in name) or "prompt_key" in name:
                 param.requires_grad = True
-        elif training_args.model_name in ['inflora', 'gainlora_inflora']:
+        elif training_args.model_name in ['inflora', 'gainlora']:
             param.requires_grad = False
             if ("lora_B" in name and "previous_lora_weights" not in name) or ("trans_input" in name and "previous_trans_input" not in name) or "prompt_key" in name:
                 param.requires_grad = True
@@ -788,13 +788,13 @@ def main():
     training_args.eval_steps = training_args.eval_every_n_epoch * training_args.step_per_epoch
     training_args.save_steps = training_args.eval_every_n_epoch * training_args.step_per_epoch
 
-    if training_args.model_name in ['inflora', 'gainlora_inflora']:
+    if training_args.model_name in ['inflora', 'gainlora']:
         for module in model.modules():
             if hasattr(module, 'get_feature'):
                 module.get_chunk(training_args.chunk)
-        if training_args.model_name in ['gainlora_inflora']:
+        if training_args.model_name in ['gainlora']:
             model.model.get_chunk(training_args.chunk)
-    elif training_args.model_name in ['gainlora_olora']:
+    elif training_args.model_name in ['gainlora']:
         model.model.get_chunk(training_args.chunk)
     if training_args.model_name == 'olora':
         if 'llama-2' in model_args.model_name_or_path.lower():
@@ -818,11 +818,11 @@ def main():
             compute_metrics=compute_rouge_metrics,
             callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
         )
-    elif training_args.model_name == 'gainlora_olora':
+    elif training_args.model_name == 'gainlora':
         if 'llama-2' in model_args.model_name_or_path.lower():
-            from cl_trainer_gainlora_olora_llama import GainLoRA_OLoRA_Trainer
+            from cl_trainer_gainlora_llama import GainLoRA_OLoRA_Trainer
         elif 'llama-3' in model_args.model_name_or_path.lower():
-            from cl_trainer_gainlora_olora_llama3 import GainLoRA_OLoRA_Trainer
+            from cl_trainer_gainlora_llama3 import GainLoRA_OLoRA_Trainer
         else:
             raise NotImplementedError
         trainer = GainLoRA_OLoRA_Trainer(
@@ -867,11 +867,11 @@ def main():
         )
         if training_args.do_train:
             trainer.get_reg_matrix()
-    elif training_args.model_name == 'gainlora_inflora':
+    elif training_args.model_name == 'gainlora':
         if 'llama-3' in model_args.model_name_or_path.lower():
-            from cl_trainer_gainlora_inflora_llama3 import GainLoRA_InfLoRA_Trainer
+            from cl_trainer_gainlora_llama3 import GainLoRATrainer
         elif 'llama-2' in model_args.model_name_or_path.lower():
-            from cl_trainer_gainlora_inflora_llama import GainLoRA_InfLoRA_Trainer
+            from cl_trainer_gainlora_llama import GainLoRATrainer
         else:
             raise NotImplementedError
 
@@ -904,7 +904,7 @@ def main():
                   f"shrink={training_args.srt_shrink}, "
                   f"skip_forward={training_args.srt_skip_forward}, encoder_frozen=attached)")
         else:
-            trainer = GainLoRA_InfLoRA_Trainer(
+            trainer = GainLoRATrainer(
                 model=model,
                 args=training_args,
                 train_dataset=train_dataset if training_args.do_train else None,
@@ -949,7 +949,7 @@ def main():
             is_main_process = 1
 
         if is_main_process:
-            if training_args.model_name in ['gainlora_inflora', 'gainlora_olora'] and prompt_config["previous_prompt_key_path"] is not None:
+            if training_args.model_name in ['gainlora', 'gainlora'] and prompt_config["previous_prompt_key_path"] is not None:
                 previous_trans_input = deepcopy(trainer.model.model.previous_trans_input.state_dict())
                 torch.save(previous_trans_input, os.path.join(save_path, 'previous_trans_input.pt'))
 
@@ -978,7 +978,7 @@ def main():
         logger.info(f"Metrics {metrics}")
         all_metrics.update(metrics)
 
-        if training_args.model_name in ['inflora', 'gainlora_inflora', 'gainlora_olora']:
+        if training_args.model_name in ['inflora', 'gainlora', 'gainlora']:
             trainer.get_repsentation()
 
     # Evaluation
@@ -1026,7 +1026,7 @@ def main():
                 pickle.dump(np.array(trainer.model.model.all_attn_weights).mean(axis=0), f)
 
 
-        if training_args.model_name in ['gainlora_inflora', 'gainlora_olora']:
+        if training_args.model_name in ['gainlora', 'gainlora']:
             trainer.model.model.is_inference = True
             all_task_accs = []
             all_group_accs = []

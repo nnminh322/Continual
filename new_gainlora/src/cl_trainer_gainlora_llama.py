@@ -19,14 +19,8 @@ from cl_dataset import ANSWER_PREFIX
 import cupy as cp
 from torch.utils.dlpack import to_dlpack, from_dlpack
 from cupy import fromDlpack
-
-# from t5_olora import T5Attention
-from llama_gainlora_inflora import LlamaAttention
-# from llama13b_inflorap1 import LlamaFlashAttention2
-# from llama13b_inflorap1_1 import LlamaFlashAttention2 as LlamaFlashAttention2_1
 import ipdb
 from copy import deepcopy
-
 
 # Compat: ShardedDDPOption removed in transformers >= 4.40
 try:
@@ -97,7 +91,7 @@ class DenserEvalCallback(TrainerCallback):
         return control
 
 
-class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
+class GainLoRATrainer(Seq2SeqTrainer):
 
     def __init__(self, model, args, train_dataset, cur_task_id, task_order, data_collator_replay=None, replay_dataset_dict=None, replay_label_dict=None, eval_dataset=None, tokenizer=None, data_collator=None, compute_metrics=None, callbacks=None):
         super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, tokenizer=tokenizer, data_collator=data_collator, compute_metrics=compute_metrics, callbacks=callbacks)
@@ -126,7 +120,7 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
                         pin_memory=False,
                         worker_init_fn=seed_worker)
             self.replay_iterator_dict = create_memory_replay_generators(task_order[cur_task_id], task_order, self.replay_dataloader_dict)
-
+    
     def load_previous_reg_matrix(self):
         paths = self.args.output_dir.split('/')
         log_path = ""
@@ -141,10 +135,10 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
             if not os.path.isdir(os.path.join(log_path, all_dir)): continue
             if eval(all_dir.split('-')[0]) == eval(local_dir.split('-')[0])-1: 
                 i = 0
-                # for module in self.model.modules():
-                #     if hasattr(module, 'get_feature'):
-                #         reg_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir), "reg_{}.pt".format(i))))
-                #         i += 1
+                for module in self.model.modules():
+                    if hasattr(module, 'get_feature'):
+                        reg_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir), "reg_{}.pt".format(i))))
+                        i += 1
                 reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_0.pt")))
                 reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_1.pt")))
                 reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_2.pt")))
@@ -160,12 +154,56 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
         # if self.args.lamda_1 <= 1e-6:
         #     return
         self.feature_list, self.feature_trans_list, self._cur_task = self.load_previous_reg_matrix()
-        if len(self.feature_trans_list) == 0:
+        if len(self.feature_list) == 0:
             return
 
-        local_rank = int(os.environ['LOCAL_RANK'])
-        device = torch.device(f"cuda:{local_rank}")
+        self.feature_mat, i = [], 0
+        for name, module in self.model.named_modules():
+            if hasattr(module, 'get_feature'):
+        # for i in range(len(merged_reg_matrixs)):
+                local_rank = int(os.environ['LOCAL_RANK'])
+                device = torch.device(f"cuda:{local_rank}")
+
+                feature_mat = {}
+                for index in self.feature_list[i].keys():
+                    feature_mat[index] = torch.zeros(self.feature_list[i][index].shape[0], self.feature_list[i][index].shape[0]).to(device).contiguous()
+                # Projection Matrix Precomputation
+                for index in self.feature_list[i].keys():
+                    if dist.get_rank() == 0:
+                        # device = torch.device(f"cuda:{0}")
+                        # print(torch.from_numpy(np.dot(self.feature_list[i][index], self.feature_list[i][index].T)).to("cuda:0"))
+                        # print()
+                        # print((self.feature_list[i][index]**2).sum(axis=0))
+                        feature_mat_list = [torch.mm(self.feature_list[i][index], self.feature_list[i][index].T).to("cuda:0") for _ in range(dist.get_world_size())]
+                    else:
+                        feature_mat_list = None
+                    dist.scatter(feature_mat[index], feature_mat_list, src=0)
+                self.feature_mat.append(feature_mat)
+                # print(feature_mat)
+                # print(np.sum(self.feature_list[i]**2,axis=0))
+                # exit()
+                for index in self.feature_list[i].keys():
+                    # pre = deepcopy(module.loranew_A[module.active_adapter].weight.data[:,index*module.step:(index+1)*module.step])
+                    # print(index*module.step, (index+1)*module.step)
+                    # print(feature_mat[index])
+                    # print()
+                    # print(torch.mm(module.loranew_A[module.active_adapter].weight[:,index*module.step:(index+1)*module.step].data,feature_mat[index].cpu()))
+                    # print()
+                    module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step].copy_(module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step] - torch.mm(module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step], feature_mat[index].cpu()))
+                    module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step].copy_(module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step] - torch.mm(module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step], feature_mat[index].cpu()))
+                module.lora_q.lora_A.data /= (math.sqrt(3) * module.lora_q.lora_A.data.norm(dim=1,keepdim=True))
+                module.lora_v.lora_A.data /= (math.sqrt(3) * module.lora_v.lora_A.data.norm(dim=1,keepdim=True))
+                    # print(pre - module.loranew_A[module.active_adapter].weight.data[:,index*module.step:(index+1)*module.step])
+                    # print()
+                # for index in self.feature_list[i].keys():
+                #     print(torch.mm(module.loranew_A[module.active_adapter].weight[:,index*module.step:(index+1)*module.step].data,feature_mat[index].cpu()))
+                #     print()
+                # exit()
+                i += 1
+
+
         self.feature_trans_mat = []
+        # ipdb.set_trace()
         feature_trans_mat = {}
         for index in self.feature_trans_list[0].keys():
             feature_trans_mat[index] = torch.zeros(self.feature_trans_list[0][index].shape[0], self.feature_trans_list[0][index].shape[0]).to(device).contiguous()
@@ -239,10 +277,10 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
         elif hasattr(train_dataloader, "dataset") and isinstance(train_dataloader.dataset, IterableDatasetShard):
             train_dataloader.dataset.set_epoch(1998)
 
-        # for name, module in self.model.named_modules():
-        #     if hasattr(module, 'get_feature'):
-        #         module.get_feature=True
-        #         module.stage = 0
+        for name, module in self.model.named_modules():
+            if hasattr(module, 'get_feature'):
+                module.get_feature=True
+                module.stage = 0
         self.model.model.get_trans_feature = True
         self.model.model.stage_trans = 0
 
@@ -266,29 +304,27 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
 
 
         mat_list, mat_trans_list = [], []
-        # for name, module in self.model.named_modules():
-        #     if hasattr(module, 'get_feature'):
-        #         # # 创建一个 CPU 上的张量，在每个进程中填充不同的值
-        #         cur_device = module.lora_q.lora_A.device
-        #         merged_tensor = {}
-        #         for index in range(module.index):
-        #             if dist.get_rank() == 0:
-        #                 # 收集数据到主进程
-        #                 gathered_tensors = [torch.zeros(*module.matrix[index].shape, device=cur_device) for _ in range(dist.get_world_size())]
-        #             else:
-        #                 gathered_tensors = None
-        #             dist.gather(module.matrix[index].to(cur_device).float(), gathered_tensors, dst=0)  # 在每个进程上收集数据
-        #             # 在主进程上合并数据
-        #             if dist.get_rank() == 0:  # 主进程合并数据
-        #                 merged_tensor_ = torch.stack(gathered_tensors, dim=0).mean(dim=0)
-        #                 merged_tensor[index] = merged_tensor_
-        #         if dist.get_rank() == 0:
-        #             mat_list.append(merged_tensor)
-        #         module.get_feature=False
-        #         module.stage = 0
+        for name, module in self.model.named_modules():
+            if hasattr(module, 'get_feature'):
+                # # 创建一个 CPU 上的张量，在每个进程中填充不同的值
+                cur_device = module.lora_q.lora_A.device
+                merged_tensor = {}
+                for index in range(module.index):
+                    if dist.get_rank() == 0:
+                        # 收集数据到主进程
+                        gathered_tensors = [torch.zeros(*module.matrix[index].shape, device=cur_device) for _ in range(dist.get_world_size())]
+                    else:
+                        gathered_tensors = None
+                    dist.gather(module.matrix[index].to(cur_device).float(), gathered_tensors, dst=0)  # 在每个进程上收集数据
+                    # 在主进程上合并数据
+                    if dist.get_rank() == 0:  # 主进程合并数据
+                        merged_tensor_ = torch.stack(gathered_tensors, dim=0).mean(dim=0)
+                        merged_tensor[index] = merged_tensor_
+                if dist.get_rank() == 0:
+                    mat_list.append(merged_tensor)
+                module.get_feature=False
+                module.stage = 0
         
-        local_rank = int(os.environ['LOCAL_RANK'])
-        cur_device = torch.device(f"cuda:{local_rank}")
         merged_trans_tensor = {}
         for index in range(self.model.model.index):
             if dist.get_rank() == 0:
@@ -340,21 +376,21 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
             threshold = (1.0 - self.args.threshold)*self._cur_task/total_sessions + self.args.threshold
             transthreshold = (1.0 - self.args.transthreshold)*self._cur_task/total_sessions + self.args.transthreshold
             # threshold = self.args.threshold
-            print ('Threshold: ', threshold) 
-            if len(self.feature_trans_list) == 0:
-                # for i in range(len(mat_list)):
-                #     activation = mat_list[i]
-                #     feature = {}
-                #     for index in activation.keys():
-                #         U,S,Vh = cp.linalg.svd(fromDlpack(to_dlpack(activation[index])), full_matrices=False)
-                #         U = from_dlpack(U.toDlpack())
-                #         S = from_dlpack(S.toDlpack())
-                #         # criteria (Eq-5)
-                #         sval_total = (S**2).sum()
-                #         sval_ratio = (S**2)/sval_total
-                #         r = torch.sum(torch.cumsum(sval_ratio, dim=0)<threshold) #+1  
-                #         feature[index] = U[:,0:max(r,1)]
-                #     self.feature_list.append(feature)
+            print ('Threshold: ', threshold, transthreshold)
+            if len(self.feature_list) == 0:
+                for i in range(len(mat_list)):
+                    activation = mat_list[i]
+                    feature = {}
+                    for index in activation.keys():
+                        U,S,Vh = cp.linalg.svd(fromDlpack(to_dlpack(activation[index])), full_matrices=False)
+                        U = from_dlpack(U.toDlpack())
+                        S = from_dlpack(S.toDlpack())
+                        # criteria (Eq-5)
+                        sval_total = (S**2).sum()
+                        sval_ratio = (S**2)/sval_total
+                        r = torch.sum(torch.cumsum(sval_ratio, dim=0)<threshold) #+1  
+                        feature[index] = U[:,0:max(r,1)]
+                    self.feature_list.append(feature)
 
                 for i in range(3):
                     if i == 1: continue
@@ -382,40 +418,40 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
                 feature_trans = U[:,0:max(r,1)]
                 self.feature_trans_list = self.feature_trans_list[:1] + [feature_trans] + self.feature_trans_list[1:]
             else:
-                # for i in range(len(mat_list)):
-                #     activation = mat_list[i]
-                #     feature = {}
-                #     for index in activation.keys():
-                #         U1,S1,Vh1=cp.linalg.svd(fromDlpack(to_dlpack(activation[index])), full_matrices=False)
-                #         # S1 = from_dlpack(S1.toDlpack())
-                #         sval_total = (S1**2).sum()
-                #         # Projected Representation (Eq-8)
-                #         act_hat = fromDlpack(to_dlpack(activation[index])) - cp.dot(cp.dot(fromDlpack(to_dlpack(self.feature_list[i][index])),fromDlpack(to_dlpack(self.feature_list[i][index].T))),fromDlpack(to_dlpack(activation[index])))
-                #         U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
-                #         # criteria (Eq-9)
-                #         sval_hat = (S**2).sum()
-                #         sval_ratio = (S**2)/sval_total               
-                #         accumulated_sval = (sval_total-sval_hat)/sval_total
+                for i in range(len(mat_list)):
+                    activation = mat_list[i]
+                    feature = {}
+                    for index in activation.keys():
+                        U1,S1,Vh1=cp.linalg.svd(fromDlpack(to_dlpack(activation[index])), full_matrices=False)
+                        # S1 = from_dlpack(S1.toDlpack())
+                        sval_total = (S1**2).sum()
+                        # Projected Representation (Eq-8)
+                        act_hat = fromDlpack(to_dlpack(activation[index])) - cp.dot(cp.dot(fromDlpack(to_dlpack(self.feature_list[i][index])),fromDlpack(to_dlpack(self.feature_list[i][index].T))),fromDlpack(to_dlpack(activation[index])))
+                        U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
+                        # criteria (Eq-9)
+                        sval_hat = (S**2).sum()
+                        sval_ratio = (S**2)/sval_total               
+                        accumulated_sval = (sval_total-sval_hat)/sval_total
                     
-                #         r = 0
-                #         for ii in range (sval_ratio.shape[0]):
-                #             if accumulated_sval < threshold:
-                #                 accumulated_sval += sval_ratio[ii]
-                #                 r += 1
-                #             else:
-                #                 break
-                #         if r == 0:
-                #             print ('Skip Updating GPM for layer: {}'.format(i+1)) 
-                #             continue
-                #         # update GPM
-                #         Ui=cp.hstack((fromDlpack(to_dlpack(self.feature_list[i][index])),U[:,0:r]))  
+                        r = 0
+                        for ii in range (sval_ratio.shape[0]):
+                            if accumulated_sval < threshold:
+                                accumulated_sval += sval_ratio[ii]
+                                r += 1
+                            else:
+                                break
+                        if r == 0:
+                            print ('Skip Updating GPM for layer: {}'.format(i+1)) 
+                            continue
+                        # update GPM
+                        Ui=cp.hstack((fromDlpack(to_dlpack(self.feature_list[i][index])),U[:,0:r]))  
 
-                #         # import ipdb
-                #         # ipdb.set_trace()
-                #         if Ui.shape[1] > Ui.shape[0]:
-                #             self.feature_list[i][index]=from_dlpack(Ui[:,0:Ui.shape[0]].toDlpack())
-                #         else:
-                #             self.feature_list[i][index]=from_dlpack(Ui.toDlpack())
+                        # import ipdb
+                        # ipdb.set_trace()
+                        if Ui.shape[1] > Ui.shape[0]:
+                            self.feature_list[i][index]=from_dlpack(Ui[:,0:Ui.shape[0]].toDlpack())
+                        else:
+                            self.feature_list[i][index]=from_dlpack(Ui.toDlpack())
         
 
                 # ipdb.set_trace()
@@ -453,7 +489,6 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
                             self.feature_trans_list[i][index]=from_dlpack(Ui[:,0:Ui.shape[0]].toDlpack())
                         else:
                             self.feature_trans_list[i][index]=from_dlpack(Ui.toDlpack())
-                # ipdb.set_trace()
 
                 activation_trans = mat_trans_list[1]
                 feature_trans = {}
@@ -489,17 +524,17 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
                         self.feature_trans_list[1]=from_dlpack(Ui.toDlpack())
 
 
-            # print('-'*40)
-            # print('Gradient Constraints Summary')
-            # print('-'*40)
-            # for i in range(len(self.feature_list)):
-            #     for index in range(self.args.chunk):
-            #         print ('Layer {} Index {} : {}/{}'.format(i+1, index+1, self.feature_list[i][index].shape[1], self.feature_list[i][index].shape[0]))
-            # print('-'*40)  
+            print('-'*40)
+            print('Gradient Constraints Summary')
+            print('-'*40)
+            for i in range(len(self.feature_list)):
+                for index in range(self.args.chunk):
+                    print ('Layer {} Index {} : {}/{}'.format(i+1, index+1, self.feature_list[i][index].shape[1], self.feature_list[i][index].shape[0]))
+            print('-'*40)  
 
-            # for i in range(len(self.feature_list)):
-            #     torch.save(self.feature_list[i], os.path.join(self.args.output_dir, 'reg_{}.pt'.format(i)))
-        # ipdb.set_trace()
+            for i in range(len(self.feature_list)):
+                torch.save(self.feature_list[i], os.path.join(self.args.output_dir, 'reg_{}.pt'.format(i)))
+
             os.makedirs(os.path.join(self.args.output_dir, 'trans_input'), exist_ok=True)
             for i in range(len(self.feature_trans_list)):
                 torch.save(self.feature_trans_list[i], os.path.join(self.args.output_dir, 'trans_input', 'reg_{}.pt'.format(i)))
@@ -550,31 +585,6 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
             # deepspeed handles loss scaling by gradient_accumulation_steps in its `backward`
             loss = loss / self.args.gradient_accumulation_steps
         
-
-
-        ########################### Regularization ##########################
-        orthogonal_loss = 0.
-        l2_loss = 0.
-        for module in self.model.modules():
-            if isinstance(module, LlamaAttention):
-                if module.previous_lora_weights_q is not None:
-                    for t in range(len(module.previous_lora_weights_q)):
-                        orthogonal_loss += torch.abs(torch.mm(module.previous_lora_weights_q[t].lora_A, module.lora_q.lora_A.T)).sum()
-
-                        orthogonal_loss += torch.abs(torch.mm(module.previous_lora_weights_v[t].lora_A, module.lora_v.lora_A.T)).sum()
-
-                l2_loss += torch.norm(module.lora_q.lora_A, p=2)
-                l2_loss += torch.norm(module.lora_q.lora_B, p=2)
-                l2_loss += torch.norm(module.lora_v.lora_A, p=2)
-                l2_loss += torch.norm(module.lora_v.lora_B, p=2)
-
-        lambda1 = self.args.lambda1
-        lambda2 = self.args.lambda2
-
-        loss = loss + orthogonal_loss * lambda1 + l2_loss * lambda2
-        ######################################################################
-
-
         if getattr(self, 'do_grad_scaling', False):
             self.scaler.scale(loss).backward()
         elif getattr(self, 'use_apex', False):
@@ -644,7 +654,6 @@ class GainLoRA_OLoRA_Trainer(Seq2SeqTrainer):
         Trainer's init through `optimizers`, or subclass and override this method in a subclass.
         """
         opt_model = self.model_wrapped if is_sagemaker_mp_enabled() else self.model
-        # ipdb.set_trace()
         
         if self.optimizer is None:
             if self.args.attn_lr == 0:

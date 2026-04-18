@@ -79,7 +79,7 @@ else
        --kl_ratio 0.5 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        $FP16_FLAG \
@@ -135,7 +135,7 @@ else
        --kl_ratio 0.5 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        $FP16_FLAG \
@@ -192,7 +192,7 @@ else
        --kl_ratio 0.5 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        $FP16_FLAG \
@@ -249,7 +249,7 @@ else
        --kl_ratio 0.5 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        $FP16_FLAG \
@@ -306,7 +306,7 @@ else
        --kl_ratio 0.5 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        $FP16_FLAG \
@@ -363,7 +363,7 @@ else
        --kl_ratio 0.5 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        $FP16_FLAG \
@@ -420,7 +420,7 @@ else
        --kl_ratio 0.5 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        $FP16_FLAG \
@@ -477,7 +477,7 @@ else
        --kl_ratio 0.5 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        $FP16_FLAG \
@@ -534,7 +534,7 @@ else
        --kl_ratio 0.5 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        $FP16_FLAG \
@@ -591,7 +591,7 @@ else
        --kl_ratio 0.5 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        $FP16_FLAG \
@@ -648,7 +648,7 @@ else
        --kl_ratio 0.5 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        $FP16_FLAG \
@@ -705,7 +705,7 @@ else
        --kl_ratio 0.5 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        $FP16_FLAG \
@@ -762,7 +762,7 @@ else
        --kl_ratio 0.5 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        $FP16_FLAG \
@@ -819,7 +819,7 @@ else
        --kl_ratio 0.5 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        $FP16_FLAG \
@@ -876,7 +876,7 @@ else
        --kl_ratio 0.5 \
        --attn_temperature 1 \
        --mlp_hidden_dim 100 \
-       --model_name gainlora_inflora \
+       --model_name gainlora \
        --threshold 0.995 \
        --transthreshold 0.995 \
        $FP16_FLAG \

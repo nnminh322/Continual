@@ -101,7 +101,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -158,7 +158,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -216,7 +216,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -274,7 +274,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -332,7 +332,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -390,7 +390,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -448,7 +448,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -506,7 +506,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -564,7 +564,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -622,7 +622,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -680,7 +680,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -738,7 +738,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -796,7 +796,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -854,7 +854,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \
@@ -912,7 +912,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --add_instruction_replay \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --model_name gainlora_inflora \
+   --model_name gainlora \
    --mlp_hidden_dim 100 \
    --threshold 0.995 \
    --transthreshold 0.995 \

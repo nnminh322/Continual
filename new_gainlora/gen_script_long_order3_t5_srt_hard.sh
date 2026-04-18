@@ -71,7 +71,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
      --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --add_instruction_replay --data_replay_freq -1 --replay_after_n_epoch 0 \
-    --mlp_hidden_dim 100 --model_name gainlora_inflora \
+    --mlp_hidden_dim 100 --model_name gainlora \
     --threshold 0.995 --transthreshold 0.995 \
     $FP16_FLAG $SRT_FLAGS
 
@@ -113,7 +113,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
      --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
-    --mlp_hidden_dim 100 --model_name gainlora_inflora \
+    --mlp_hidden_dim 100 --model_name gainlora \
     --threshold 0.995 --transthreshold 0.995 \
     $FP16_FLAG $SRT_FLAGS \
     --srt_load_path logs_and_outputs/long_order3_t5_srt_hard/outputs/1-yelp/saved_weights
@@ -156,7 +156,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
      --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
-    --mlp_hidden_dim 100 --model_name gainlora_inflora \
+    --mlp_hidden_dim 100 --model_name gainlora \
     --threshold 0.995 --transthreshold 0.995 \
     $FP16_FLAG $SRT_FLAGS \
     --srt_load_path logs_and_outputs/long_order3_t5_srt_hard/outputs/2-amazon/saved_weights
@@ -199,7 +199,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
      --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
-    --mlp_hidden_dim 100 --model_name gainlora_inflora \
+    --mlp_hidden_dim 100 --model_name gainlora \
     --threshold 0.995 --transthreshold 0.995 \
     $FP16_FLAG $SRT_FLAGS \
     --srt_load_path logs_and_outputs/long_order3_t5_srt_hard/outputs/3-mnli/saved_weights
@@ -242,7 +242,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
      --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
-    --mlp_hidden_dim 100 --model_name gainlora_inflora \
+    --mlp_hidden_dim 100 --model_name gainlora \
     --threshold 0.995 --transthreshold 0.995 \
     $FP16_FLAG $SRT_FLAGS \
     --srt_load_path logs_and_outputs/long_order3_t5_srt_hard/outputs/4-cb/saved_weights
@@ -285,7 +285,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
      --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
-    --mlp_hidden_dim 100 --model_name gainlora_inflora \
+    --mlp_hidden_dim 100 --model_name gainlora \
     --threshold 0.995 --transthreshold 0.995 \
     $FP16_FLAG $SRT_FLAGS \
     --srt_load_path logs_and_outputs/long_order3_t5_srt_hard/outputs/5-copa/saved_weights
@@ -328,7 +328,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
      --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
-    --mlp_hidden_dim 100 --model_name gainlora_inflora \
+    --mlp_hidden_dim 100 --model_name gainlora \
     --threshold 0.995 --transthreshold 0.995 \
     $FP16_FLAG $SRT_FLAGS \
     --srt_load_path logs_and_outputs/long_order3_t5_srt_hard/outputs/6-qqp/saved_weights
@@ -371,7 +371,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
      --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
-    --mlp_hidden_dim 100 --model_name gainlora_inflora \
+    --mlp_hidden_dim 100 --model_name gainlora \
     --threshold 0.995 --transthreshold 0.995 \
     $FP16_FLAG $SRT_FLAGS \
     --srt_load_path logs_and_outputs/long_order3_t5_srt_hard/outputs/7-rte/saved_weights
@@ -414,7 +414,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
      --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
-    --mlp_hidden_dim 100 --model_name gainlora_inflora \
+    --mlp_hidden_dim 100 --model_name gainlora \
     --threshold 0.995 --transthreshold 0.995 \
     $FP16_FLAG $SRT_FLAGS \
     --srt_load_path logs_and_outputs/long_order3_t5_srt_hard/outputs/8-imdb/saved_weights
@@ -457,7 +457,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
      --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
-    --mlp_hidden_dim 100 --model_name gainlora_inflora \
+    --mlp_hidden_dim 100 --model_name gainlora \
     --threshold 0.995 --transthreshold 0.995 \
     $FP16_FLAG $SRT_FLAGS \
     --srt_load_path logs_and_outputs/long_order3_t5_srt_hard/outputs/9-sst2/saved_weights
@@ -500,7 +500,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
      --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
-    --mlp_hidden_dim 100 --model_name gainlora_inflora \
+    --mlp_hidden_dim 100 --model_name gainlora \
     --threshold 0.995 --transthreshold 0.995 \
     $FP16_FLAG $SRT_FLAGS \
     --srt_load_path logs_and_outputs/long_order3_t5_srt_hard/outputs/10-dbpedia/saved_weights
@@ -543,7 +543,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
      --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
-    --mlp_hidden_dim 100 --model_name gainlora_inflora \
+    --mlp_hidden_dim 100 --model_name gainlora \
     --threshold 0.995 --transthreshold 0.995 \
     $FP16_FLAG $SRT_FLAGS \
     --srt_load_path logs_and_outputs/long_order3_t5_srt_hard/outputs/11-agnews/saved_weights
@@ -586,7 +586,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
      --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
-    --mlp_hidden_dim 100 --model_name gainlora_inflora \
+    --mlp_hidden_dim 100 --model_name gainlora \
     --threshold 0.995 --transthreshold 0.995 \
     $FP16_FLAG $SRT_FLAGS \
     --srt_load_path logs_and_outputs/long_order3_t5_srt_hard/outputs/12-yahoo/saved_weights
@@ -629,7 +629,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
      --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
-    --mlp_hidden_dim 100 --model_name gainlora_inflora \
+    --mlp_hidden_dim 100 --model_name gainlora \
     --threshold 0.995 --transthreshold 0.995 \
     $FP16_FLAG $SRT_FLAGS \
     --srt_load_path logs_and_outputs/long_order3_t5_srt_hard/outputs/13-multirc/saved_weights
@@ -672,7 +672,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
     --evaluation_strategy steps --save_strategy best --save_total_limit 1 \
      --lora_r 8 --lora_alpha 32 --lora_dropout 0.0 \
     --data_replay_freq -1 --kl_ratio 0.1 --attn_temperature 1 \
-    --mlp_hidden_dim 100 --model_name gainlora_inflora \
+    --mlp_hidden_dim 100 --model_name gainlora \
     --threshold 0.995 --transthreshold 0.995 \
     $FP16_FLAG $SRT_FLAGS \
     --srt_load_path logs_and_outputs/long_order3_t5_srt_hard/outputs/14-boolq/saved_weights

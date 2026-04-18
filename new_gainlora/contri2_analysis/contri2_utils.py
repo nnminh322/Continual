@@ -17,12 +17,12 @@ Exports:
   train_lora_isolated : few-shot isolated training loop
 
 ────────────────────────────────────────────────────────────────
- LoRA Architecture (from t5_gainlora_inflora.py):
+ LoRA Architecture (from t5_gainlora.py):
    LoRALayer:  lora_A ∈ ℝ^{r×d},  lora_B ∈ ℝ^{d×r}
                ΔW = B @ A  ∈ ℝ^{d×d}
                rank(A)=rank(B)=r (LoRA rank)
 
- LoRA Init in original code (t5_gainlora_inflora.py, LoRALayer.reset_parameters):
+ LoRA Init in original code (t5_gainlora.py, LoRALayer.reset_parameters):
    nn.init.kaiming_uniform_(lora_A, a=math.sqrt(5))   # Random A
    nn.init.zeros_(lora_B)                               # Zero B
    → ΔW_init = 0
@@ -74,8 +74,8 @@ SRC    = PARENT / "src"
 sys.path.insert(0, str(SRC))
 
 # ── Transformers Version Compatibility ─────────────────────────────────────────
-# t5_gainlora_inflora.py imports modules removed/moved in newer transformers.
-# MUST be patched BEFORE any import of t5_gainlora_inflora.
+# t5_gainlora.py imports modules removed/moved in newer transformers.
+# MUST be patched BEFORE any import of t5_gainlora.
 # Applies to: transformers >= 4.30 (model_parallel_utils removed),
 #             transformers >= 4.40 (find_pruneable_heads_and_indices moved).
 import types as _types
@@ -95,8 +95,8 @@ if not hasattr(_pt_utils, 'find_pruneable_heads_and_indices'):
     def _find_ph_keys(*a, **k): return set(), None
     _pt_utils.find_pruneable_heads_and_indices = _find_ph_keys
 
-# Fix 3: loralib (optional dependency — only used if present in t5_gainlora_inflora)
-# t5_gainlora_inflora.py does "import loralib as lora" but loralib may not be installed.
+# Fix 3: loralib (optional dependency — only used if present in t5_gainlora)
+# t5_gainlora.py does "import loralib as lora" but loralib may not be installed.
 # We provide a minimal stub so the import succeeds.
 if 'loralib' not in sys.modules:
     _loralib = _types.ModuleType('loralib')
@@ -506,7 +506,7 @@ def build_model(
     """
     Build a T5 model with GainLoRA LoRA adapters.
 
-    CRITICAL: Must use T5ForConditionalGeneration from t5_gainlora_inflora.py
+    CRITICAL: Must use T5ForConditionalGeneration from t5_gainlora.py
     (NOT AutoModelForSeq2SeqLM from HuggingFace), because:
       - HF T5Attention.forward does NOT call lora_q/lora_v → LoRA is dead code
       - GainLoRA T5Attention.forward DOES call lora_q/lora_v → LoRA actually works
@@ -525,7 +525,7 @@ def build_model(
 
     # All compatibility patches (ipdb, transformers, loralib) are at MODULE level.
     # No duplicate patches needed here — import directly.
-    from t5_gainlora_inflora import T5ForConditionalGeneration
+    from t5_gainlora import T5ForConditionalGeneration
 
 
     config = AutoConfig.from_pretrained(model_name)
@@ -578,7 +578,7 @@ def build_model(
     model.encoder.encoder_frozen = frozen_enc
 
     # ── Fix 3: get_head_mask missing on T5Stack in newer transformers ────
-    # t5_gainlora_inflora.py T5Stack.forward() calls self.get_head_mask()
+    # t5_gainlora.py T5Stack.forward() calls self.get_head_mask()
     # but T5Stack doesn't inherit from PreTrainedModel in newer transformers.
     def _get_head_mask(head_mask, num_hidden_layers, is_attention_chunked=False):
         if head_mask is not None:
@@ -606,7 +606,7 @@ def _attach_gainlora_adapters(model, lora_rank: int, lora_alpha: int, lora_dropo
     No-op for models built via T5ForConditionalGeneration.from_pretrained.
 
     T5ForConditionalGeneration.from_pretrained already creates real lora_q and
-    lora_v LoRALayer instances in T5Attention.__init__ (see t5_gainlora_inflora.py
+    lora_v LoRALayer instances in T5Attention.__init__ (see t5_gainlora.py
     lines 422, 426). The forward pass in T5Attention.forward (line 669, 678)
     calls lora_q and lora_v — they are FIRST-CLASS participants, not patches.
 
@@ -950,7 +950,7 @@ def eval_zero_shot(model, test_data: List[Dict]) -> float:
     Evaluate model WITHOUT training on test set.
     Returns accuracy as percentage.
 
-    NOTE: T5ForConditionalGeneration from t5_gainlora_inflora.py does NOT inherit
+    NOTE: T5ForConditionalGeneration from t5_gainlora.py does NOT inherit
     from GenerationMixin, so it has no .generate() method.
     We implement manual greedy decoding instead.
     """

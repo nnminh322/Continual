@@ -13,40 +13,98 @@ except ImportError:
     from transformers.trainer_utils import denumpify_detensorize
 from transformers.trainer_callback import TrainerCallback
 import numpy as np
-
-from cl_collator import SUPPORTED_DECODER_MODELS, check_model
-from cl_dataset import ANSWER_PREFIX
-import cupy as cp
-from torch.utils.dlpack import to_dlpack, from_dlpack
-from cupy import fromDlpack
-import ipdb
-from copy import deepcopy
-
-# Compat: ShardedDDPOption removed in transformers >= 4.40
-try:
-    from transformers.trainer_utils import ShardedDDPOption
-except ImportError:
-    from types import SimpleNamespace
-    ShardedDDPOption = SimpleNamespace(SIMPLE='simple')
-
-# Compat: is_torch_tpu_available removed in transformers >= 4.40
-try:
-    from transformers import is_torch_tpu_available
-except ImportError:
-    def is_torch_tpu_available():
-        return False
-
-# Compat: IterableDatasetShard moved/removed in transformers >= 4.40
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 try:
     from transformers.trainer_pt_utils import IterableDatasetShard
 except ImportError:
     from torch.utils.data import IterableDataset as IterableDatasetShard
 
+from cl_collator import SUPPORTED_DECODER_MODELS, check_model
+from cl_dataset import ANSWER_PREFIX
+import cupy as cp
+from torch.utils.dlpack import from_dlpack
+# Compatibility: cupy.fromDlpack deprecated; use cp.from_dlpack
+def fromDlpack(x): return cp.from_dlpack(x)
+try:
+    import ipdb
+except ImportError:
+    ipdb = None
+
+# Compat: ShardedDDPOption removed in transformers >= 4.40
+try:
+    ShardedDDPOption
+except NameError:
+    from types import SimpleNamespace
+    ShardedDDPOption = SimpleNamespace(SIMPLE='simple')
+
+# Compat: is_torch_tpu_available removed in transformers >= 4.40
+try:
+    is_torch_tpu_available
+except NameError:
+    def is_torch_tpu_available():
+        return False
+
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
+    # ── Robust conversion: handles ANY input format ───────────────
+    # Debug: show what we received
+    _type = type(predictions_ids).__name__
+    _info = ""
+    if hasattr(predictions_ids, 'shape'):
+        _info = f"shape={predictions_ids.shape} dtype={predictions_ids.dtype}"
+    elif isinstance(predictions_ids, (tuple, list)):
+        _info = f"len={len(predictions_ids)} first_type={type(predictions_ids[0]).__name__}"
+        if hasattr(predictions_ids[0], 'shape'):
+            _info += f" first_shape={predictions_ids[0].shape}"
+    print(f"[skip_instructions] input: type={_type} {_info}")
+
+    # Step 1: unwrap tuple/list (e.g., (token_ids, decoder_hidden_states))
+    while isinstance(predictions_ids, (tuple, list)) and len(predictions_ids) > 0 and isinstance(predictions_ids[0], np.ndarray) and predictions_ids[0].ndim >= 2:
+        predictions_ids = predictions_ids[0]
+
+    # Step 2: convert to numpy if tensor
+    if hasattr(predictions_ids, 'cpu'):
+        predictions_ids = predictions_ids.cpu().numpy()
+
+    # Step 3: ensure proper numpy array
+    if not isinstance(predictions_ids, np.ndarray):
+        try:
+            predictions_ids = np.array(predictions_ids)
+        except ValueError:
+            # Ragged: manually pad
+            max_len = max(len(r) if hasattr(r, '__len__') else 1 for r in predictions_ids)
+            padded = np.full((len(predictions_ids), max_len), tokenizer.pad_token_id, dtype=np.int64)
+            for i, row in enumerate(predictions_ids):
+                arr = np.asarray(row).flatten()
+                padded[i, :len(arr)] = arr
+            predictions_ids = padded
+
+    # Step 4: handle ragged object arrays
+    if predictions_ids.dtype == object:
+        max_len = max(len(np.asarray(row).flatten()) for row in predictions_ids)
+        padded = np.full((len(predictions_ids), max_len), tokenizer.pad_token_id, dtype=np.int64)
+        for i, row in enumerate(predictions_ids):
+            row_flat = np.asarray(row).flatten()
+            padded[i, :len(row_flat)] = row_flat
+        predictions_ids = padded
+
+    # Step 5: squeeze extra dims (e.g., 3D → 2D)
+    while predictions_ids.ndim > 2:
+        predictions_ids = predictions_ids.reshape(-1, predictions_ids.shape[-1])
+    if predictions_ids.ndim == 1:
+        predictions_ids = predictions_ids.reshape(1, -1)
+
+    # Step 6: replace ignore tokens with pad
+    predictions_ids = predictions_ids.astype(np.int64)
     predictions_ids = np.where(predictions_ids == ignore_idx, tokenizer.pad_token_id, predictions_ids)
 
+    # Step 7: convert to list[list[int]] (required by fast tokenizer)
+    final_ids = [[int(x) for x in row] for row in predictions_ids]
+
+    print(f"[skip_instructions] output: {len(final_ids)} sequences, first_len={len(final_ids[0])}")
+
     predictions = tokenizer.batch_decode(
-        predictions_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True
+        final_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True
     )
 
     final_predictions = []
@@ -91,7 +149,7 @@ class DenserEvalCallback(TrainerCallback):
         return control
 
 
-class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
+class GainLoRATrainer(Seq2SeqTrainer):
 
     def __init__(self, model, args, train_dataset, cur_task_id, task_order, data_collator_replay=None, replay_dataset_dict=None, replay_label_dict=None, eval_dataset=None, tokenizer=None, data_collator=None, compute_metrics=None, callbacks=None):
         super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, tokenizer=tokenizer, data_collator=data_collator, compute_metrics=compute_metrics, callbacks=callbacks)
@@ -120,6 +178,22 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                         pin_memory=False,
                         worker_init_fn=seed_worker)
             self.replay_iterator_dict = create_memory_replay_generators(task_order[cur_task_id], task_order, self.replay_dataloader_dict)
+
+    def get_validate_dataset(self,):
+        seed = self.args.data_seed if self.args.data_seed is not None else self.args.seed
+        generator = torch.Generator()
+        generator.manual_seed(seed)
+        train_sampler = RandomSampler(self.select_predict_dataset, generator=generator)
+        self.select_predict_dataloader = DataLoader(
+                        self.select_predict_dataset,
+                        batch_size=self._train_batch_size,
+                        sampler=train_sampler,
+                        collate_fn=self.data_collator_replay,
+                        drop_last=self.args.dataloader_drop_last,
+                        num_workers=self.args.dataloader_num_workers,
+                        pin_memory=False,
+                        worker_init_fn=seed_worker)
+        self.select_predict_iter = iter(self.select_predict_dataloader)
     
     def load_previous_reg_matrix(self):
         paths = self.args.output_dir.split('/')
@@ -133,135 +207,130 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         reg_matrix, reg_trans_matrix = [], []
         for all_dir in all_dirs:
             if not os.path.isdir(os.path.join(log_path, all_dir)): continue
-            if eval(all_dir.split('-')[0]) == eval(local_dir.split('-')[0])-1: 
+            try:
+                all_idx = int(all_dir.split('-')[0])
+                local_idx = int(local_dir.split('-')[0])
+            except (ValueError, TypeError):
+                continue  # skip dirs that don't follow N-taskname format
+            if all_idx == local_idx - 1:
                 i = 0
                 for module in self.model.modules():
                     if hasattr(module, 'get_feature'):
-                        reg_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir), "reg_{}.pt".format(i))))
+                        reg_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir), "reg_{}.pt".format(i)), weights_only=True))
                         i += 1
-                reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_0.pt")))
-                reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_1.pt")))
-                reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_2.pt")))
-
+                reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_0.pt"), weights_only=True))
+                reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_1.pt"), weights_only=True))
+                reg_trans_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_2.pt"), weights_only=True))
+                # for module in self.model.modules():
+                #     if hasattr(module, 'get_trans_feature'):
+                #         reg_matrix.append(torch.load(os.path.join(os.path.join(log_path, all_dir, 'trans_input'), "reg_{}.pt".format(i))))
+                #         i += 1
                 # reg_matrixs.append(reg_matrix)
                 print(os.path.join(log_path, all_dir))
                 print(len(reg_matrix))
                 break
-        return reg_matrix, reg_trans_matrix, eval(local_dir.split('-')[0])-1
+        return reg_matrix, reg_trans_matrix, int(local_dir.split('-')[0])-1
 
 
     def get_reg_matrix(self):
-        # if self.args.lamda_1 <= 1e-6:
-        #     return
         self.feature_list, self.feature_trans_list, self._cur_task = self.load_previous_reg_matrix()
-        if len(self.feature_list) == 0:
-            return
 
-        self.feature_mat, i = [], 0
-        for name, module in self.model.named_modules():
-            if hasattr(module, 'get_feature'):
-        # for i in range(len(merged_reg_matrixs)):
-                local_rank = int(os.environ['LOCAL_RANK'])
-                device = torch.device(f"cuda:{local_rank}")
+        train_dataloader = self.get_train_dataloader()
+        if isinstance(train_dataloader, DataLoader) and isinstance(train_dataloader.sampler, DistributedSampler):
+            train_dataloader.sampler.set_epoch(1998)
+        elif hasattr(train_dataloader, "dataset") and isinstance(train_dataloader.dataset, IterableDatasetShard):
+            train_dataloader.dataset.set_epoch(1998)
+        # for name, module in self.model.named_modules():
+        #     if hasattr(module, 'get_feature'):
+        #         module.get_feature=True
+        #         module.stage = 0
+        self.model.encoder.get_trans_feature = True
+        self.model.encoder.stage_trans = 0
 
-                feature_mat = {}
-                for index in self.feature_list[i].keys():
-                    feature_mat[index] = torch.zeros(self.feature_list[i][index].shape[0], self.feature_list[i][index].shape[0]).to(device).contiguous()
-                # Projection Matrix Precomputation
-                for index in self.feature_list[i].keys():
-                    if dist.get_rank() == 0:
-                        # device = torch.device(f"cuda:{0}")
-                        # print(torch.from_numpy(np.dot(self.feature_list[i][index], self.feature_list[i][index].T)).to("cuda:0"))
-                        # print()
-                        # print((self.feature_list[i][index]**2).sum(axis=0))
-                        feature_mat_list = [torch.mm(self.feature_list[i][index], self.feature_list[i][index].T).to("cuda:0") for _ in range(dist.get_world_size())]
-                    else:
-                        feature_mat_list = None
-                    dist.scatter(feature_mat[index], feature_mat_list, src=0)
-                self.feature_mat.append(feature_mat)
-                # print(feature_mat)
-                # print(np.sum(self.feature_list[i]**2,axis=0))
-                # exit()
-                for index in self.feature_list[i].keys():
-                    # pre = deepcopy(module.loranew_A[module.active_adapter].weight.data[:,index*module.step:(index+1)*module.step])
-                    # print(index*module.step, (index+1)*module.step)
-                    # print(feature_mat[index])
-                    # print()
-                    # print(torch.mm(module.loranew_A[module.active_adapter].weight[:,index*module.step:(index+1)*module.step].data,feature_mat[index].cpu()))
-                    # print()
-                    module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step].copy_(module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step] - torch.mm(module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step], feature_mat[index].cpu()))
-                    module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step].copy_(module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step] - torch.mm(module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step], feature_mat[index].cpu()))
-                module.lora_q.lora_A.data /= (math.sqrt(3) * module.lora_q.lora_A.data.norm(dim=1,keepdim=True))
-                module.lora_v.lora_A.data /= (math.sqrt(3) * module.lora_v.lora_A.data.norm(dim=1,keepdim=True))
-                    # print(pre - module.loranew_A[module.active_adapter].weight.data[:,index*module.step:(index+1)*module.step])
-                    # print()
-                # for index in self.feature_list[i].keys():
-                #     print(torch.mm(module.loranew_A[module.active_adapter].weight[:,index*module.step:(index+1)*module.step].data,feature_mat[index].cpu()))
-                #     print()
-                # exit()
-                i += 1
+        print('begin get representation')
+        with torch.no_grad():
+            for step, inputs in enumerate(train_dataloader):
+                inputs = self._prepare_inputs(inputs)
+                if self.label_smoother is not None and "labels" in inputs:
+                    labels = inputs.pop("labels")
+                else:
+                    labels = None
+                # del inputs['task_ids']
+                outputs = self.model(**inputs)
+                if step > 1000: break
+        print('end get representation')
 
-
-        self.feature_trans_mat = []
-        # ipdb.set_trace()
-        feature_trans_mat = {}
-        for index in self.feature_trans_list[0].keys():
-            feature_trans_mat[index] = torch.zeros(self.feature_trans_list[0][index].shape[0], self.feature_trans_list[0][index].shape[0]).to(device).contiguous()
-        # Projection Matrix Precomputation
-        for index in self.feature_trans_list[0].keys():
-            if dist.get_rank() == 0:
-                feature_trans_mat_list = [torch.mm(self.feature_trans_list[0][index], self.feature_trans_list[0][index].T).to("cuda:0") for _ in range(dist.get_world_size())]
-            else:
-                feature_trans_mat_list = None
-            dist.scatter(feature_trans_mat[index], feature_trans_mat_list, src=0)
-        self.feature_trans_mat.append(feature_trans_mat)
-
-        feature_trans_mat = torch.zeros(self.feature_trans_list[1].shape[0], self.feature_trans_list[1].shape[0]).to(device).contiguous()
-        # Projection Matrix Precomputation
-        if dist.get_rank() == 0:
-            feature_trans_mat_list = [torch.mm(self.feature_trans_list[1], self.feature_trans_list[1].T).to("cuda:0") for _ in range(dist.get_world_size())]
+        if len(self.feature_trans_list) == 0:
+            module = self.model.encoder
+            pre_norm = module.prompt_key.detach().norm()
+            for index in module.matrix_trans_3.keys():
+                cur_trans_matrix = module.matrix_trans_3[index]
+                # Sanitize non-finite values before SVD
+                cur_trans_matrix = torch.nan_to_num(cur_trans_matrix, nan=0.0, posinf=1e6, neginf=-1e6)
+                try:
+                    U, S, V = torch.linalg.svd(cur_trans_matrix)
+                except Exception:
+                    # CUDA SVD may fail on ill-conditioned matrices; fall back to CPU
+                    cpu_mat = cur_trans_matrix.detach().cpu().float()
+                    U, S, V = torch.linalg.svd(cpu_mat)
+                    U = U.to(device=cur_trans_matrix.device, dtype=cur_trans_matrix.dtype)
+                    S = S.to(device=cur_trans_matrix.device, dtype=cur_trans_matrix.dtype)
+                    V = V.to(device=cur_trans_matrix.device, dtype=cur_trans_matrix.dtype)
+                module.prompt_key.data[:,index*module.step:(index+1)*module.step].copy_(U[:,:1].T)
+                # ipdb.set_trace()
+                module.matrix_trans_1[index].zero_()
+                module.matrix_trans_3[index].zero_()
+                module.n_trans_matrix[index] = 0
+            module.matrix_trans_2.zero_()
+            module.prompt_key.data /= math.sqrt(module.chunk_trans)
+            module.prompt_key.data *= pre_norm
+            module.get_trans_feature=False
+            module.stage_trans=0
         else:
-            feature_trans_mat_list = None
-        dist.scatter(feature_trans_mat, feature_trans_mat_list, src=0)
-        self.feature_trans_mat.append(feature_trans_mat)
+            self.feature_mat, i = [], 0
+            for name, module in self.model.named_modules():
+                if hasattr(module, 'get_feature'):
+                    feature_mat = {}
+                    # Projection Matrix Precomputation
+                    for index in self.feature_list[i].keys():
+                        feature_mat[index] = torch.mm(self.feature_list[i][index], self.feature_list[i][index].T).to("cuda:0")
+                    self.feature_mat.append(feature_mat)
+                    for index in self.feature_list[i].keys():
 
-        feature_trans_mat = {}
-        for index in self.feature_trans_list[2].keys():
-            feature_trans_mat[index] = torch.zeros(self.feature_trans_list[2][index].shape[0], self.feature_trans_list[2][index].shape[0]).to(device).contiguous()
-        # Projection Matrix Precomputation
-        for index in self.feature_trans_list[2].keys():
-            if dist.get_rank() == 0:
-                feature_trans_mat_list = [torch.mm(self.feature_trans_list[2][index], self.feature_trans_list[2][index].T).to("cuda:0") for _ in range(dist.get_world_size())]
-            else:
-                feature_trans_mat_list = None
-            dist.scatter(feature_trans_mat[index], feature_trans_mat_list, src=0)
-        self.feature_trans_mat.append(feature_trans_mat)
+                        module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step].copy_(module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step] - torch.mm(module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step], feature_mat[index]))
+                        module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step].copy_(module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step] - torch.mm(module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step], feature_mat[index]))
+                    module.lora_q.lora_A.data /= (math.sqrt(3) * module.lora_q.lora_A.data.norm(dim=1,keepdim=True))
+                    module.lora_v.lora_A.data /= (math.sqrt(3) * module.lora_v.lora_A.data.norm(dim=1,keepdim=True))
+                    i += 1
 
-        # module = self.model.model
-        # pre_norm = module.prompt_key.detach().norm()
-        # for index in module.matrix_trans_3.keys():
-        #     cur_trans_matrix = module.matrix_trans_3[index]
-        #     try:
-        #         cur_trans_matrix = cur_trans_matrix - torch.mm(self.feature_trans_mat[2][index],cur_trans_matrix)
-        #     except:
-        #         ipdb.set_trace()
-        #         raise Exception
-        #     U, S, V = torch.linalg.svd(cur_trans_matrix)
-        #     module.prompt_key.data[:,index*module.step:(index+1)*module.step].copy_(U[:,:1].T)
-        #     module.matrix_trans_1[index].zero_()
-        #     module.matrix_trans_3[index].zero_()
-        #     module.n_trans_matrix[index] = 0
-        # module.matrix_trans_2.zero_()
-        # module.prompt_key.data /= math.sqrt(module.chunk_trans)
-        # module.prompt_key.data *= pre_norm
-        # module.get_trans_feature=False
-        # module.stage_trans=0
+            self.feature_trans_mat = []
+            feature_trans_mat = {}
+            for index in self.feature_trans_list[0].keys():
+                feature_trans_mat[index] = torch.mm(self.feature_trans_list[0][index], self.feature_trans_list[0][index].T)
+            self.feature_trans_mat.append(feature_trans_mat)
+            self.feature_trans_mat.append(torch.mm(self.feature_trans_list[1], self.feature_trans_list[1].T))
+            feature_trans_mat = {}
+            for index in self.feature_trans_list[2].keys():
+                feature_trans_mat[index] = torch.mm(self.feature_trans_list[2][index], self.feature_trans_list[2][index].T)
+            self.feature_trans_mat.append(feature_trans_mat)
 
-        module = self.model.model
-        for index in self.feature_trans_list[2].keys():
-            module.prompt_key.data[:,index*module.step:(index+1)*module.step].copy_(module.prompt_key.data[:,index*module.step:(index+1)*module.step] - torch.mm(module.prompt_key.data[:,index*module.step:(index+1)*module.step], self.feature_trans_mat[2][index].cpu()))
-        module.prompt_key.data /= math.sqrt(module.chunk_trans)
-        module.prompt_key.data /= (module.prompt_key.data.norm()*math.sqrt(3)/64)
+
+            module = self.model.encoder
+            pre_norm = module.prompt_key.detach().norm()
+            for index in module.matrix_trans_3.keys():
+                cur_trans_matrix = module.matrix_trans_3[index]
+                cur_trans_matrix = torch.randn_like(cur_trans_matrix)
+                cur_trans_matrix = cur_trans_matrix - torch.mm(self.feature_trans_mat[2][index],cur_trans_matrix)
+                U, S, V = torch.linalg.svd(cur_trans_matrix)
+                module.prompt_key.data[:,index*module.step:(index+1)*module.step].copy_(U[:,:1].T)
+                module.matrix_trans_1[index].zero_()
+                module.matrix_trans_3[index].zero_()
+                module.n_trans_matrix[index] = 0
+            module.matrix_trans_2.zero_()
+            module.prompt_key.data /= math.sqrt(module.chunk_trans)
+            module.prompt_key.data *= pre_norm
+            module.get_trans_feature=False
+            module.stage_trans=0
 
         return
 
@@ -269,6 +338,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         # if self.args.lamda_1 <= 1e-6:
         #     return
         self.feature_list, self.feature_trans_list, self._cur_task = self.load_previous_reg_matrix()
+        # ipdb.set_trace()
 
         train_dataloader = self.get_train_dataloader()
 
@@ -281,8 +351,8 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
             if hasattr(module, 'get_feature'):
                 module.get_feature=True
                 module.stage = 0
-        self.model.model.get_trans_feature = True
-        self.model.model.stage_trans = 0
+        self.model.encoder.get_trans_feature = True
+        self.model.encoder.stage_trans = 0
 
         # for name, module in self.model.named_modules():
         #     if hasattr(module, 'get_feature'):
@@ -307,237 +377,205 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         for name, module in self.model.named_modules():
             if hasattr(module, 'get_feature'):
                 # # 创建一个 CPU 上的张量，在每个进程中填充不同的值
-                cur_device = module.lora_q.lora_A.device
+                # rank = dist.get_rank()
+                # local_tensor = torch.tensor([rank + 1])  # 为每个进程创建不同的值
+
+                # print(module.matrix, module.weight.device)
                 merged_tensor = {}
                 for index in range(module.index):
-                    if dist.get_rank() == 0:
-                        # 收集数据到主进程
-                        gathered_tensors = [torch.zeros(*module.matrix[index].shape, device=cur_device) for _ in range(dist.get_world_size())]
-                    else:
-                        gathered_tensors = None
-                    dist.gather(module.matrix[index].to(cur_device).float(), gathered_tensors, dst=0)  # 在每个进程上收集数据
-                    # 在主进程上合并数据
-                    if dist.get_rank() == 0:  # 主进程合并数据
-                        merged_tensor_ = torch.stack(gathered_tensors, dim=0).mean(dim=0)
-                        merged_tensor[index] = merged_tensor_
-                if dist.get_rank() == 0:
-                    mat_list.append(merged_tensor)
+                    merged_tensor[index] = module.matrix[index].cuda().float()
+
+                mat_list.append(merged_tensor)
+
                 module.get_feature=False
                 module.stage = 0
         
         merged_trans_tensor = {}
-        for index in range(self.model.model.index):
-            if dist.get_rank() == 0:
-                # 收集数据到主进程
-                gathered_trans_tensors = [torch.zeros(*self.model.model.matrix_trans_1[index].shape, device=cur_device) for _ in range(dist.get_world_size())]
-            else:
-                gathered_trans_tensors = None
-            dist.gather(self.model.model.matrix_trans_1[index].to(cur_device).float(), gathered_trans_tensors, dst=0)  # 在每个进程上收集数据
-            # 在主进程上合并数据
-            if dist.get_rank() == 0:  # 主进程合并数据
-                merged_trans_tensor_ = torch.stack(gathered_trans_tensors, dim=0).mean(dim=0)
-                merged_trans_tensor[index] = merged_trans_tensor_
+        for index in range(self.model.encoder.index):
+            merged_trans_tensor[index] = self.model.encoder.matrix_trans_1[index].cuda().float()
         mat_trans_list.append(merged_trans_tensor)
-
-        if dist.get_rank() == 0:
-            # 收集数据到主进程
-            gathered_trans_tensors = [torch.zeros(*self.model.model.matrix_trans_2.shape, device=cur_device) for _ in range(dist.get_world_size())]
-        else:
-            gathered_trans_tensors = None
-        dist.gather(self.model.model.matrix_trans_2.to(cur_device).float(), gathered_trans_tensors, dst=0)  # 在每个进程上收集数据
-        # 在主进程上合并数据
-        if dist.get_rank() == 0:  # 主进程合并数据
-            merged_trans_tensor_ = torch.stack(gathered_trans_tensors, dim=0).mean(dim=0)
-            merged_trans_tensor = merged_trans_tensor_
-        mat_trans_list.append(merged_trans_tensor)
-
+        mat_trans_list.append(self.model.encoder.matrix_trans_2.cuda().float())
         merged_trans_tensor = {}
-        for index in range(self.model.model.index):
-            if dist.get_rank() == 0:
-                # 收集数据到主进程
-                gathered_trans_tensors = [torch.zeros(*self.model.model.matrix_trans_3[index].shape, device=cur_device) for _ in range(dist.get_world_size())]
-            else:
-                gathered_trans_tensors = None
-            dist.gather(self.model.model.matrix_trans_3[index].to(cur_device).float(), gathered_trans_tensors, dst=0)  # 在每个进程上收集数据
-            # 在主进程上合并数据
-            if dist.get_rank() == 0:  # 主进程合并数据
-                merged_trans_tensor_ = torch.stack(gathered_trans_tensors, dim=0).mean(dim=0)
-                merged_trans_tensor[index] = merged_trans_tensor_
+        for index in range(self.model.encoder.index):
+            merged_trans_tensor[index] = self.model.encoder.matrix_trans_3[index].cuda().float()
         mat_trans_list.append(merged_trans_tensor)
-
-        self.model.model.get_trans_feature = False
-        self.model.model.stage_trans = 0
-
+        self.model.encoder.get_trans_feature = False
+        self.model.encoder.stage_trans = 0
 
         # U, S, V = torch.linalg.svd(merged_tensor)
-                
-        if dist.get_rank() == 0:
-            total_sessions = 15
-            threshold = (1.0 - self.args.threshold)*self._cur_task/total_sessions + self.args.threshold
+
+        total_sessions = 15
+        threshold = (1.0 - self.args.threshold)*self._cur_task/total_sessions + self.args.threshold
+        if 'long' in self.args.output_dir:
             transthreshold = (1.0 - self.args.transthreshold)*self._cur_task/total_sessions + self.args.transthreshold
-            # threshold = self.args.threshold
-            print ('Threshold: ', threshold, transthreshold)
-            if len(self.feature_list) == 0:
-                for i in range(len(mat_list)):
-                    activation = mat_list[i]
-                    feature = {}
-                    for index in activation.keys():
-                        U,S,Vh = cp.linalg.svd(fromDlpack(to_dlpack(activation[index])), full_matrices=False)
-                        U = from_dlpack(U.toDlpack())
-                        S = from_dlpack(S.toDlpack())
-                        # criteria (Eq-5)
-                        sval_total = (S**2).sum()
-                        sval_ratio = (S**2)/sval_total
-                        r = torch.sum(torch.cumsum(sval_ratio, dim=0)<threshold) #+1  
-                        feature[index] = U[:,0:max(r,1)]
-                    self.feature_list.append(feature)
+            # transthreshold = self.args.transthreshold
+        else:
+            transthreshold = (1.0 - self.args.transthreshold)*self._cur_task/total_sessions + self.args.transthreshold
+        # threshold = self.args.threshold
+        print ('Threshold: ', threshold, transthreshold) 
+        if len(self.feature_list) == 0:
+            for i in range(len(mat_list)):
+                activation = mat_list[i]
+                feature = {}
+                for index in activation.keys():
+                    U,S,Vh = cp.linalg.svd(fromDlpack(activation[index]), full_matrices=False)
+                    U = from_dlpack(U.toDlpack())
+                    S = from_dlpack(S.toDlpack())
+                    # criteria (Eq-5)
+                    sval_total = (S**2).sum()
+                    sval_ratio = (S**2)/sval_total
+                    r = torch.sum(torch.cumsum(sval_ratio, dim=0)<threshold) #+1  
+                    feature[index] = U[:,0:max(r,1)]
+                self.feature_list.append(feature)
 
-                for i in range(3):
-                    if i == 1: continue
-                    activation_trans = mat_trans_list[i]
-                    feature_trans = {}
-                    for index in activation_trans.keys():
-                        U,S,Vh = cp.linalg.svd(fromDlpack(to_dlpack(activation_trans[index])), full_matrices=False)
-                        U = from_dlpack(U.toDlpack())
-                        S = from_dlpack(S.toDlpack())
-                        # criteria (Eq-5)
-                        sval_total = (S**2).sum()
-                        sval_ratio = (S**2)/sval_total
-                        r = torch.sum(torch.cumsum(sval_ratio, dim=0)<transthreshold) #+1  
-                        feature_trans[index] = U[:,0:max(r,1)]
-                    self.feature_trans_list.append(feature_trans)
-
-                activation_trans = mat_trans_list[1]
-                U,S,Vh = cp.linalg.svd(fromDlpack(to_dlpack(activation_trans)), full_matrices=False)
-                U = from_dlpack(U.toDlpack())
-                S = from_dlpack(S.toDlpack())
-                # criteria (Eq-5)
-                sval_total = (S**2).sum()
-                sval_ratio = (S**2)/sval_total
-                r = torch.sum(torch.cumsum(sval_ratio, dim=0)<transthreshold) #+1  
-                feature_trans = U[:,0:max(r,1)]
-                self.feature_trans_list = self.feature_trans_list[:1] + [feature_trans] + self.feature_trans_list[1:]
-            else:
-                for i in range(len(mat_list)):
-                    activation = mat_list[i]
-                    feature = {}
-                    for index in activation.keys():
-                        U1,S1,Vh1=cp.linalg.svd(fromDlpack(to_dlpack(activation[index])), full_matrices=False)
-                        # S1 = from_dlpack(S1.toDlpack())
-                        sval_total = (S1**2).sum()
-                        # Projected Representation (Eq-8)
-                        act_hat = fromDlpack(to_dlpack(activation[index])) - cp.dot(cp.dot(fromDlpack(to_dlpack(self.feature_list[i][index])),fromDlpack(to_dlpack(self.feature_list[i][index].T))),fromDlpack(to_dlpack(activation[index])))
-                        U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
-                        # criteria (Eq-9)
-                        sval_hat = (S**2).sum()
-                        sval_ratio = (S**2)/sval_total               
-                        accumulated_sval = (sval_total-sval_hat)/sval_total
-                    
-                        r = 0
-                        for ii in range (sval_ratio.shape[0]):
-                            if accumulated_sval < threshold:
-                                accumulated_sval += sval_ratio[ii]
-                                r += 1
-                            else:
-                                break
-                        if r == 0:
-                            print ('Skip Updating GPM for layer: {}'.format(i+1)) 
-                            continue
-                        # update GPM
-                        Ui=cp.hstack((fromDlpack(to_dlpack(self.feature_list[i][index])),U[:,0:r]))  
-
-                        # import ipdb
-                        # ipdb.set_trace()
-                        if Ui.shape[1] > Ui.shape[0]:
-                            self.feature_list[i][index]=from_dlpack(Ui[:,0:Ui.shape[0]].toDlpack())
-                        else:
-                            self.feature_list[i][index]=from_dlpack(Ui.toDlpack())
-        
-
-                # ipdb.set_trace()
-                for i in range(3):
-                    if i == 1: continue
-                    # ipdb.set_trace()
-                    activation_trans = mat_trans_list[i]
-                    feature_trans = {}
-                    for index in activation_trans.keys():
-                        U1,S1,Vh1=cp.linalg.svd(fromDlpack(to_dlpack(activation_trans[index])), full_matrices=False)
-                        # S1 = from_dlpack(S1.toDlpack())
-                        sval_total = (S1**2).sum()
-                        # Projected Representation (Eq-8)
-                        act_hat = fromDlpack(to_dlpack(activation_trans[index])) - cp.dot(cp.dot(fromDlpack(to_dlpack(self.feature_trans_list[i][index])),fromDlpack(to_dlpack(self.feature_trans_list[i][index].T))),fromDlpack(to_dlpack(activation_trans[index])))
-                        U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
-                        # criteria (Eq-9)
-                        sval_hat = (S**2).sum()
-                        sval_ratio = (S**2)/sval_total               
-                        accumulated_sval = (sval_total-sval_hat)/sval_total
-                    
-                        r = 0
-                        for ii in range (sval_ratio.shape[0]):
-                            if accumulated_sval < transthreshold:
-                                accumulated_sval += sval_ratio[ii]
-                                r += 1
-                            else:
-                                break
-                        if r == 0:
-                            print ('Skip Updating GPM for layer: {}'.format(i+1)) 
-                            continue
-                        # update GPM
-                        Ui=cp.hstack((fromDlpack(to_dlpack(self.feature_trans_list[i][index])),U[:,0:r]))  
-
-                        if Ui.shape[1] > Ui.shape[0]:
-                            self.feature_trans_list[i][index]=from_dlpack(Ui[:,0:Ui.shape[0]].toDlpack())
-                        else:
-                            self.feature_trans_list[i][index]=from_dlpack(Ui.toDlpack())
-
-                activation_trans = mat_trans_list[1]
+            for i in range(3):
+                if i == 1: continue
+                activation_trans = mat_trans_list[i]
                 feature_trans = {}
-                U1,S1,Vh1=cp.linalg.svd(fromDlpack(to_dlpack(activation_trans)), full_matrices=False)
-                # S1 = from_dlpack(S1.toDlpack())
-                sval_total = (S1**2).sum()
-                # Projected Representation (Eq-8)
-                act_hat = fromDlpack(to_dlpack(activation_trans)) - cp.dot(cp.dot(fromDlpack(to_dlpack(self.feature_trans_list[1])),fromDlpack(to_dlpack(self.feature_trans_list[1].T))),fromDlpack(to_dlpack(activation_trans)))
-                U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
-                # criteria (Eq-9)
-                sval_hat = (S**2).sum()
-                sval_ratio = (S**2)/sval_total               
-                accumulated_sval = (sval_total-sval_hat)/sval_total
-            
-                r = 0
-                for ii in range (sval_ratio.shape[0]):
-                    if accumulated_sval < transthreshold:
-                        accumulated_sval += sval_ratio[ii]
-                        r += 1
-                    else:
-                        break
-                if r == 0:
-                    print ('Skip Updating GPM for layer: {}'.format(1+1)) 
-                else:
+                for index in activation_trans.keys():
+                    U,S,Vh = cp.linalg.svd(fromDlpack(activation_trans[index]), full_matrices=False)
+                    U = from_dlpack(U.toDlpack())
+                    S = from_dlpack(S.toDlpack())
+                    # criteria (Eq-5)
+                    sval_total = (S**2).sum()
+                    sval_ratio = (S**2)/sval_total
+                    r = torch.sum(torch.cumsum(sval_ratio, dim=0)<transthreshold) #+1  
+                    feature_trans[index] = U[:,0:max(r,1)]
+                self.feature_trans_list.append(feature_trans)
+
+            activation_trans = mat_trans_list[1]
+            U,S,Vh = cp.linalg.svd(fromDlpack(activation_trans), full_matrices=False)
+            U = from_dlpack(U.toDlpack())
+            S = from_dlpack(S.toDlpack())
+            # criteria (Eq-5)
+            sval_total = (S**2).sum()
+            sval_ratio = (S**2)/sval_total
+            r = torch.sum(torch.cumsum(sval_ratio, dim=0)<transthreshold) #+1  
+            feature_trans = U[:,0:max(r,1)]
+            self.feature_trans_list = self.feature_trans_list[:1] + [feature_trans] + self.feature_trans_list[1:]
+            # ipdb.set_trace()
+
+        else:
+            for i in range(len(mat_list)):
+                activation = mat_list[i]
+                feature = {}
+                for index in activation.keys():
+                    U1,S1,Vh1=cp.linalg.svd(fromDlpack(activation[index]), full_matrices=False)
+                    # S1 = from_dlpack(S1.toDlpack())
+                    sval_total = (S1**2).sum()
+                    # Projected Representation (Eq-8)
+                    act_hat = fromDlpack(activation[index]) - cp.dot(cp.dot(fromDlpack(self.feature_list[i][index]),fromDlpack(self.feature_list[i][index].T)),fromDlpack(activation[index]))
+                    U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
+                    # criteria (Eq-9)
+                    sval_hat = (S**2).sum()
+                    sval_ratio = (S**2)/sval_total               
+                    accumulated_sval = (sval_total-sval_hat)/sval_total
+                
+                    r = 0
+                    for ii in range (sval_ratio.shape[0]):
+                        if accumulated_sval < threshold:
+                            accumulated_sval += sval_ratio[ii]
+                            r += 1
+                        else:
+                            break
+                    if r == 0:
+                        print ('Skip Updating GPM for layer: {}'.format(i+1)) 
+                        continue
                     # update GPM
-                    Ui=cp.hstack((fromDlpack(to_dlpack(self.feature_trans_list[1])),U[:,0:r]))  
+                    Ui=cp.hstack((fromDlpack(self.feature_list[i][index]),U[:,0:r]))  
 
                     # import ipdb
                     # ipdb.set_trace()
                     if Ui.shape[1] > Ui.shape[0]:
-                        self.feature_trans_list[1]=from_dlpack(Ui[:,0:Ui.shape[0]].toDlpack())
+                        self.feature_list[i][index]=from_dlpack(Ui[:,0:Ui.shape[0]].toDlpack())
                     else:
-                        self.feature_trans_list[1]=from_dlpack(Ui.toDlpack())
+                        self.feature_list[i][index]=from_dlpack(Ui.toDlpack())
 
+            # ipdb.set_trace()
+            for i in range(3):
+                if i == 1: continue
+                # ipdb.set_trace()
+                activation_trans = mat_trans_list[i]
+                feature_trans = {}
+                for index in activation_trans.keys():
+                    U1,S1,Vh1=cp.linalg.svd(fromDlpack(activation_trans[index]), full_matrices=False)
+                    # S1 = from_dlpack(S1.toDlpack())
+                    sval_total = (S1**2).sum()
+                    # Projected Representation (Eq-8)
+                    act_hat = fromDlpack(activation_trans[index]) - cp.dot(cp.dot(fromDlpack(self.feature_trans_list[i][index]),fromDlpack(self.feature_trans_list[i][index].T)),fromDlpack(activation_trans[index]))
+                    U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
+                    # criteria (Eq-9)
+                    sval_hat = (S**2).sum()
+                    sval_ratio = (S**2)/sval_total               
+                    accumulated_sval = (sval_total-sval_hat)/sval_total
+                
+                    r = 0
+                    for ii in range (sval_ratio.shape[0]):
+                        if accumulated_sval < transthreshold:
+                            accumulated_sval += sval_ratio[ii]
+                            r += 1
+                        else:
+                            break
+                    if r == 0:
+                        print ('Skip Updating GPM for layer: {}'.format(i+1)) 
+                        continue
+                    # update GPM
+                    Ui=cp.hstack((fromDlpack(self.feature_trans_list[i][index]),U[:,0:r]))  
 
-            print('-'*40)
-            print('Gradient Constraints Summary')
-            print('-'*40)
-            for i in range(len(self.feature_list)):
-                for index in range(self.args.chunk):
-                    print ('Layer {} Index {} : {}/{}'.format(i+1, index+1, self.feature_list[i][index].shape[1], self.feature_list[i][index].shape[0]))
-            print('-'*40)  
+                    if Ui.shape[1] > Ui.shape[0]:
+                        self.feature_trans_list[i][index]=from_dlpack(Ui[:,0:Ui.shape[0]].toDlpack())
+                    else:
+                        self.feature_trans_list[i][index]=from_dlpack(Ui.toDlpack())
 
-            for i in range(len(self.feature_list)):
-                torch.save(self.feature_list[i], os.path.join(self.args.output_dir, 'reg_{}.pt'.format(i)))
+            activation_trans = mat_trans_list[1]
+            feature_trans = {}
+            U1,S1,Vh1=cp.linalg.svd(fromDlpack(activation_trans), full_matrices=False)
+            # S1 = from_dlpack(S1.toDlpack())
+            sval_total = (S1**2).sum()
+            # Projected Representation (Eq-8)
+            act_hat = fromDlpack(activation_trans) - cp.dot(cp.dot(fromDlpack(self.feature_trans_list[1]),fromDlpack(self.feature_trans_list[1].T)),fromDlpack(activation_trans))
+            U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
+            # criteria (Eq-9)
+            sval_hat = (S**2).sum()
+            sval_ratio = (S**2)/sval_total               
+            accumulated_sval = (sval_total-sval_hat)/sval_total
+        
+            r = 0
+            for ii in range (sval_ratio.shape[0]):
+                if accumulated_sval < transthreshold:
+                    accumulated_sval += sval_ratio[ii]
+                    r += 1
+                else:
+                    break
+            if r == 0:
+                print ('Skip Updating GPM for layer: {}'.format(1+1)) 
+            else:
+                # update GPM
+                Ui=cp.hstack((fromDlpack(self.feature_trans_list[1]),U[:,0:r]))  
 
-            os.makedirs(os.path.join(self.args.output_dir, 'trans_input'), exist_ok=True)
-            for i in range(len(self.feature_trans_list)):
-                torch.save(self.feature_trans_list[i], os.path.join(self.args.output_dir, 'trans_input', 'reg_{}.pt'.format(i)))
+                # import ipdb
+                # ipdb.set_trace()
+                if Ui.shape[1] > Ui.shape[0]:
+                    self.feature_trans_list[1]=from_dlpack(Ui[:,0:Ui.shape[0]].toDlpack())
+                else:
+                    self.feature_trans_list[1]=from_dlpack(Ui.toDlpack())
+
+            
+        print('-'*40)
+        print('Gradient Constraints Summary')
+        print('-'*40)
+        for i in range(len(self.feature_list)):
+            for index in range(self.args.chunk):
+                print ('Layer {} Index {} : {}/{}'.format(i+1, index+1, self.feature_list[i][index].shape[1], self.feature_list[i][index].shape[0]))
+        print('-'*40)  
+
+        for i in range(len(self.feature_list)):
+            torch.save(self.feature_list[i], os.path.join(self.args.output_dir, 'reg_{}.pt'.format(i)))
+        # ipdb.set_trace()
+
+        os.makedirs(os.path.join(self.args.output_dir, 'trans_input'), exist_ok=True)
+        for i in range(len(self.feature_trans_list)):
+            torch.save(self.feature_trans_list[i], os.path.join(self.args.output_dir, 'trans_input', 'reg_{}.pt'.format(i)))
 
 
     def _save(self, output_dir=None, state_dict=None):
@@ -973,11 +1011,10 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                     "pad_token_id": 0,
                 }
                 
-            gen_kwargs["synced_gpus"] = False
+            synced_gpus = gen_kwargs.pop("synced_gpus", False)
 
         attention_mask = inputs.get("attention_mask", None)
 
-        synced_gpus = gen_kwargs.pop("synced_gpus", False)
         generation_config = GenerationConfig(**gen_kwargs)
 
         # prepare generation inputs
@@ -1000,7 +1037,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                     input_ids=generation_inputs,
                     input_ids_wo_label=inputs["input_ids_wo_label"],
                     generation_config=generation_config,
-                attention_mask=attention_mask,
+                    attention_mask=attention_mask,
                     synced_gpus=synced_gpus,
                 )
             
@@ -1008,7 +1045,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 generated_tokens = self.model.generate(
                     input_ids=generation_inputs,
                     generation_config=generation_config,
-                attention_mask=attention_mask,
+                    attention_mask=attention_mask,
                     synced_gpus=synced_gpus,
                 )
 
@@ -1044,6 +1081,8 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
             labels = None
 
         return (loss, generated_tokens, labels)
+
+
 
 
     def _inner_training_loop(
@@ -1261,10 +1300,8 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         # Skip the first epochs_trained epochs to get the random state of the dataloader at the right point.
         if not args.ignore_data_skip:
             for epoch in range(epochs_trained):
-                is_random_sampler = hasattr(train_dataloader, "sampler") and isinstance(
-                    train_dataloader.sampler, RandomSampler
-                )
-                if is_torch_less_than_1_11 or not is_random_sampler:
+                is_random_sampler = hasattr(train_dataloader, "sampler") and isinstance(train_dataloader.sampler, RandomSampler)
+                if not is_random_sampler:
                     # We just need to begin an iteration to create the randomization of the sampler.
                     # That was before PyTorch 1.11 however...
                     for _ in train_dataloader:
@@ -1311,12 +1348,6 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
 
             step = -1
             for step, inputs in enumerate(epoch_iterator):
-                # if self._cur_task:
-                #     from copy import deepcopy
-                #     # old_params_q, old_params_v, num_train_modules = [], [], []
-                #     old_trans_input_0 = deepcopy(self.model.model.trans_input[0].weight.detach())
-                #     old_trans_input_1 = deepcopy(self.model.model.trans_input[1].weight.detach())
-                #     old_prompt_key = deepcopy(self.model.model.prompt_key.detach())
                 total_batched_samples += 1
                 if rng_to_sync:
                     self._load_rng_state(resume_from_checkpoint)
@@ -1337,44 +1368,8 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 if step % args.gradient_accumulation_steps == 0:
                     self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
-                if self._cur_task:
-                    # old_params_q, old_params_v, num_train_modules = [], [], []
-                    old_trans_input_0 = deepcopy(self.model.model.trans_input[0].weight.detach())
-                    old_trans_input_1 = deepcopy(self.model.model.trans_input[1].weight.detach())
-                    old_prompt_key = deepcopy(self.model.model.prompt_key.detach())
-
                 with self.accelerator.accumulate(model):
                     tr_loss_step = self.training_step(model, inputs)
-                
-                if self._cur_task:
-                    # i = 0
-                    # for module in self.model.modules():
-                    #     if hasattr(module, 'get_feature'):
-                    #         new_weight_q = deepcopy(module.lora_q.lora_A.data.float())
-                    #         new_weight_v = deepcopy(module.lora_v.lora_A.data.float())
-                    #         for index in self.feature_mat[i].keys():
-                    #             new_weight_q[:,index*module.step:(index+1)*module.step] = module.lora_q.lora_A[:,index*module.step:(index+1)*module.step].data.float() - torch.mm(module.lora_q.lora_A[:,index*module.step:(index+1)*module.step].data.float() - old_params_q[i][:,index*module.step:(index+1)*module.step].float(), self.feature_mat[i][index])
-                    #             new_weight_v[:,index*module.step:(index+1)*module.step] = module.lora_v.lora_A[:,index*module.step:(index+1)*module.step].data.float() - torch.mm(module.lora_v.lora_A[:,index*module.step:(index+1)*module.step].data.float() - old_params_v[i][:,index*module.step:(index+1)*module.step].float(), self.feature_mat[i][index])
-                    #         module.lora_q.lora_A.data.copy_(new_weight_q)
-                    #         module.lora_v.lora_A.data.copy_(new_weight_v)
-                    #         i += 1
-                    
-                    new_trans_input_0 = deepcopy(self.model.model.trans_input[0].weight.detach().float())
-                    new_trans_input_1 = deepcopy(self.model.model.trans_input[1].weight.detach().float())
-                    new_trans_input_0norm = new_trans_input_0.norm(dim=1, keepdim=True)
-                    new_trans_input_1norm = new_trans_input_1.norm(dim=1, keepdim=True)
-
-                    new_prompt_key = deepcopy(self.model.model.prompt_key.detach())
-                    new_prompt_key_norm = new_prompt_key.norm(dim=1, keepdim=True)
-                    # print(new_trans_input_0-old_trans_input_0)
-                    for index in self.feature_trans_mat[0].keys():
-                        new_trans_input_0[:,index*self.model.model.step:(index+1)*self.model.model.step] = self.model.model.trans_input[0].weight.detach()[:,index*self.model.model.step:(index+1)*self.model.model.step].float() - torch.mm(self.model.model.trans_input[0].weight.detach()[:,index*self.model.model.step:(index+1)*self.model.model.step].float()-old_trans_input_0[:,index*self.model.model.step:(index+1)*self.model.model.step], self.feature_trans_mat[0][index])
-                        new_prompt_key[:,index*self.model.model.step:(index+1)*self.model.model.step] = self.model.model.prompt_key.detach()[:,index*self.model.model.step:(index+1)*self.model.model.step].float() - torch.mm(self.model.model.prompt_key.detach()[:,index*self.model.model.step:(index+1)*self.model.model.step].float()-old_prompt_key[:,index*self.model.model.step:(index+1)*self.model.model.step], self.feature_trans_mat[2][index])
-                    new_trans_input_1 = self.model.model.trans_input[1].weight.detach().float() - torch.mm(self.model.model.trans_input[1].weight.detach().float()-old_trans_input_1, self.feature_trans_mat[1])
-
-                    self.model.model.trans_input[0].weight.data.copy_(new_trans_input_0)
-                    self.model.model.trans_input[1].weight.data.copy_(new_trans_input_1)
-                    self.model.model.prompt_key.data.copy_(new_prompt_key)
 
                 if (
                     args.logging_nan_inf_filter
@@ -1388,7 +1383,6 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
 
                 self.current_flos += float(self.floating_point_ops(inputs))
 
-
                 # should this be under the accumulate context manager?
                 # the `or` condition of `steps_in_epoch <= args.gradient_accumulation_steps` is not covered
                 # in accelerate
@@ -1398,12 +1392,12 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                     and (step + 1) == steps_in_epoch
                 ):
 
-                    # if self._cur_task:
-                    #     from copy import deepcopy
-                    #     # old_params_q, old_params_v, num_train_modules = [], [], []
-                    #     old_trans_input_0 = deepcopy(self.model.model.trans_input[0].weight.detach())
-                    #     old_trans_input_1 = deepcopy(self.model.model.trans_input[1].weight.detach())
-                    #     old_prompt_key = deepcopy(self.model.model.prompt_key.detach())
+                    if self._cur_task:
+                        from copy import deepcopy
+                        # old_params_q, old_params_v, num_train_modules = [], [], []
+                        old_trans_input_0 = deepcopy(self.model.encoder.trans_input[0].weight.detach())
+                        old_trans_input_1 = deepcopy(self.model.encoder.trans_input[2].weight.detach())
+                        old_prompt_key = deepcopy(self.model.encoder.prompt_key.detach())
 
                     # Gradient clipping
                     if args.max_grad_norm is not None and args.max_grad_norm > 0:
@@ -1461,61 +1455,52 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                             self.lr_scheduler.step()
 
 
-                    # if self._cur_task:
-                    #     # i = 0
-                    #     # for module in self.model.modules():
-                    #     #     if hasattr(module, 'get_feature'):
-                    #     #         new_weight_q = deepcopy(module.lora_q.lora_A.data.float())
-                    #     #         new_weight_v = deepcopy(module.lora_v.lora_A.data.float())
-                    #     #         for index in self.feature_mat[i].keys():
-                    #     #             new_weight_q[:,index*module.step:(index+1)*module.step] = module.lora_q.lora_A[:,index*module.step:(index+1)*module.step].data.float() - torch.mm(module.lora_q.lora_A[:,index*module.step:(index+1)*module.step].data.float() - old_params_q[i][:,index*module.step:(index+1)*module.step].float(), self.feature_mat[i][index])
-                    #     #             new_weight_v[:,index*module.step:(index+1)*module.step] = module.lora_v.lora_A[:,index*module.step:(index+1)*module.step].data.float() - torch.mm(module.lora_v.lora_A[:,index*module.step:(index+1)*module.step].data.float() - old_params_v[i][:,index*module.step:(index+1)*module.step].float(), self.feature_mat[i][index])
-                    #     #         module.lora_q.lora_A.data.copy_(new_weight_q)
-                    #     #         module.lora_v.lora_A.data.copy_(new_weight_v)
-                    #     #         i += 1
+                    if self._cur_task:
+                        # i = 0
+                        # for module in self.model.modules():
+                        #     if hasattr(module, 'get_feature'):
+                        #         new_weight_q = deepcopy(module.lora_q.lora_A.data.float())
+                        #         new_weight_v = deepcopy(module.lora_v.lora_A.data.float())
+                        #         for index in self.feature_mat[i].keys():
+                        #             new_weight_q[:,index*module.step:(index+1)*module.step] = module.lora_q.lora_A[:,index*module.step:(index+1)*module.step].data.float() - torch.mm(module.lora_q.lora_A[:,index*module.step:(index+1)*module.step].data.float() - old_params_q[i][:,index*module.step:(index+1)*module.step].float(), self.feature_mat[i][index])
+                        #             new_weight_v[:,index*module.step:(index+1)*module.step] = module.lora_v.lora_A[:,index*module.step:(index+1)*module.step].data.float() - torch.mm(module.lora_v.lora_A[:,index*module.step:(index+1)*module.step].data.float() - old_params_v[i][:,index*module.step:(index+1)*module.step].float(), self.feature_mat[i][index])
+                        #         module.lora_q.lora_A.data.copy_(new_weight_q)
+                        #         module.lora_v.lora_A.data.copy_(new_weight_v)
+                        #         i += 1
                         
-                    #     new_trans_input_0 = deepcopy(self.model.model.trans_input[0].weight.detach().float())
-                    #     new_trans_input_1 = deepcopy(self.model.model.trans_input[1].weight.detach().float())
-                    #     new_trans_input_0norm = new_trans_input_0.norm(dim=1, keepdim=True)
-                    #     new_trans_input_1norm = new_trans_input_1.norm(dim=1, keepdim=True)
+                        new_trans_input_0 = deepcopy(self.model.encoder.trans_input[0].weight.detach())
+                        new_trans_input_1 = deepcopy(self.model.encoder.trans_input[2].weight.detach())
+                        new_trans_input_0norm = new_trans_input_0.norm(dim=1, keepdim=True)
+                        new_trans_input_1norm = new_trans_input_1.norm(dim=1, keepdim=True)
 
-                    #     new_prompt_key = deepcopy(self.model.model.prompt_key.detach())
-                    #     new_prompt_key_norm = new_prompt_key.norm(dim=1, keepdim=True)
-                    #     # print(new_trans_input_0-old_trans_input_0)
-                    #     for index in self.feature_trans_mat[0].keys():
-                    #         # ipdb.set_trace()
-                    #         # print(self.model.model.trans_input[0].weight.detach()[:,index*self.model.model.step:(index+1)*self.model.model.step]-old_trans_input_0[:,index*self.model.model.step:(index+1)*self.model.model.step])
-                    #         new_trans_input_0[:,index*self.model.model.step:(index+1)*self.model.model.step] = self.model.model.trans_input[0].weight.detach()[:,index*self.model.model.step:(index+1)*self.model.model.step].float() - torch.mm(self.model.model.trans_input[0].weight.detach()[:,index*self.model.model.step:(index+1)*self.model.model.step].float()-old_trans_input_0[:,index*self.model.model.step:(index+1)*self.model.model.step], self.feature_trans_mat[0][index])
-                    #         new_prompt_key[:,index*self.model.model.step:(index+1)*self.model.model.step] = self.model.model.prompt_key.detach()[:,index*self.model.model.step:(index+1)*self.model.model.step].float() - torch.mm(self.model.model.prompt_key.detach()[:,index*self.model.model.step:(index+1)*self.model.model.step].float()-old_prompt_key[:,index*self.model.model.step:(index+1)*self.model.model.step], self.feature_trans_mat[2][index])
-                    #     new_trans_input_1 = self.model.model.trans_input[1].weight.detach().float() - torch.mm(self.model.model.trans_input[1].weight.detach().float()-old_trans_input_1, self.feature_trans_mat[1])
+                        new_prompt_key = deepcopy(self.model.encoder.prompt_key.detach())
+                        new_prompt_key_norm = new_prompt_key.norm(dim=1, keepdim=True)
+                        for index in self.feature_trans_mat[0].keys():
+                            # ipdb.set_trace()
+                            # print(self.model.encoder.trans_input[0].weight.detach()[:,index*self.model.encoder.step:(index+1)*self.model.encoder.step]-old_trans_input_0[:,index*self.model.encoder.step:(index+1)*self.model.encoder.step])
+                            new_trans_input_0[:,index*self.model.encoder.step:(index+1)*self.model.encoder.step] = self.model.encoder.trans_input[0].weight.detach()[:,index*self.model.encoder.step:(index+1)*self.model.encoder.step] - torch.mm(self.model.encoder.trans_input[0].weight.detach()[:,index*self.model.encoder.step:(index+1)*self.model.encoder.step]-old_trans_input_0[:,index*self.model.encoder.step:(index+1)*self.model.encoder.step], self.feature_trans_mat[0][index])
+                            new_prompt_key[:,index*self.model.encoder.step:(index+1)*self.model.encoder.step] = self.model.encoder.prompt_key.detach()[:,index*self.model.encoder.step:(index+1)*self.model.encoder.step] - torch.mm(self.model.encoder.prompt_key.detach()[:,index*self.model.encoder.step:(index+1)*self.model.encoder.step]-old_prompt_key[:,index*self.model.encoder.step:(index+1)*self.model.encoder.step], self.feature_trans_mat[2][index])
+                        new_trans_input_1 = self.model.encoder.trans_input[2].weight.detach() - torch.mm(self.model.encoder.trans_input[2].weight.detach()-old_trans_input_1, self.feature_trans_mat[1])
 
-                    #     # ipdb.set_trace()
-                    #     # print(self.model.model.trans_input[0].weight.data-new_trans_input_0)
-                    #     # ipdb.set_trace()
-                    #     new_trans_input_0 = new_trans_input_0*new_trans_input_0norm / new_trans_input_0.norm(dim=1, keepdim=True)
-                    #     new_trans_input_1 = new_trans_input_1*new_trans_input_1norm / new_trans_input_1.norm(dim=1, keepdim=True)
-                    #     new_prompt_key = new_prompt_key*new_prompt_key_norm / new_prompt_key.norm(dim=1, keepdim=True)
+                        new_trans_input_0 = new_trans_input_0*new_trans_input_0norm / new_trans_input_0.norm(dim=1, keepdim=True)
+                        new_trans_input_1 = new_trans_input_1*new_trans_input_1norm / new_trans_input_1.norm(dim=1, keepdim=True)
+                        new_prompt_key = new_prompt_key*new_prompt_key_norm / new_prompt_key.norm(dim=1, keepdim=True)
 
-                    #     self.model.model.trans_input[0].weight.data.copy_(new_trans_input_0)
-                    #     self.model.model.trans_input[1].weight.data.copy_(new_trans_input_1)
-                    #     self.model.model.prompt_key.data.copy_(new_prompt_key)
+                        self.model.encoder.trans_input[0].weight.data.copy_(new_trans_input_0)
+                        self.model.encoder.trans_input[2].weight.data.copy_(new_trans_input_1)
+                        self.model.encoder.prompt_key.data.copy_(new_prompt_key)
 
                     model.zero_grad()
                     self.state.global_step += 1
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
-                    self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
-
-                    # print(self.model.model.trans_input[0].weight-old_trans_input_0)
+                    self._maybe_log_save_evaluate(tr_loss, None, model, trial, epoch, ignore_keys_for_eval)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
                 if self.control.should_epoch_stop or self.control.should_training_stop:
                     break
-
-                # print(self.model.model.trans_input[0].weight-old_trans_input_0)
-
             if step < 0:
                 logger.warning(
                     "There seems to be not a single sample in your epoch_iterator, stopping training at step"
@@ -1525,7 +1510,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-            self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+            self._maybe_log_save_evaluate(tr_loss, None, model, trial, epoch, ignore_keys_for_eval)
 
             if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
                 if is_torch_tpu_available():
@@ -1536,8 +1521,6 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                         "You enabled PyTorch/XLA debug metrics but you don't have a TPU "
                         "configured. Check your training configuration if this is unexpected."
                     )
-
-            
             if self.control.should_training_stop:
                 break
 
@@ -1585,8 +1568,5 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         self.control = self.callback_handler.on_train_end(args, self.state, self.control)
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
-
-
-
 
 

@@ -262,7 +262,7 @@ def apply_patch():
         return
 
     # 1. Add import after existing SRT imports
-    marker_import = "from cl_trainer_gainlora_inflora import"
+    marker_import = "from cl_trainer_gainlora import"
     if marker_import in content:
         content = content.replace(marker_import, SGWI_IMPORT_BLOCK + "\n" + marker_import)
         print("  ✅ Added SGWI imports")
