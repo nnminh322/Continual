@@ -136,6 +136,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
+   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -198,6 +199,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
+   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -261,6 +263,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
+   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -324,6 +327,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
+   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -387,6 +391,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
+   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -450,6 +455,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
+   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -513,6 +519,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
+   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -576,6 +583,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
+   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -639,6 +647,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
+   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -702,6 +711,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
+   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -765,6 +775,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
+   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -828,6 +839,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
+   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -891,6 +903,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
+   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -954,6 +967,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
+   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
@@ -1017,6 +1031,7 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --evaluation_strategy steps \
    --save_strategy steps \
    --save_total_limit 1 \
+   --load_best_model_at_end \
    --lora_r 8 \
    --lora_alpha 32 \
    --lora_dropout 0.0 \
