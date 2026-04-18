@@ -41,23 +41,37 @@ SRT_FLAGS="--use_srt_router True --sgwi False --dual_fisher False --srt_shrink F
 
 ## Chạy Full Pipeline (15 tasks)
 
-### Long Sequence Order 3 (yelp → wic)
+### Cú pháp
 ```bash
-cd new_gainlora
-bash gen_script_long_order3_t5_srt.sh 0 google/flan-t5-large
+bash gen_script_<order>_t5_srt.sh <GPU_ID> <MODEL_PATH> [--sgwi True/False] [--dual_fisher True/False] [--lambda_emb <value>]
 ```
 
-### Long Sequence Order 4 (mnli → yahoo)  
+### Config 1: SGWI only (default — recommended)
 ```bash
 cd new_gainlora
 bash gen_script_long_order4_t5_srt.sh 0 google/flan-t5-large
+# Equivalent to: --sgwi True --dual_fisher False
 ```
 
-### Đổi config: sửa SRT_FLAGS trong script
-Ví dụ bật Dual Fisher:
+### Config 2: SGWI + Dual Fisher (λ=0.01 auto)
 ```bash
-# Trong gen_script_long_order3_t5_srt.sh, sửa dòng:
-SRT_FLAGS="--use_srt_router True --sgwi True --dual_fisher True --srt_shrink False --srt_metric_mode hard --srt_max_emb_samples 200"
+bash gen_script_long_order4_t5_srt.sh 0 google/flan-t5-large --dual_fisher True
+```
+
+### Config 3: SGWI + Dual Fisher (custom λ)
+```bash
+bash gen_script_long_order4_t5_srt.sh 0 google/flan-t5-large --dual_fisher True --lambda_emb 0.05
+```
+
+### Config 4: Full LoRA baseline (no SGWI, no Dual Fisher)
+```bash
+bash gen_script_long_order4_t5_srt.sh 0 google/flan-t5-large --sgwi False
+```
+
+### Long Sequence Order 3 (yelp → wic)
+```bash
+bash gen_script_long_order3_t5_srt.sh 0 google/flan-t5-large                           # SGWI only
+bash gen_script_long_order3_t5_srt.sh 0 google/flan-t5-large --dual_fisher True         # + Dual Fisher
 ```
 
 ## Cách hoạt động

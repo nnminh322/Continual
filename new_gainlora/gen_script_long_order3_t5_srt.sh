@@ -12,6 +12,36 @@ export CUDA_DEVICE_ORDER="PCI_BUS_ID"
 port=$(shuf -i25000-30000 -n1)
 
 # ============================================================
+# Parse named arguments: --sgwi, --dual_fisher, --lambda_emb
+# Usage: bash script.sh <GPU_ID> <MODEL_PATH> [--sgwi true/false] [--dual_fisher true/false] [--lambda_emb 0.01]
+# ============================================================
+SGWI_FLAG="True"          # default: SGWI warm-init enabled
+DUAL_FISHER_FLAG="False"  # default: Dual Fisher disabled
+LAMBDA_EMB=""             # default: auto (0.01 when dual_fisher=True)
+
+# Parse positional + named args
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --sgwi)       SGWI_FLAG="$2"; shift 2 ;;
+        --dual_fisher) DUAL_FISHER_FLAG="$2"; shift 2 ;;
+        --lambda_emb) LAMBDA_EMB="$2"; shift 2 ;;
+        *)            POSITIONAL+=("$1"); shift ;;
+    esac
+done
+set -- "${POSITIONAL[@]}"
+
+# Build SRT_FLAGS with parsed values
+LAMBDA_ARG=""
+if [ -n "$LAMBDA_EMB" ]; then
+    LAMBDA_ARG="--lambda_emb $LAMBDA_EMB"
+fi
+
+echo "============================================================"
+echo "[CONFIG] sgwi=$SGWI_FLAG, dual_fisher=$DUAL_FISHER_FLAG, lambda_emb=${LAMBDA_EMB:-auto}"
+echo "============================================================"
+
+# ============================================================
 # Auto-detect GPU count and type for optimal parallelism
 # ============================================================
 NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
@@ -64,7 +94,7 @@ else
     BSZ=8; GA=4; EVAL_BSZ=128
 fi
 
-SRT_FLAGS="--use_srt_router True --sgwi True --dual_fisher False --srt_shrink False --srt_metric_mode hard --srt_max_emb_samples 200"
+SRT_FLAGS="--use_srt_router True --sgwi $SGWI_FLAG --dual_fisher $DUAL_FISHER_FLAG $LAMBDA_ARG --srt_shrink False --srt_metric_mode hard --srt_max_emb_samples 200"
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS python src/run_t5.py \
    --do_train \
