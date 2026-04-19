@@ -926,9 +926,14 @@ class LlamaModel(LlamaPreTrainedModel):
                 if (hasattr(self, 'use_srt_routing') and self.use_srt_routing
                         and hasattr(self, 'srt_router') and self.srt_router is not None
                         and self.is_inference):
-                    # ── SRT inference: route each sample to best adapter ──
-                    from srt_router import SRTRouter
-                    _h = avg_inputs_embeds.squeeze(1).detach().float().cpu().numpy()
+                    # ── SRT inference: last-token pooling (MUST match FrozenLlamaExtractor space) ──
+                    # Extract last non-padding token embedding → matches signature extraction exactly
+                    _mask = (input_ids_wo_label != 1).long()           # (B, L), 1=real token
+                    _seq_lens = _mask.sum(dim=1) - 1                   # (B,)
+                    _B = inputs_embeds_for_query.size(0)
+                    _last_emb = inputs_embeds_for_query[torch.arange(_B, device=inputs_embeds_for_query.device), _seq_lens]  # (B, d)
+
+                    _h = _last_emb.detach().float().cpu().numpy()
                     _pred, _ = self.srt_router.route(_h)
                     _map = getattr(self, 'srt_task_id_to_idx', {})
                     for b in range(batch_size):

@@ -213,18 +213,35 @@ class SGWI_DualFisher_LLaMA_Trainer(GainLoRA_OLoRA_Trainer):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _compute_sgwi_weights(self) -> Optional[Dict[str, float]]:
-        """Compute softmax weights over SRT distances to past tasks."""
+        """
+        Compute softmax weights over SRT distances to past tasks.
+
+        Uses CENTROID distance (consistent with T5 sgwi_trainer.py):
+          d = ||μ_cur - μ_s||  (L2 distance of means, NOT mean of per-sample distances)
+
+        The current task's centroid μ_cur is computed from embeddings.
+        Each past task's centroid μ_s is stored in srt_router.signatures[task].
+        SRT routing already whitens embeddings → L2 distance is valid.
+        """
         if self.srt_router is None or len(self.srt_router.signatures) == 0:
             return None
         h_cur, _ = self._extract_task_embeddings(min(200, self.srt_max_emb_samples))
         if h_cur.shape[0] == 0:
             return None
-        h_np = h_cur.numpy()
-        _, dists = self.srt_router.route(h_np)  # (N, n_tasks)
-        mean_dists = dists.mean(axis=0)  # (n_tasks,)
+
+        # Compute centroid of current task
+        mu_cur = h_cur.mean(axis=0).numpy()  # (d,)
+
+        # Compute L2 distance from μ_cur to each past task's centroid
         task_ids = list(self.srt_router.signatures.keys())
-        tau = max(np.median(mean_dists), 1e-6)
-        scores = np.exp(-mean_dists / tau)
+        centroid_dists = np.zeros(len(task_ids), dtype=np.float64)
+        for i, task_id in enumerate(task_ids):
+            sig = self.srt_router.signatures[task_id]
+            mu_s = sig.mu_raw if hasattr(sig, 'mu_raw') and sig.mu_raw is not None else sig.mu
+            centroid_dists[i] = np.linalg.norm(mu_cur - mu_s)
+
+        tau = max(np.median(centroid_dists), 1e-6)
+        scores = np.exp(-centroid_dists / tau)
         scores /= scores.sum()
         weights = {task_ids[i]: float(scores[i]) for i in range(len(task_ids))}
         print(f"  [SGWI-LLaMA] weights (τ={tau:.4f}): {weights}")
@@ -246,9 +263,25 @@ class SGWI_DualFisher_LLaMA_Trainer(GainLoRA_OLoRA_Trainer):
                 cur_lora = attn.lora_q if proj == 'q' else attn.lora_v
                 fused_dw = torch.zeros_like(cur_lora.lora_B @ cur_lora.lora_A)
                 total_w = 0.0
-                for prev_idx, prev_lora in enumerate(prev_list):
-                    task_name = self.task_order[prev_idx]
-                    w = weights.get(task_name, 0.0)
+                for past_task_name, w in weights.items():
+                    # prev_list index: prev_list[0] = task_order[cur_task_id-1] (most recent),
+                    # prev_list[1] = task_order[cur_task_id-2], ..., prev_list[n-1] = task_order[0] (oldest)
+                    # → idx = (cur_task_id-1) - position_of(past_task_name in task_order)
+                    if isinstance(past_task_name, str):
+                        try:
+                            pos = self.task_order.index(past_task_name)
+                            prev_idx = (self.cur_task_id - 1) - pos
+                        except ValueError:
+                            print(f"  [SGWI-LLaMA] task '{past_task_name}' not in task_order, skipping")
+                            continue
+                    else:
+                        prev_idx = int(past_task_name)
+
+                    if prev_idx < 0 or prev_idx >= len(prev_list):
+                        print(f"  [SGWI-LLaMA] idx={prev_idx} out of range, skipping")
+                        continue
+
+                    prev_lora = prev_list[prev_idx]
                     if w < 1e-8:
                         continue
                     dw = prev_lora.lora_B.data @ prev_lora.lora_A.data
