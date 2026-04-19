@@ -931,50 +931,52 @@ class LlamaModel(LlamaPreTrainedModel):
                 )
                 use_cache = False
         
-        #####################
+        # ═══════════ SRT HARD ONE-HOT ROUTING (replaces cal_attention) ═══════════
         key_attention_weights = None
         if not self.prompt_config["run_single"]:
-            prompt_key = self.prompt_key
             inputs_embeds_for_query = self.embed_tokens(input_ids_wo_label)
             if self.previous_prompts_keys is not None:
-                prompt_key = self.prompt_key.to(prompt_key.device)
-                past_prompt_key = torch.cat([prompt_key.repeat(batch_size, 1, 1), self.previous_prompts_keys.repeat(batch_size, 1, 1)], dim=1)
-                # key_attention_weights = self.cal_attention(past_prompt_key, inputs_embeds_for_query)
-                # key_attention_weights = torch.ones_like(key_attention_weights)
+                n_adapters = 1 + self.previous_prompts_keys.shape[0]
 
-                # avg_inputs_embeds = inputs_embeds_for_query.max(dim=1, keepdim=True).values
-                # avg_inputs_embeds = inputs_embeds_for_query.mean(dim=1, keepdim=True)
+                # GPM feature collection (still needed for gradient projection)
                 avg_inputs_embeds = ((input_ids_wo_label!=1).long().unsqueeze(-1)*inputs_embeds_for_query).mean(dim=1, keepdim=True)
                 medium = self.trans_input[0](avg_inputs_embeds)
                 x = self.trans_input[2](self.trans_input[1](medium))
-
                 if self.get_trans_feature:
                     self.get_matrix3(avg_inputs_embeds, medium, x)
 
-                past_x = torch.cat([x, self.previous_trans_input(avg_inputs_embeds)], dim=1)
-                key_attention_weights = self.cal_attention(past_prompt_key, past_x)
-
-                if self.is_inference:
-                    self.all_attn_weights.append(key_attention_weights.squeeze().mean(dim=0).detach().to(torch.float).cpu().numpy())
+                # Hard one-hot routing
+                key_attention_weights = torch.zeros(
+                    batch_size, n_adapters, 1,
+                    device=inputs_embeds.device, dtype=inputs_embeds.dtype,
+                )
+                if (hasattr(self, 'use_srt_routing') and self.use_srt_routing
+                        and hasattr(self, 'srt_router') and self.srt_router is not None
+                        and self.is_inference):
+                    # ── SRT inference: route each sample to best adapter ──
+                    from srt_router import SRTRouter
+                    _h = avg_inputs_embeds.squeeze(1).detach().float().cpu().numpy()
+                    _pred, _ = self.srt_router.route(_h)
+                    _map = getattr(self, 'srt_task_id_to_idx', {})
+                    for b in range(batch_size):
+                        _idx = _map.get(_pred[b], 0)
+                        _idx = min(_idx, n_adapters - 1)
+                        key_attention_weights[b, _idx, 0] = 1.0
+                else:
+                    # ── Training: current adapter only (index 0) ──
+                    key_attention_weights[:, 0, 0] = 1.0
             else:
-                # key_attention_weights = self.cal_attention(prompt_key.repeat(batch_size, 1, 1), inputs_embeds_for_query)
-                # key_attention_weights = torch.ones_like(key_attention_weights)
-
-                # avg_inputs_embeds = inputs_embeds_for_query.max(dim=1, keepdim=True).values
-                # avg_inputs_embeds = inputs_embeds_for_query.mean(dim=1, keepdim=True)
+                # First task: only one adapter, weight = 1
                 avg_inputs_embeds = ((input_ids_wo_label!=1).long().unsqueeze(-1)*inputs_embeds_for_query).mean(dim=1, keepdim=True)
                 medium = self.trans_input[0](avg_inputs_embeds)
                 x = self.trans_input[2](self.trans_input[1](medium))
-
                 if self.get_trans_feature:
                     self.get_matrix3(avg_inputs_embeds, medium, x)
-
-                key_attention_weights = self.cal_attention(prompt_key.repeat(batch_size, 1, 1), x)
-
-                if self.is_inference:
-                    self.all_attn_weights.append(key_attention_weights.squeeze(2).mean(dim=0).detach().to(torch.float).cpu().numpy())
-        #####################
-        # key_attention_weights = torch.zeros(1,15,1).to(input_ids.device).bfloat16()
+                key_attention_weights = torch.ones(
+                    batch_size, 1, 1,
+                    device=inputs_embeds.device, dtype=inputs_embeds.dtype,
+                )
+        # ═══════════ END SRT ROUTING ═══════════
 
         # decoder layers
         all_hidden_states = () if output_hidden_states else None

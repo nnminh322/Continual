@@ -393,6 +393,20 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         default=None,
         metadata={"help": "Path to load SRT signatures from previous checkpoint (multi-task CL)."},
     )
+    # ── SGWI + Dual Fisher (Contribution 2) ────────────────────────────────────
+    sgwi: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Enable SGWI warm initialization of LoRA from similar past tasks."},
+    )
+    dual_fisher: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Enable Dual Fisher embedding L2 regularization."},
+    )
+    lambda_emb: Optional[float] = field(
+        default=0.0,
+        metadata={"help": "Dual Fisher penalty strength. Auto-set to 0.01 if dual_fisher=True."},
+    )
+
     srt_skip_forward: Optional[bool] = field(
         default=False,
         metadata={
@@ -868,23 +882,32 @@ def main():
         if training_args.do_train:
             trainer.get_reg_matrix()
     elif training_args.model_name == 'gainlora':
-        if 'llama-3' in model_args.model_name_or_path.lower():
-            from cl_trainer_gainlora_llama3 import GainLoRATrainer
-        elif 'llama-2' in model_args.model_name_or_path.lower():
-            from cl_trainer_gainlora_llama import GainLoRATrainer
-        else:
-            raise NotImplementedError
-
+        # ── SGWI + Dual Fisher + SRT (Contribution 2) for LLaMA ──
         if training_args.use_srt_router:
-            # SRT Trainer: GainLoRA + non-parametric SRT router
-            # FrozenLlamaExtractor was attached earlier (model.model.encoder_frozen)
-            from cl_trainer_srt import SRT_Trainer
-            trainer = SRT_Trainer(
+            _sgwi_mode = 'sgwi_full' if training_args.sgwi else 'full_lora'
+            _lambda_emb = training_args.lambda_emb
+            if training_args.dual_fisher and _lambda_emb == 0.0:
+                _lambda_emb = 0.01
+            elif not training_args.dual_fisher:
+                _lambda_emb = 0.0
+            print(f"[C2-LLaMA] sgwi={training_args.sgwi} → mode={_sgwi_mode}, "
+                  f"dual_fisher={training_args.dual_fisher}, lambda_emb={_lambda_emb}")
+
+            from sgwi_trainer_llama import SGWI_DualFisher_LLaMA_Trainer
+            trainer = SGWI_DualFisher_LLaMA_Trainer(
                 model=model,
                 args=training_args,
                 train_dataset=train_dataset if training_args.do_train else None,
                 cur_task_id=cur_task_id,
                 task_order=task_order,
+                sgwi_mode=_sgwi_mode,
+                lambda_emb=_lambda_emb,
+                srt_metric_mode=training_args.srt_metric_mode,
+                srt_shrink=training_args.srt_shrink,
+                srt_shrink_factor=training_args.srt_shrink_factor,
+                srt_max_emb_samples=training_args.srt_max_emb_samples,
+                srt_load_path=training_args.srt_load_path,
+                srt_skip_forward=training_args.srt_skip_forward,
                 data_collator_replay=data_collator_replay,
                 replay_dataset_dict=replay_dataset_dict,
                 replay_label_dict=replay_label_dict,
@@ -893,17 +916,18 @@ def main():
                 data_collator=data_collator,
                 compute_metrics=compute_rouge_metrics,
                 callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None,
-                srt_metric_mode=training_args.srt_metric_mode,
-                srt_shrink=training_args.srt_shrink,
-                srt_shrink_factor=training_args.srt_shrink_factor,
-                srt_max_emb_samples=training_args.srt_max_emb_samples,
-                srt_load_path=training_args.srt_load_path,
-                srt_skip_forward=training_args.srt_skip_forward,
             )
-            print(f"[SRT] Using SRT_Trainer (mode={training_args.srt_metric_mode}, "
-                  f"shrink={training_args.srt_shrink}, "
-                  f"skip_forward={training_args.srt_skip_forward}, encoder_frozen=attached)")
+            if training_args.do_train:
+                trainer.get_reg_matrix()
+            print(f"[SRT-LLaMA] Using SGWI_DualFisher_LLaMA_Trainer "
+                  f"(srt_mode={training_args.srt_metric_mode}, skip_fwd={training_args.srt_skip_forward})")
         else:
+            if 'llama-3' in model_args.model_name_or_path.lower():
+                from cl_trainer_gainlora_llama3 import GainLoRATrainer
+            elif 'llama-2' in model_args.model_name_or_path.lower():
+                from cl_trainer_gainlora_llama import GainLoRA_OLoRA_Trainer as GainLoRATrainer
+            else:
+                raise NotImplementedError
             trainer = GainLoRATrainer(
                 model=model,
                 args=training_args,
@@ -980,6 +1004,13 @@ def main():
 
         if training_args.model_name in ['inflora', 'gainlora', 'gainlora']:
             trainer.get_repsentation()
+
+        # SRT: compute and store statistical signature AFTER training this task
+        if training_args.model_name == 'gainlora' and training_args.use_srt_router:
+            if hasattr(trainer, 'on_task_end'):
+                trainer.on_task_end(task_order[cur_task_id])
+            if hasattr(trainer, 'save_srt_signatures'):
+                trainer.save_srt_signatures(save_path)
 
     # Evaluation
     results = {}
