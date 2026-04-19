@@ -764,7 +764,6 @@ class LlamaModel(LlamaPreTrainedModel):
                 for param in self.previous_trans_input.parameters():
                     param.requires_grad = False
 
-            self.all_attn_weights = []
         ##########################
 
         self.gradient_checkpointing = False
@@ -834,34 +833,8 @@ class LlamaModel(LlamaPreTrainedModel):
 
         return combined_attention_mask
     
-    def cal_attention(self, prompt_key, x, return_logits=False):
-        
-        # avg_inputs_embeds = text_input.max(dim=1, keepdim=True).values
-        # x = trans_input(avg_inputs_embeds)
-        
-        if self.prompt_config["attn_temperature"] == 1:
-            attn_temperature = math.sqrt(self.model_dim)
-        else:
-            attn_temperature = math.sqrt(2*self.model_dim)
-        
-        x=x/x.norm(dim=-1,keepdim=True)
-        prompt_key = prompt_key/prompt_key.norm(dim=-1,keepdim=True)
-        
-        # attn_scores = prompt_key.bmm(
-        #     x.transpose(1, 2))
-
-        attn_scores = (x*prompt_key).sum(dim=-1, keepdim=True)
-        # attn_scores = torch.nn.functional.cosine_similarity(
-        #     x,
-        #     prompt_key, dim=-1
-        # ).unsqueeze(2)
-        # weights = torch.nn.functional.sigmoid(attn_scores*4)
-        weights = torch.abs(torch.nn.functional.sigmoid(attn_scores*4)*2-1)
-        # if not return_logits:
-        if not return_logits:
-            return weights  
-        else:
-            return attn_scores  # shape (B, L, 1)
+    # NOTE: cal_attention removed — SRT hard one-hot routing replaces it.
+    # Kept as comment for ablation reference only.
 
     @add_start_docstrings_to_model_forward(LLAMA_INPUTS_DOCSTRING)
     def forward(
@@ -1069,20 +1042,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
     def get_decoder(self):
         return self.model
 
-    def memory_replay(self, input_ids, replay_labels):
-        kl_loss = None
-        if replay_labels is not None:
-            
-            inputs_embeds = self.model.embed_tokens(input_ids)
-            k = input_ids.shape[0]
-            kl_loss_fct = nn.KLDivLoss(reduction="batchmean")
-            
-            pre_prompt_key = torch.cat([self.model.prompt_key.repeat(k, 1, 1), self.model.previous_prompts_keys.repeat(k, 1, 1)], dim=1)
-        
-            attn_scores = self.model.cal_attention(pre_prompt_key, inputs_embeds, return_logits=True)
-
-            kl_loss = kl_loss_fct(torch.nn.functional.log_softmax(attn_scores.squeeze(2), 1), replay_labels.squeeze().repeat(k, 1))
-        return kl_loss
+    # NOTE: memory_replay removed — SRT replaces cal_attention-based replay.
 
     @add_start_docstrings_to_model_forward(LLAMA_INPUTS_DOCSTRING)
     @replace_return_docstrings(output_type=CausalLMOutputWithPast, config_class=_CONFIG_FOR_DOC)

@@ -1033,53 +1033,9 @@ def main():
             predict_dataset = predict_dataset.select(range(data_args.max_predict_samples))
 
         model.model.is_inference = True
-        _ = trainer.predict(
-            eval_dataset,
-            metric_key_prefix="predict",
-            max_new_tokens=max_new_tokens,
-            num_beams=num_beams,
-            repetition_penalty=repetition_penalty,
-            pad_token_id=tokenizer.pad_token_id
-        )
-        model.model.is_inference = False
 
-        if world_size > 1:
-            rank = torch.distributed.get_rank()
-            is_main_process = rank == 0
-        else:
-            is_main_process = 1
-
-        if is_main_process:
-            save_path = training_args.output_dir + "/saved_weights"
-            with open(os.path.join(save_path, "attention_weights.pkl"), 'wb') as f:
-                print("*"*20, "Saving Attention Weights", "*"*20)
-                print(np.array(trainer.model.model.all_attn_weights).mean(axis=0))
-                pickle.dump(np.array(trainer.model.model.all_attn_weights).mean(axis=0), f)
-
-
-        if training_args.model_name in ['gainlora', 'gainlora']:
-            trainer.model.model.is_inference = True
-            all_task_accs = []
-            all_group_accs = []
-            for task_id in range(cur_task_id + 1):
-                del trainer.model.model.all_attn_weights
-                trainer.model.model.all_attn_weights = []
-                select_indexs = [id for id, instance in enumerate(predict_dataset) if task_order.index(instance['Dataset']) == task_id]
-                select_predict_dataset = predict_dataset.select(select_indexs)
-                predict_results = trainer.predict(
-                    select_predict_dataset,
-                    metric_key_prefix="predict",
-                    max_new_tokens=max_new_tokens,
-                    num_beams=num_beams,
-                    repetition_penalty=repetition_penalty,
-                    pad_token_id=tokenizer.pad_token_id
-                )
-                all_group_accs.append(np.array((trainer.model.model.all_attn_weights)).mean(axis=0))
-                print(np.array((trainer.model.model.all_attn_weights)).mean(axis=0))
-            with open(os.path.join(training_args.output_dir, "group_acc.txt"), 'w') as f:
-                f.write(str(all_group_accs))
-            trainer.model.model.is_inference = False
-
+        # NOTE: all_attn_weights / attention_weights.pkl / group_acc blocks REMOVED.
+        # SRT uses non-parametric routing — no attention weights to save.
 
         predict_results = trainer.predict(
             predict_dataset,

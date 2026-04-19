@@ -1,234 +1,162 @@
-# Phân Tích Phương Pháp Luận: SRT + LoRA Initialization
+# Methodology Analysis: GainLoRA → SRT → SGWI+DualFisher
 
-## 1. Kiểm Định Lập Luận Của Bạn
+## Tóm tắt bức tranh toàn cảnh
 
-### 1.1 Lập luận gốc (đúng)
-> "Root GainLoRA có 2 thành phần: (a) GPM routing, (b) null-space projection trên A.
-> SRT chỉ thay thế (a), nhưng (b) vẫn hoạt động → double negative: null-space exhaustion + cold-start."
+### 1. GainLoRA gốc (root_gainlora) — Cơ chế GPM có vấn đề
 
-**Xác nhận: Lập luận này ĐÚNG 100%.** Audit code cho thấy:
+**Kiến trúc gốc**: GainLoRA = Multi-LoRA adapters + Parametric Router (cal_attention) + GPM (Gradient Projection Memory)
 
-| Thành phần | Root GainLoRA | SRT (current) | Vấn đề |
-|------------|--------------|---------------|--------|
-| Routing (inference) | GPM attention | SRT statistical ✅ | Đã thay thế |
-| Null-space init (lora_A) | InfLoRA: A'=A-A@UU^T | **Vẫn giữ nguyên** ❌ | Null-space cạn kiệt |
-| GPM gradient projection | Project after each step | **Vẫn giữ nguyên** ❌ | Constrain training |
-| Knowledge transfer | Qua shared prompt_key | ❌ Không có | Cold-start |
+**Vấn đề cốt lõi với GPM routing:**
 
-### 1.2 Bằng chứng thực nghiệm
+1. **Parametric router drift**: Router `cal_attention` sử dụng sigmoid-based weights qua `trans_input` network. Network này được **cập nhật mỗi task** → thay đổi routing weights cho ALL previous tasks → **catastrophic routing drift**.
 
-| Thực nghiệm | Có GPM/null-space | Không GPM | Kết luận |
-|-------------|-------------------|-----------|----------|
-| Phase 1 CB (2 task) | 42.86% | 83.93% | GPM giết plasticity |
-| Full SRT order 3 (15 task) | CB=3.57% | Chưa test | Null-space cạn kiệt |
-
-### 1.3 Giải thích cơ chế
-
-**Tại sao null-space + SRT là double negative:**
-
-```
-Task 1: lora_A chiếm subspace S1
-Task 2: lora_A phải nằm trong S1⊥ (null-space của S1)
-...
-Task k: lora_A phải nằm trong (S1 ∪ S2 ∪...∪ S_{k-1})⊥
-```
-
-Với r=8 và mỗi task chiếm ~8 directions, sau ~100 tasks (d_model=1024), null-space ≈ 0.
-SRT routing đã đảm bảo: inference đúng adapter → **KHÔNG CẦN** null-space constraint nữa.
-Null-space lúc này chỉ có hại, không có lợi.
-
----
-
-## 2. Không Gian Thiết Kế: A và B Nên Khởi Tạo/Train Thế Nào?
-
-### 2.1 Hiểu rõ vai trò A và B
-
-Trong LoRA: `ΔW = B @ A`, output = `(x @ A^T @ B^T) * scaling`
-- **A (down-projection)**: [r, d_in] — chọn "hướng" trong input space để trích xuất
-- **B (up-projection)**: [d_out, r] — ánh xạ ngược lên output space
-
-Trong InfLoRA: A frozen → hướng trích xuất cố định → B chỉ điều chỉnh "magnitude" trên hướng đã chọn.
-
-### 2.2 Phân tích 4 configurations
-
-#### Config 1: Freeze A + null-space (hiện tại)
-```
-A = kaiming → project vào null-space → frozen
-B = zeros → trainable
-```
-- **Expressiveness**: Thấp. A bị ép vào null-space ngày càng nhỏ. B chỉ scale hướng cố định.
-- **Forgetting**: Rất tốt (by design). Nhưng SRT đã đảm bảo rồi → **dư thừa**.
-- **Cold-start**: Nghiêm trọng. B=0 mỗi task, A random trong null-space.
-- **Forward transfer**: 0. Không chuyển giao gì.
-- **Kết quả**: CB=3.57% ở order 3 (15 tasks).
-
-#### Config 2: Freeze A + random (bỏ null-space)
-```
-A = kaiming → frozen (KHÔNG project)
-B = zeros → trainable
-```
-- **Expressiveness**: Trung bình. A random nhưng frozen → hướng trích xuất "may rủi".
-- **Forgetting**: SRT routing handles this.
-- **Cold-start**: Vẫn có (B=0). Nhưng A không bị ép → nhiều "phòng" hơn.
-- **Forward transfer**: 0.
-- **Dự kiến**: Tốt hơn Config 1 đáng kể.
-
-#### Config 3: Full LoRA (train cả A và B, random init)
-```
-A = kaiming → trainable
-B = zeros → trainable
-```
-- **Expressiveness**: Cao nhất. A tìm hướng tối ưu, B điều chỉnh magnitude.
-- **Gấp 2x trainable params** nhưng mỗi task tìm được subspace riêng tốt nhất.
-- **Forgetting**: SRT routing handles. Các task trước frozen trong `previous_lora_weights`.
-- **Cold-start**: Nhẹ hơn vì A cũng train → tự tìm hướng tốt.
-- **Forward transfer**: 0 (random init).
-- **Rủi ro**: `trans_input` dùng để route trong training; nếu bỏ GPM gradient projection, trans_input evolve tự do → training-time routing có thể suboptimal. **NHƯNG**: inference dùng SRT → không ảnh hưởng cuối cùng.
-
-#### Config 4: Full LoRA + SGWI warm-init
-```
-A = warm-init từ past tasks (SGWI) → trainable
-B = warm-init từ past tasks (SGWI) → trainable
-```
-- **Expressiveness**: Cao nhất + head-start.
-- **Forward transfer**: CÓ. Knowledge chuyển giao qua warm init.
-- **Cold-start**: KHÔNG CÒN. Bắt đầu gần điểm tốt.
-- **Forgetting**: SRT routing handles.
-- **Kết hợp tốt nhất**: Plasticity (full LoRA) + Transfer (SGWI) + Anti-forgetting (SRT routing).
-
-#### Config 5: Freeze A (SGWI warm-init) + B from zeros
-```
-A = SGWI warm-init từ past tasks → frozen
-B = zeros → trainable
-Không null-space
-```
-- **Expressiveness**: Trung bình-cao. A có "hướng" tốt từ task tương tự → B học trong subspace có ý nghĩa.
-- **So với Config 2**: Cùng frozen A, cùng B=0, nhưng A direction là SGWI (informed) thay vì kaiming (random).
-- **Forward transfer**: Có (qua A direction). A "chỉ đường" cho B dựa trên task tương tự.
-- **Cold-start**: Một phần giải quyết (A warm → B hội tụ nhanh hơn trong hướng đúng).
-- **Ưu điểm**: Cùng số trainable params như hiện tại → dễ so sánh fair.
-- **Đáng test**: ✅ RẤT ĐÁNG — đây là cách đơn giản nhất thể hiện giá trị SGWI.
-
-#### Config 6: SGWI-A trainable + B from zeros
-```
-A = SGWI warm-init → trainable
-B = zeros → trainable
-Không null-space
-```
-- **Expressiveness**: Cao. A có head-start VÀ có thể tinh chỉnh thêm.
-- **So với Config 3**: Cùng full LoRA, nhưng A bắt đầu từ SGWI (informed) thay vì kaiming (random).
-- **So với Config 5**: A thêm trainable → linh hoạt hơn, có thể vượt qua SGWI init nếu cần.
-- **Forward transfer**: Có (qua A init). A refinable → adapt tốt hơn.
-- **Cold-start**: Giải quyết cho A. B=0 nhưng A warm giúp convergence.
-- **Đáng test**: ✅ ĐÁNG — test xem SGWI + trainable A có synergy không.
-
-### 2.3 Tóm tắt so sánh đầy đủ (6 configs)
-
-| # | A init | A train | B init | Null-space | Plasticity | Transfer | Cold-start |
-|---|--------|---------|--------|-----------|-----------|----------|------------|
-| 1 | kaiming→null | frozen | zeros | YES | ❌ Thấp | ❌ | ❌ Nặng |
-| 2 | kaiming | frozen | zeros | NO | ⚠️ TB | ❌ | ⚠️ Có |
-| 3 | kaiming | **train** | zeros | NO | ✅ Cao | ❌ | ⚠️ Nhẹ |
-| 5 | **SGWI** | frozen | zeros | NO | ⚠️ TB-cao | ✅ Qua A | ⚠️ Nhẹ |
-| 6 | **SGWI** | **train** | zeros | NO | ✅ Cao | ✅ Qua A | ⚠️ Nhẹ |
-| 4 | **SGWI** | **train** | **SGWI** | NO | ✅ Cao | ✅ Full | ✅ Giải quyết |
-
-### 2.4 Chuỗi ablation và câu hỏi mỗi cặp trả lời
-
-```
-Config 1 → 2: Bỏ null-space có giúp gì? (isolate null-space effect)
-Config 2 → 5: SGWI-A có tốt hơn random-A? (isolate SGWI effect on A)
-Config 2 → 3: Unfreeze A có giúp gì? (isolate A-training effect)
-Config 5 → 6: SGWI-A + trainable có tốt hơn SGWI-A frozen? (SGWI + training synergy)
-Config 3 → 6: SGWI-A init giúp gì thêm khi full LoRA? (SGWI marginal value)
-Config 6 → 4: SGWI-B init thêm có giúp gì? (B warm-init marginal value)
-```
-
-**Khuyến nghị thứ tự ưu tiên** (từ ít effort → nhiều, dừng sớm nếu đủ insight):
-1. **Config 2** (bỏ null-space, giữ nguyên phần còn lại) → establish new baseline
-2. **Config 5** (SGWI-A frozen) → test SGWI value với ít thay đổi nhất
-3. **Config 3** (full LoRA random) → test plasticity gain
-4. **Config 6** (SGWI-A trainable + B=0) → test synergy
-5. Config 4 (full SGWI) → maximum configuration
-
----
-
-## 3. Routing: Training vs Inference
-
-**Phát hiện quan trọng từ code:**
-
-### Training time:
-```python
-# t5_gainlora_inflora.py: T5Stack.forward()
-# Routing qua learned MLP: trans_input + prompt_key
-avg_input = mean_pool(input_embeds)
-x = trans_input(avg_input)            # MLP projection  
-attn = cosine_sim(x, prompt_key)      # attention weights
-lora_output = Σ attn[i] * adapter_i   # weighted combination
-```
-
-### Inference time (SRT):
-```python
-# cl_trainer_srt.py: predict()
-srt_weights = srt_router.route(input)  # SRT statistical routing
-model.encoder.override_attn_weights = srt_weights  # OVERRIDE learned routing
-# Model forward uses override_attn_weights instead of trans_input routing
-```
-
-**Kết luận**: 
-- trans_input/prompt_key vẫn cần cho TRAINING-TIME routing
-- SRT override tại INFERENCE → kết quả cuối cùng do SRT quyết định
-- Bỏ GPM gradient projection trên trans_input/prompt_key: training routing có thể thay đổi nhưng inference không ảnh hưởng
-
----
-
-## 4. Hướng Đi Đề Xuất
-
-### 4.1 Ablation Study (cần chạy)
-
-**Phase A: SRT-Clean ablation** (bỏ GPM khỏi SRT, test 3 configs)
-
-| Arm | A init | A train | B init | B train | GPM/null-space |
-|-----|--------|---------|--------|---------|---------------|
-| A1 | kaiming | frozen | zeros | yes | ❌ NONE |
-| A2 | kaiming | **yes** | zeros | yes | ❌ NONE |
-| A3 | SGWI warm | **yes** | SGWI warm | yes | ❌ NONE |
-
-Chạy trên pipeline dài (15 task order 1 hoặc order 3) để thấy rõ hiệu ứng.
-
-### 4.2 Implementation cần làm
-
-1. **SRT_Trainer mới** (hoặc flag `--srt_clean`):
-   - Override `get_reg_matrix()` → KHÔNG project null-space, chỉ set `_cur_task=0`
-   - Override `_inner_training_loop()` → KHÔNG GPM gradient projection
+2. **GPM-learn coupling**: GPM vừa phải bảo vệ gradient subspace (anti-forgetting) VÀ đồng thời phải train router parameters. Hai mục tiêu này **mâu thuẫn nhau**:
+   - Bảo vệ subspace → hạn chế không gian gradient
+   - Train router chính xác → cần gradient tự do
    
-2. **Unfreeeze lora_A** (flag `--train_lora_a`):
-   - Trong `run_t5.py`, thêm `lora_A.requires_grad = True` cho config 3,4
+3. **Replay dependency**: Cần replay labels (attention_weights.pkl) từ task trước → thêm memory overhead + replay labels bị outdated sau khi router drift.
 
-3. **SGWI cho cả A và B** (đã có framework, chỉ cần mở rộng)
+4. **Thực nghiệm**: Routing accuracy giảm khi số task tăng (xem routing_analysis). Đặc biệt từ task 5+ trở đi, router thường route sai → adapter sai → forgetting tăng.
 
-### 4.3 Story line cho paper
+### 2. SRT (Statistical Routing Theory) — Contribution 1
 
-**C1 (SRT)**: 
-- Claim: SRT thay thế GPM routing → non-parametric, statistical
-- **Cần thêm**: SRT cũng giải phóng khỏi null-space constraint → tăng plasticity dramatically
-- Evidence: CB từ 3.57% → X% (sau khi bỏ null-space)
+**Phát hiện chính**: Routing là bài toán **phân loại thống kê**, không phải bài toán tối ưu parametric.
 
-**C2 (SGWI)**:
-- Claim: Bỏ null-space tạo khoảng trống cho warm-init
-- SGWI chuyển giao knowledge từ similar tasks (SRT-weighted)
-- Evidence: SGWI > random init khi chạy full pipeline
+**Cơ chế SRT:**
+```
+Sau mỗi task t:
+  1. Extract embeddings h_i từ frozen backbone (không train)
+  2. Tính signature: μ_t = mean(h_i), Σ_t = cov(h_i)
+  3. Lưu vào SRT Router (non-parametric)
 
-**Unified story**: GPM = {routing + constraint}. SRT replaces routing. Removing constraint frees plasticity. SGWI fills the knowledge transfer gap.
+Tại inference, cho sample x:
+  1. Extract h_x từ frozen backbone
+  2. Tính d(x, t) = (h_x - μ_t)^T Σ_t^{-1} (h_x - μ_t)  [Mahalanobis]
+  3. Route sang adapter t* = argmin_t d(x, t)  [hard one-hot]
+```
 
----
+**Tại sao SRT triệt để hơn GPM routing:**
 
-## 5. Tài Liệu Tham Khảo
+| Thuộc tính | GPM Routing | SRT |
+|---|---|---|
+| Parameter drift | ✗ Router parameters thay đổi | ✓ Signatures FROZEN sau khi tính |
+| Zero-rehearsal | ✗ Cần replay labels | ✓ Chỉ cần {μ, Σ} |
+| Accuracy vs #tasks | Giảm (drift tích lũy) | Ổn định (signatures không đổi) |
+| Training cost | Phải train router | Zero cost (compute μ,Σ 1 lần) |
 
-- **LoRA** (Hu et al., 2022): Freeze A (kaiming), train B (zeros). Single-task.
-- **InfLoRA** (Liang et al., 2024): A → null-space projection, frozen. B trained. Continual.
-- **O-LoRA** (Wang et al., 2023): Similar null-space idea.
-- **LoRA+** (Hayou et al., 2024): Different learning rates for A and B improves training.
-- **rsLoRA** (Kalajdzievski, 2023): Scaling factor `1/√r` for large rank.
-- **AdaLoRA** (Zhang et al., 2023): Dynamic rank allocation via SVD.
-- **DyLoRA** (Valipour et al., 2022): Training across ranks simultaneously.
+**Thực nghiệm xác nhận:**
+- Routing accuracy ~100% trên cả Long_Sequence và SuperNI
+- Full pipeline: forgetting giảm so với GainLoRA gốc
+- Đặc biệt: task 5+ (nhiều tasks) → SRT vẫn route chính xác, GainLoRA gốc route sai
+
+### 3. Trade-off: Anti-forgetting ↑ nhưng Knowledge Transfer ↓
+
+**Vấn đề quan trọng bạn chỉ ra:**
+
+SRT sử dụng **hard one-hot routing**:
+- Training: w = [1, 0, 0, ...] → chỉ train current adapter
+- Inference: w = one-hot(argmin distance) → chỉ dùng 1 adapter
+
+→ **Mỗi task là một "silo" hoàn toàn độc lập.**
+
+Điều này:
+- ✓ **Maximizes anti-forgetting**: task cũ không bị ảnh hưởng bởi task mới (silos)
+- ✗ **Minimizes knowledge transfer**: task mới không tận dụng được tri thức từ task cũ
+  - Không có soft blending giữa adapters
+  - LoRA init là random (Kaiming) → mỗi task bắt đầu từ scratch
+  - Không có shared representation learning
+
+**Đây là trade-off cơ bản trong Continual Learning:**
+```
+Stability (anti-forgetting) ←→ Plasticity (knowledge transfer)
+```
+
+SRT đẩy cực stability nhưng sacrifices plasticity.
+
+### 4. SGWI + Dual Fisher — Contribution 2: Khôi phục Knowledge Transfer
+
+**Insight cốt lõi**: SRT giải phóng GPM khỏi routing → GPM giờ chỉ cần bảo vệ gradient subspace → **còn rất nhiều "dư địa" (headroom) để đóng góp cơ chế transfer mới**.
+
+#### 4a. SGWI (SRT-Guided Warm Initialization)
+
+**Ý tưởng**: Thay vì init LoRA A/B random, dùng SRT distances để warm-init từ past tasks.
+
+```
+Cho task t mới:
+  1. Extract embeddings cho task t
+  2. Tính khoảng cách SRT d(t, t') cho mỗi past task t'
+  3. Softmax weights: w(t') = exp(-d(t,t')/τ) / Σ exp(-d/τ)
+  4. Weighted fusion: ΔW_init = Σ w(t') * ΔW(t')  [ΔW = B @ A]
+  5. SVD decomposition: ΔW_init = USV^T
+  6. Init: A_new = sqrt(S[:r]) @ V[:r], B_new = U[:,:r] @ sqrt(S[:r])
+```
+
+**Tại sao hoạt động:**
+- Tasks tương tự nhau (gần trong SRT space) → ΔW có correlation cao → warm init giúp hội tụ nhanh hơn + performance tốt hơn
+- Tasks khác nhau (xa trong SRT space) → weights ≈ uniform → warm init ≈ average → không gây hại
+- SVD đảm bảo rank constraint của LoRA
+
+**Knowledge transfer mechanism**: Transfer xảy ra ở **initialization**, không phải ở routing. → Không ảnh hưởng đến SRT hard one-hot routing (stability).
+
+#### 4b. Dual Fisher Regularization
+
+**Ý tưởng**: Embedding layer (embed_tokens) là shared across ALL tasks. Nếu nó drift quá nhiều → ảnh hưởng representations cho past tasks → hidden forgetting.
+
+```
+L_total = L_task + λ_emb * ||W_emb - W_emb^anchor||^2
+```
+
+Trong đó `W_emb^anchor` được snapshot trước khi train task mới.
+
+**Tại sao cần:**
+- LoRA chỉ modify attention Q/V → frozen
+- Nhưng embed_tokens có thể drift (nếu nó trainable)
+- Dual Fisher ngăn drift quá mức
+
+**Kết hợp với SRT**: SRT signatures dựa trên embeddings. Nếu embed_tokens drift → signatures stale → routing sai. Dual Fisher giữ embeddings ổn định → SRT signatures vẫn valid.
+
+### 5. Bức tranh tổng thể: 3-Layer Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Layer 3: ROUTING (SRT - zero drift)                      │
+│   {μ_t, Σ_t} → Mahalanobis → hard one-hot              │
+│   → Anti-forgetting: MAXIMAL                             │
+├─────────────────────────────────────────────────────────┤
+│ Layer 2: INITIALIZATION (SGWI - transfer via init)       │
+│   SRT distances → softmax weights → SVD warm-init LoRA  │
+│   → Knowledge transfer: via initialization               │
+├─────────────────────────────────────────────────────────┤
+│ Layer 1: REGULARIZATION (GPM + Dual Fisher)              │
+│   GPM: gradient projection for trans_input, prompt_key   │
+│   Dual Fisher: L2 penalty on embed_tokens                │
+│   → Stability: gradient subspace protection              │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Mỗi layer giải quyết một vấn đề khác nhau:**
+- SRT: "route đúng adapter" (Contribution 1)
+- SGWI: "init adapter mới từ tri thức cũ" (Contribution 2a)
+- Dual Fisher: "giữ ổn định shared representations" (Contribution 2b)
+
+### 6. Điểm mạnh lý thuyết
+
+1. **Orthogonal contributions**: SRT (routing) và SGWI (init) hoạt động ở 2 giai đoạn khác nhau → không mâu thuẫn
+2. **Zero rehearsal**: Không cần replay data hay replay labels
+3. **Non-parametric routing**: Routing không có learnable parameters → zero drift
+4. **Principled transfer**: SRT distances là metric có ý nghĩa thống kê → transfer weights có cơ sở toán học
+
+### 7. Rủi ro và hạn chế cần thừa nhận
+
+1. **SGWI cold-start**: Task 0 và 1 không có past tasks → SGWI không hoạt động → cần 2+ tasks để thấy benefit
+2. **SRT capacity**: Với rất nhiều tasks (>50), covariance matrices lớn → memory + compute tăng
+3. **Hard one-hot giới hạn**: Không thể blend adapters cho samples nằm ở boundary giữa 2 task distributions
+4. **Embed_tokens thường frozen**: Trong nhiều setup, embed_tokens không trainable → Dual Fisher vô nghĩa → cần kiểm tra setup cụ thể
+5. **SVD overhead**: SGWI cần SVD cho mỗi LoRA layer → thêm ~5-10s mỗi task (acceptable)
+
+### 8. Hướng nghiên cứu tiếp theo
+
+1. **Soft SRT routing**: Thay vì hard one-hot, dùng softmax over SRT distances → blend adapters cho borderline samples → tăng transfer nhưng có thể giảm stability
+2. **Adaptive τ**: Temperature τ trong SGWI softmax có thể learned hoặc adaptive per-task
+3. **Fisher-weighted SGWI**: Dùng Fisher information để weight past tasks thay vì chỉ SRT distances → transfer quan trọng hơn ở "important" parameters
+4. **SRT signature refinement**: Update signatures periodically mà không gây drift (exponential moving average)
