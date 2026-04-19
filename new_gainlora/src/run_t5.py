@@ -1076,7 +1076,9 @@ def main():
                     print(attn_w)
                     pickle.dump(attn_w, f)
                 else:
-                    print(f"{'*'*20} No valid 2D Attention Weights to save {'*'*20}")
+                    # No valid 2D weights → write empty placeholder to avoid EOFError on load
+                    print(f"{'*'*20} No valid 2D Attention Weights — saving empty dict {'*'*20}")
+                    pickle.dump({}, f)
         trainer.model.encoder.is_inference = False
 
         # Save metrics

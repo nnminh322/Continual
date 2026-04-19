@@ -7,20 +7,14 @@ echo "============================================================"
 
 cd ~/minhnguyen/test_model/Continual/new_gainlora
 
+PREV_LORA="logs_and_outputs/long_order3_t5_srt/outputs/1-yelp/saved_weights,logs_and_outputs/long_order3_t5_srt/outputs/2-amazon/saved_weights,logs_and_outputs/long_order3_t5_srt/outputs/3-mnli/saved_weights,logs_and_outputs/long_order3_t5_srt/outputs/4-cb/saved_weights,logs_and_outputs/long_order3_t5_srt/outputs/5-copa/saved_weights,logs_and_outputs/long_order3_t5_srt/outputs/6-qqp/saved_weights,logs_and_outputs/long_order3_t5_srt/outputs/7-rte/saved_weights,logs_and_outputs/long_order3_t5_srt/outputs/8-imdb/saved_weights"
+
 # Always re-eval — no skip, ensure fresh results
 CUDA_VISIBLE_DEVICES=0 python src/run_t5.py \
     --do_predict \
     --predict_with_generate \
     --model_name_or_path google/flan-t5-large \
-    --previous_lora_path \
-        logs_and_outputs/long_order3_t5_srt/outputs/1-yelp/saved_weights,\
-        logs_and_outputs/long_order3_t5_srt/outputs/2-amazon/saved_weights,\
-        logs_and_outputs/long_order3_t5_srt/outputs/3-mnli/saved_weights,\
-        logs_and_outputs/long_order3_t5_srt/outputs/4-cb/saved_weights,\
-        logs_and_outputs/long_order3_t5_srt/outputs/5-copa/saved_weights,\
-        logs_and_outputs/long_order3_t5_srt/outputs/6-qqp/saved_weights,\
-        logs_and_outputs/long_order3_t5_srt/outputs/7-rte/saved_weights,\
-        logs_and_outputs/long_order3_t5_srt/outputs/8-imdb/saved_weights \
+    --previous_lora_path "$PREV_LORA" \
     --previous_prompt_key_path logs_and_outputs/long_order3_t5_srt/outputs/9-sst2/saved_weights/prompts_keys_till_now.pt \
     --current_lora_path logs_and_outputs/long_order3_t5_srt/outputs/9-sst2/saved_weights \
     --data_dir CL_Benchmark \
