@@ -1068,10 +1068,15 @@ def main():
         if not prompt_config["run_single"]:
             save_path = training_args.output_dir + "/saved_weights"
             with open(os.path.join(save_path, "attention_weights.pkl"), 'wb') as f:
-                attn_w = np.array(np.concatenate(trainer.model.encoder.all_attn_weights)).mean(axis=0)
-                print(f"{'*'*20} Saving Attention Weights {'*'*20}")
-                print(attn_w)
-                pickle.dump(attn_w, f)
+                # Filter out 1D arrays (incompatible batch sizes cause shape mismatch)
+                all_2d = [x for x in trainer.model.encoder.all_attn_weights if x.ndim == 2]
+                if all_2d:
+                    attn_w = np.array(np.concatenate(all_2d)).mean(axis=0)
+                    print(f"{'*'*20} Saving Attention Weights {'*'*20}")
+                    print(attn_w)
+                    pickle.dump(attn_w, f)
+                else:
+                    print(f"{'*'*20} No valid 2D Attention Weights to save {'*'*20}")
         trainer.model.encoder.is_inference = False
 
         # Save metrics
