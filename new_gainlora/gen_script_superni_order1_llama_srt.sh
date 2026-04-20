@@ -52,24 +52,26 @@ GPU_MEM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/d
 : ${GPU_MEM:=16000}; : ${NUM_GPUS:=1}
 
 if [ "$GPU_MEM" -lt 20000 ]; then
-    IS_T4=1; GPU_MODE="t4_1gpu"; GPU_IDS="${2:-0}"; FP16_FLAG="--gradient_checkpointing"
+    IS_T4=1; GPU_MODE="t4_1gpu"; GPU_IDS="${2:-0}"; FP16_FLAG="--gradient_checkpointing --fp16"
 elif [ "$GPU_MEM" -lt 50000 ]; then
-    IS_T4=0; GPU_MODE="mid"; GPU_IDS="${2:-0}"; FP16_FLAG="--gradient_checkpointing"
+    IS_T4=0; GPU_MODE="mid"; GPU_IDS="${2:-0}"; FP16_FLAG="--gradient_checkpointing --bf16"
 else
-    IS_T4=0; GPU_MODE="a100"; GPU_IDS="${2:-0}"; FP16_FLAG=""
+    IS_T4=0; GPU_MODE="a100"; GPU_IDS="${2:-0}"; FP16_FLAG="--bf16"
 fi
 
 echo "[GPU] $GPU_MODE ($GPU_MEM MB) | CUDA_VISIBLE_DEVICES=$GPU_IDS | $MODEL_PATH"
 echo "============================================================"
 
-# Llama: batch size tuned per VRAM tier
+# Llama: batch size tuned per VRAM tier (effective BS = BSZ * GA = 16)
+# VRAM budget: model(~16GB fp16) + activations(~6GB/sample w/o grad_ckpt)
 if [ "$GPU_MODE" = "t4_1gpu" ]; then
     BSZ=1; GA=16; EVAL_BSZ=2
 elif [ "$GPU_MODE" = "mid" ]; then
-    # 32GB VRAM (3090/4090/5090/V100-32G) + gradient_checkpointing
-    BSZ=1; GA=16; EVAL_BSZ=4
+    # 32GB VRAM — tight with grad_ckpt
+    BSZ=4; GA=4; EVAL_BSZ=8
 else
-    BSZ=1; GA=16; EVAL_BSZ=8
+    # 80-96GB VRAM — NO grad_ckpt, real parallelism: 16 + 8×6 = ~64GB
+    BSZ=8; GA=2; EVAL_BSZ=16
 fi
 
 RUN_NAME="superni_order1_llama_srt"

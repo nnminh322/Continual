@@ -277,10 +277,12 @@ def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
     if check_model(model.config._name_or_path, SUPPORTED_DECODER_MODELS):
         for pred in predictions:
             if ANSWER_PREFIX in pred:
+                # Model echoed the prompt prefix — take text after last 'Output:'
                 splits = pred.split(ANSWER_PREFIX)
                 final_predictions.append(splits[-1].strip())
             else:
-                final_predictions.append('')
+                # New tokens only — no prompt echoing, use raw decoded text
+                final_predictions.append(pred.strip())
     else:
         final_predictions = predictions
 
@@ -388,100 +390,76 @@ class GainLoRATrainer(Seq2SeqTrainer):
         if len(self.feature_list) == 0:
             return
 
+        # ── Single-GPU / distributed helpers ───────────────────────────
+        _is_dist = dist.is_available() and dist.is_initialized()
+        def _rank():
+            return dist.get_rank() if _is_dist else 0
+        def _world_size():
+            return dist.get_world_size() if _is_dist else 1
+        def _scatter(tensor, scatter_list, src=0):
+            if _is_dist:
+                dist.scatter(tensor, scatter_list, src=src)
+            else:
+                tensor.copy_(scatter_list[0])
+        # ─────────────────────────────────────────────────────────────────
+
+        # For single-GPU, LOCAL_RANK may not be set - default to 0
+        local_rank = int(os.environ.get('LOCAL_RANK', '0'))
+        device = torch.device(f"cuda:{local_rank}")
+
         self.feature_mat, i = [], 0
         for name, module in self.model.named_modules():
             if hasattr(module, 'get_feature'):
-        # for i in range(len(merged_reg_matrixs)):
-                local_rank = int(os.environ['LOCAL_RANK'])
-                device = torch.device(f"cuda:{local_rank}")
 
                 feature_mat = {}
                 for index in self.feature_list[i].keys():
                     feature_mat[index] = torch.zeros(self.feature_list[i][index].shape[0], self.feature_list[i][index].shape[0]).to(device).contiguous()
                 # Projection Matrix Precomputation
                 for index in self.feature_list[i].keys():
-                    if dist.get_rank() == 0:
-                        # device = torch.device(f"cuda:{0}")
-                        # print(torch.from_numpy(np.dot(self.feature_list[i][index], self.feature_list[i][index].T)).to("cuda:0"))
-                        # print()
-                        # print((self.feature_list[i][index]**2).sum(axis=0))
-                        feature_mat_list = [torch.mm(self.feature_list[i][index], self.feature_list[i][index].T).to("cuda:0") for _ in range(dist.get_world_size())]
+                    if _rank() == 0:
+                        feature_mat_list = [torch.mm(self.feature_list[i][index], self.feature_list[i][index].T).to(device) for _ in range(_world_size())]
                     else:
                         feature_mat_list = None
-                    dist.scatter(feature_mat[index], feature_mat_list, src=0)
+                    _scatter(feature_mat[index], feature_mat_list, src=0)
                 self.feature_mat.append(feature_mat)
-                # print(feature_mat)
-                # print(np.sum(self.feature_list[i]**2,axis=0))
-                # exit()
                 for index in self.feature_list[i].keys():
-                    # pre = deepcopy(module.loranew_A[module.active_adapter].weight.data[:,index*module.step:(index+1)*module.step])
-                    # print(index*module.step, (index+1)*module.step)
-                    # print(feature_mat[index])
-                    # print()
-                    # print(torch.mm(module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step],feature_mat[index].cpu()))
-                    # print()
                     module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step].copy_(module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step] - torch.mm(module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step], feature_mat[index].cpu()))
                     module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step].copy_(module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step] - torch.mm(module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step], feature_mat[index].cpu()))
                 module.lora_q.lora_A.data /= (math.sqrt(3) * module.lora_q.lora_A.data.norm(dim=1,keepdim=True))
                 module.lora_v.lora_A.data /= (math.sqrt(3) * module.lora_v.lora_A.data.norm(dim=1,keepdim=True))
-                    # print(pre - module.loranew_A[module.active_adapter].weight.data[:,index*module.step:(index+1)*module.step])
-                    # print()
-                # for index in self.feature_list[i].keys():
-                #     print(torch.mm(module.loranew_A[module.active_adapter].weight[:,index*module.step:(index+1)*module.step].data,feature_mat[index].cpu()))
-                #     print()
-                # exit()
                 i += 1
 
 
         self.feature_trans_mat = []
-        # ipdb.set_trace()
         feature_trans_mat = {}
         for index in self.feature_trans_list[0].keys():
             feature_trans_mat[index] = torch.zeros(self.feature_trans_list[0][index].shape[0], self.feature_trans_list[0][index].shape[0]).to(device).contiguous()
-        # Projection Matrix Precomputation
         for index in self.feature_trans_list[0].keys():
-            if dist.get_rank() == 0:
-                feature_trans_mat_list = [torch.mm(self.feature_trans_list[0][index], self.feature_trans_list[0][index].T).to("cuda:0") for _ in range(dist.get_world_size())]
+            if _rank() == 0:
+                feature_trans_mat_list = [torch.mm(self.feature_trans_list[0][index], self.feature_trans_list[0][index].T).to(device) for _ in range(_world_size())]
             else:
                 feature_trans_mat_list = None
-            dist.scatter(feature_trans_mat[index], feature_trans_mat_list, src=0)
+            _scatter(feature_trans_mat[index], feature_trans_mat_list, src=0)
         self.feature_trans_mat.append(feature_trans_mat)
 
         feature_trans_mat = torch.zeros(self.feature_trans_list[1].shape[0], self.feature_trans_list[1].shape[0]).to(device).contiguous()
-        # Projection Matrix Precomputation
-        if dist.get_rank() == 0:
-            feature_trans_mat_list = [torch.mm(self.feature_trans_list[1], self.feature_trans_list[1].T).to("cuda:0") for _ in range(dist.get_world_size())]
+        if _rank() == 0:
+            feature_trans_mat_list = [torch.mm(self.feature_trans_list[1], self.feature_trans_list[1].T).to(device) for _ in range(_world_size())]
         else:
             feature_trans_mat_list = None
-        dist.scatter(feature_trans_mat, feature_trans_mat_list, src=0)
+        _scatter(feature_trans_mat, feature_trans_mat_list, src=0)
         self.feature_trans_mat.append(feature_trans_mat)
 
         feature_trans_mat = {}
         for index in self.feature_trans_list[2].keys():
             feature_trans_mat[index] = torch.zeros(self.feature_trans_list[2][index].shape[0], self.feature_trans_list[2][index].shape[0]).to(device).contiguous()
-        # Projection Matrix Precomputation
         for index in self.feature_trans_list[2].keys():
-            if dist.get_rank() == 0:
-                feature_trans_mat_list = [torch.mm(self.feature_trans_list[2][index], self.feature_trans_list[2][index].T).to("cuda:0") for _ in range(dist.get_world_size())]
+            if _rank() == 0:
+                feature_trans_mat_list = [torch.mm(self.feature_trans_list[2][index], self.feature_trans_list[2][index].T).to(device) for _ in range(_world_size())]
             else:
                 feature_trans_mat_list = None
-            dist.scatter(feature_trans_mat[index], feature_trans_mat_list, src=0)
+            _scatter(feature_trans_mat[index], feature_trans_mat_list, src=0)
         self.feature_trans_mat.append(feature_trans_mat)
-
-        # module = self.model.model
-        # pre_norm = module.prompt_key.detach().norm()
-        # for index in module.matrix_trans_3.keys():
-        #     cur_trans_matrix = module.matrix_trans_3[index]
-        #     try:
-        #         cur_trans_matrix = cur_trans_matrix - torch.mm(self.feature_trans_mat[2][index],cur_trans_matrix)
-        #     except:
-        #         ipdb.set_trace()
-        #         raise Exception
-        #     U, S, V = torch.linalg.svd(cur_trans_matrix)
-        #     module.prompt_key.data[:,index*module.step:(index+1)*module.step].copy_(U[:,:1].T)
-        #     module.matrix_trans_1[index].zero_()
-        #     module.matrix_trans_3[index].zero_()
-        #     module.n_trans_matrix[index] = 0
         # module.matrix_trans_2.zero_()
         # module.prompt_key.data /= math.sqrt(module.chunk_trans)
         # module.prompt_key.data *= pre_norm
@@ -533,6 +511,18 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 if step > 1000: break
         print('end get representation')
 
+        # ── Single-GPU / distributed helpers ───────────────────────────
+        _is_dist = dist.is_available() and dist.is_initialized()
+        def _rank():
+            return dist.get_rank() if _is_dist else 0
+        def _world_size():
+            return dist.get_world_size() if _is_dist else 1
+        def _gather(tensor, gathered, dst=0):
+            if _is_dist:
+                dist.gather(tensor, gathered, dst=dst)
+            else:
+                gathered[0].copy_(tensor)
+        # ─────────────────────────────────────────────────────────────────
 
         mat_list, mat_trans_list = [], []
         for name, module in self.model.named_modules():
@@ -541,57 +531,51 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 cur_device = module.lora_q.lora_A.device
                 merged_tensor = {}
                 for index in range(module.index):
-                    if dist.get_rank() == 0:
+                    if _rank() == 0:
                         # 收集数据到主进程
-                        gathered_tensors = [torch.zeros(*module.matrix[index].shape, device=cur_device) for _ in range(dist.get_world_size())]
+                        gathered_tensors = [torch.zeros(*module.matrix[index].shape, device=cur_device) for _ in range(_world_size())]
                     else:
                         gathered_tensors = None
-                    dist.gather(module.matrix[index].to(cur_device).float(), gathered_tensors, dst=0)  # 在每个进程上收集数据
+                    _gather(module.matrix[index].to(cur_device).float(), gathered_tensors, dst=0)
                     # 在主进程上合并数据
-                    if dist.get_rank() == 0:  # 主进程合并数据
+                    if _rank() == 0:
                         merged_tensor_ = torch.stack(gathered_tensors, dim=0).mean(dim=0)
                         merged_tensor[index] = merged_tensor_
-                if dist.get_rank() == 0:
+                if _rank() == 0:
                     mat_list.append(merged_tensor)
                 module.get_feature=False
                 module.stage = 0
 
         merged_trans_tensor = {}
         for index in range(self.model.model.index):
-            if dist.get_rank() == 0:
-                # 收集数据到主进程
-                gathered_trans_tensors = [torch.zeros(*self.model.model.matrix_trans_1[index].shape, device=cur_device) for _ in range(dist.get_world_size())]
+            if _rank() == 0:
+                gathered_trans_tensors = [torch.zeros(*self.model.model.matrix_trans_1[index].shape, device=cur_device) for _ in range(_world_size())]
             else:
                 gathered_trans_tensors = None
-            dist.gather(self.model.model.matrix_trans_1[index].to(cur_device).float(), gathered_trans_tensors, dst=0)  # 在每个进程上收集数据
-            # 在主进程上合并数据
-            if dist.get_rank() == 0:  # 主进程合并数据
+            _gather(self.model.model.matrix_trans_1[index].to(cur_device).float(), gathered_trans_tensors, dst=0)
+            if _rank() == 0:
                 merged_trans_tensor_ = torch.stack(gathered_trans_tensors, dim=0).mean(dim=0)
                 merged_trans_tensor[index] = merged_trans_tensor_
         mat_trans_list.append(merged_trans_tensor)
 
-        if dist.get_rank() == 0:
-            # 收集数据到主进程
-            gathered_trans_tensors = [torch.zeros(*self.model.model.matrix_trans_2.shape, device=cur_device) for _ in range(dist.get_world_size())]
+        if _rank() == 0:
+            gathered_trans_tensors = [torch.zeros(*self.model.model.matrix_trans_2.shape, device=cur_device) for _ in range(_world_size())]
         else:
             gathered_trans_tensors = None
-        dist.gather(self.model.model.matrix_trans_2.to(cur_device).float(), gathered_trans_tensors, dst=0)  # 在每个进程上收集数据
-        # 在主进程上合并数据
-        if dist.get_rank() == 0:  # 主进程合并数据
+        _gather(self.model.model.matrix_trans_2.to(cur_device).float(), gathered_trans_tensors, dst=0)
+        if _rank() == 0:
             merged_trans_tensor_ = torch.stack(gathered_trans_tensors, dim=0).mean(dim=0)
             merged_trans_tensor = merged_trans_tensor_
         mat_trans_list.append(merged_trans_tensor)
 
         merged_trans_tensor = {}
         for index in range(self.model.model.index):
-            if dist.get_rank() == 0:
-                # 收集数据到主进程
-                gathered_trans_tensors = [torch.zeros(*self.model.model.matrix_trans_3[index].shape, device=cur_device) for _ in range(dist.get_world_size())]
+            if _rank() == 0:
+                gathered_trans_tensors = [torch.zeros(*self.model.model.matrix_trans_3[index].shape, device=cur_device) for _ in range(_world_size())]
             else:
                 gathered_trans_tensors = None
-            dist.gather(self.model.model.matrix_trans_3[index].to(cur_device).float(), gathered_trans_tensors, dst=0)  # 在每个进程上收集数据
-            # 在主进程上合并数据
-            if dist.get_rank() == 0:  # 主进程合并数据
+            _gather(self.model.model.matrix_trans_3[index].to(cur_device).float(), gathered_trans_tensors, dst=0)
+            if _rank() == 0:
                 merged_trans_tensor_ = torch.stack(gathered_trans_tensors, dim=0).mean(dim=0)
                 merged_trans_tensor[index] = merged_trans_tensor_
         mat_trans_list.append(merged_trans_tensor)
@@ -599,16 +583,13 @@ class GainLoRATrainer(Seq2SeqTrainer):
         self.model.model.get_trans_feature = False
         self.model.model.stage_trans = 0
 
-
-        # U, S, V = torch.linalg.svd(merged_tensor)
-
         # CuPy required for GPM SVD — fail fast if missing
         if not _cupy_available:
             raise ImportError(
                 "CuPy is required for GPM (Gradient Projection Memory) SVD computation in "
                 "get_repsentation(). Please install: pip install cupy-cuda12x  (or cupy for other CUDA)"
             )
-        if dist.get_rank() == 0:
+        if _rank() == 0:
             total_sessions = 15
             threshold = (1.0 - self.args.threshold)*self._cur_task/total_sessions + self.args.threshold
             transthreshold = (1.0 - self.args.transthreshold)*self._cur_task/total_sessions + self.args.transthreshold
@@ -1021,7 +1002,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
         # Do this before wrapping.
         eval_dataset = dataloader.dataset
 
-        if args.past_index >= 0:
+        if getattr(args, "past_index", -1) >= 0:
             self._past = None
 
         # Initialize containers
@@ -1082,7 +1063,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 # Set back to None to begin a new accumulation
                 losses_host, preds_host, labels_host = None, None, None
 
-        if args.past_index and hasattr(self, "_past"):
+        if getattr(args, "past_index", None) and hasattr(self, "_past"):
             # Clean the state at the end of the evaluation loop
             delattr(self, "_past")
 
@@ -1259,6 +1240,10 @@ class GainLoRATrainer(Seq2SeqTrainer):
         if generated_tokens.shape[-1] < max_length:
             generated_tokens = self._pad_tensors_to_max_len(generated_tokens, max_length)
 
+        # For decoder-only models: strip the source prefix, return only new tokens
+        if check_model(self.model.config._name_or_path, SUPPORTED_DECODER_MODELS):
+            generated_tokens = generated_tokens[:, source_len:]
+
         with torch.no_grad():
             if has_labels:
                 with self.autocast_smart_context_manager():
@@ -1363,6 +1348,11 @@ class GainLoRATrainer(Seq2SeqTrainer):
 
         self.state = TrainerState()
         self.state.is_hyper_param_search = trial is not None
+        # transformers v5: _save_checkpoint expects stateful_callbacks to have
+        # keys for every ExportableState callback. Populate them up-front.
+        from collections import defaultdict
+        if not self.state.stateful_callbacks:
+            self.state.stateful_callbacks = defaultdict(list)
 
         # Activate gradient checkpointing if needed
         if args.gradient_checkpointing:
@@ -1529,7 +1519,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 epoch_iterator = train_dataloader
 
             # Reset the past mems state at the beginning of each epoch if necessary.
-            if args.past_index >= 0:
+            if getattr(args, "past_index", -1) >= 0:
                 self._past = None
 
             steps_in_epoch = (
@@ -1783,7 +1773,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
             if self.control.should_training_stop:
                 break
 
-        if args.past_index and hasattr(self, "_past"):
+        if getattr(args, "past_index", None) and hasattr(self, "_past"):
             # Clean the state at the end of training
             delattr(self, "_past")
 

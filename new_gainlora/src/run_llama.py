@@ -565,6 +565,7 @@ def main():
         token=True if model_args.use_auth_token else None,
         use_safetensors=True,
         low_cpu_mem_usage=True,
+        torch_dtype=torch.bfloat16 if training_args.bf16 else None,
     )
     # NOTE: Bug 3 — encoder_frozen FrozenLlamaExtractor block REMOVED.
     # SRT routing uses the model's own embed_tokens + input_ids_wo_label path in
