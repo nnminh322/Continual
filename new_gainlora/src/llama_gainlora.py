@@ -20,7 +20,10 @@
 """ PyTorch LLaMA model."""
 import math
 from typing import List, Optional, Tuple, Union
-import ipdb
+try:
+    import ipdb
+except ImportError:
+    ipdb = None
 
 import torch
 import torch.utils.checkpoint

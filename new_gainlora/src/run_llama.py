@@ -741,16 +741,16 @@ def main():
         if model_args.load_checkpoint_from:
             replay_dataset_dict = {}
             for idx in range(cur_task_id):
-                raw_datasets_gen = load_dataset(
-                    os.path.join(CURRENT_DIR, "cl_dataset.py"),
+                # datasets v3 removed script-based loading — use builder directly
+                builder_gen = CLInstructions(
                     data_dir=data_args.gen_data_dir,
-                    download_config=download_config,
                     task_config_dir=task_config[task_order[idx]],
-                    trust_remote_code=True,  # needed for custom dataset script
-                    # cache_dir=data_cache_dir,  # for debug, change dataset size, otherwise open it
                     max_num_instances_per_task=data_args.max_num_instances_per_task,
                     max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
-                    num_examples=data_args.num_examples)
+                    num_examples=data_args.num_examples,
+                )
+                builder_gen.download_and_prepare()
+                raw_datasets_gen = builder_gen.as_dataset()
 
                 replay_dataset_dict[task_order[idx]] = raw_datasets_gen["train"]
                 print(raw_datasets_gen)
