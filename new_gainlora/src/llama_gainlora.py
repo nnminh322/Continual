@@ -82,7 +82,7 @@ class Trans_input(nn.Module):
 
         self.activation = nn.SiLU()
         # self.norm = nn.LayerNorm(d_model)
-    
+
     def forward(self, x):
         # ipdb.set_trace()
         x = x.unsqueeze(1)
@@ -96,8 +96,8 @@ class LoRALayer(nn.Module):
         self,
         in_features: int,
         out_features: int,
-        r: int, 
-        lora_alpha: int = 1, 
+        r: int,
+        lora_alpha: int = 1,
         lora_dropout: float = 0.
     ):
         super(LoRALayer, self).__init__()
@@ -116,17 +116,17 @@ class LoRALayer(nn.Module):
         else:
             self.lora_dropout = lambda x: x
         # Mark the weight as unmerged
-        
+
         self.lora_s = nn.Parameter(torch.randn(1))
         self.s_avg = torch.ones(1)
 
         self.reset_parameters()
-    
+
     def reset_parameters(self):
         # initialize A the same way as the default for nn.Linear and B to zero
         nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
         nn.init.zeros_(self.lora_B)
-    
+
     def forward(self, x: torch.Tensor):
         result = (self.lora_dropout(x) @ self.lora_A.transpose(0, 1) @ self.lora_B.transpose(0, 1)) * self.scaling
         return result.reshape(x.shape[0], -1, self.out_features)
@@ -223,7 +223,7 @@ class GetSubnetFaster(torch.autograd.Function):
     @staticmethod
     def backward(ctx, g):
         return g, None
-    
+
 # GetSubnetFaster.apply(lora_layer.s.abs(), lora_layer.s_avg)
 
 
@@ -304,7 +304,7 @@ class LlamaAttention(nn.Module):
         bsz, q_len, _ = hidden_states.size()
 
         def agg_lora_states(hidden_states, lora_layer, pre_lora_layer, key_attention_weights):
-            
+
             _, num_task, _ = key_attention_weights.size()
             if pre_lora_layer is not None and num_task > 1:
                 cur_lora_states = lora_layer(hidden_states).unsqueeze(0)
@@ -331,9 +331,9 @@ class LlamaAttention(nn.Module):
             query_states = (self.q_proj(hidden_states)+agg_lora_states(hidden_states, self.lora_q, self.previous_lora_weights_q, key_attention_weights)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         else:
             query_states = (self.q_proj(hidden_states)+self.lora_q(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        
+
         key_states = self.k_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        
+
         if key_attention_weights is not None:
             value_states = (self.v_proj(hidden_states)+agg_lora_states(hidden_states, self.lora_v, self.previous_lora_weights_v, key_attention_weights)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         else:
@@ -445,7 +445,7 @@ class LlamaAttention_NCL(nn.Module):
         bsz, q_len, _ = hidden_states.size()
 
         def agg_lora_states(hidden_states, lora_layer, pre_lora_layer, key_attention_weights):
-            
+
             _, num_task, _ = key_attention_weights.size()
             if pre_lora_layer is not None and num_task > 1:
                 # cur_lora_states = lora_layer(hidden_states).unsqueeze(0)
@@ -468,9 +468,9 @@ class LlamaAttention_NCL(nn.Module):
             query_states = (self.q_proj(hidden_states)+agg_lora_states(hidden_states, self.lora_q, self.previous_lora_weights_q, key_attention_weights)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         else:
             query_states = (self.q_proj(hidden_states)+GetSubnetFaster.apply(self.lora_q.lora_s.abs(), self.lora_q.s_avg) * self.lora_q(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        
+
         key_states = self.k_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        
+
         if key_attention_weights is not None:
             value_states = (self.v_proj(hidden_states)+agg_lora_states(hidden_states, self.lora_v, self.previous_lora_weights_v, key_attention_weights)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         else:
@@ -735,7 +735,7 @@ class LlamaModel(LlamaPreTrainedModel):
         if not prompt_config["run_single"]:
 
             self.model_dim = config.hidden_size
-            
+
             self.prompt_key = nn.Parameter(torch.randn((1, config.hidden_size)))
             nn.init.uniform_(self.prompt_key, -1, 1)
 
@@ -781,7 +781,19 @@ class LlamaModel(LlamaPreTrainedModel):
             self.matrix_trans_1[index] = torch.zeros(self.step_trans, self.step_trans).cuda()
             self.matrix_trans_3[index] = torch.zeros(self.step_trans, self.step_trans).cuda()
             self.n_trans_matrix[index] = 0
-        self.matrix_trans_2 = self.matrix_trans_2.cuda()
+        # If model was created with meta tensors (init_empty_weights / device mapping),
+        # copying a meta tensor to CUDA will raise "Cannot copy out of meta tensor".
+        # Create a new CUDA tensor when the stored one is meta.
+        try:
+            is_meta = getattr(self.matrix_trans_2, "is_meta", False)
+        except Exception:
+            is_meta = False
+        if is_meta:
+            shape = tuple(self.matrix_trans_2.shape)
+            dtype = getattr(self.matrix_trans_2, "dtype", torch.float32)
+            self.matrix_trans_2 = torch.zeros(shape, device="cuda", dtype=dtype)
+        else:
+            self.matrix_trans_2 = self.matrix_trans_2.cuda()
 
     def get_matrix3(self, x, medium, x_final):
         for index in range(self.index_trans):
@@ -800,7 +812,7 @@ class LlamaModel(LlamaPreTrainedModel):
             self.matrix_trans_2 = torch.bmm(medium.detach().permute(0, 2, 1), medium.detach()).sum(dim=0).float()/(medium.shape[0]*medium.shape[1])
         else:
             self.matrix_trans_2 = (self.matrix_trans_2*self.n_trans_matrix[index] + torch.bmm(medium.detach().permute(0, 2, 1), medium.detach()).sum(dim=0).float())/(self.n_trans_matrix[index] + medium.shape[0]*medium.shape[1])
-            
+
         return
 
     def get_input_embeddings(self):
@@ -832,7 +844,7 @@ class LlamaModel(LlamaPreTrainedModel):
             )
 
         return combined_attention_mask
-    
+
     # NOTE: cal_attention removed — SRT hard one-hot routing replaces it.
     # Kept as comment for ablation reference only.
 
@@ -903,7 +915,7 @@ class LlamaModel(LlamaPreTrainedModel):
                     "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
                 )
                 use_cache = False
-        
+
         # ═══════════ SRT HARD ONE-HOT ROUTING (replaces cal_attention) ═══════════
         key_attention_weights = None
         if not self.prompt_config["run_single"]:
@@ -964,7 +976,7 @@ class LlamaModel(LlamaPreTrainedModel):
         for idx, decoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
-            
+
             past_key_value = past_key_values[idx] if past_key_values is not None else None
 
             if self.gradient_checkpointing and self.training:
