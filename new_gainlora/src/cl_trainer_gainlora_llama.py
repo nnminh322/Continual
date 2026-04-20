@@ -1152,8 +1152,13 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 model, inputs, prediction_loss_only=prediction_loss_only, ignore_keys=ignore_keys
             )
 
-        has_labels = "labels" in inputs
         inputs = self._prepare_inputs(inputs)
+        has_labels = "labels" in inputs
+        has_loss_labels = (
+            has_labels
+            and isinstance(inputs["labels"], torch.Tensor)
+            and torch.any(inputs["labels"] != -100).item()
+        )
 
         # XXX: adapt synced_gpus for fairscale as well
         # gen_kwargs = self._gen_kwargs
@@ -1170,15 +1175,25 @@ class GainLoRATrainer(Seq2SeqTrainer):
             gen_kwargs["synced_gpus"] = False
         else:
             if inputs.get("input_ids_wo_label", None) is not None:
+                model_generation_config = getattr(self.model, "generation_config", None)
+                bos_token_id = getattr(model_generation_config, "bos_token_id", None)
+                eos_token_id = getattr(model_generation_config, "eos_token_id", None)
+                pad_token_id = getattr(model_generation_config, "pad_token_id", None)
+                if bos_token_id is None:
+                    bos_token_id = getattr(self.model.config, "bos_token_id", None)
+                if eos_token_id is None:
+                    eos_token_id = getattr(self.model.config, "eos_token_id", None)
+                if pad_token_id is None:
+                    pad_token_id = getattr(self.model.config, "pad_token_id", eos_token_id)
                 # LLaMA-2 generation config
                 gen_kwargs = {
-                    "bos_token_id": 1,
+                    "bos_token_id": bos_token_id,
                     "max_new_tokens": 50,
                     "num_beams": 1,
                     "temperature": 1.0,
                     "repetition_penalty": 1.0,
-                    "eos_token_id": 2,
-                    "pad_token_id": 1,
+                    "eos_token_id": eos_token_id,
+                    "pad_token_id": pad_token_id,
                 }
             else:
                 # T5 generation config
@@ -1245,7 +1260,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
             generated_tokens = generated_tokens[:, source_len:]
 
         with torch.no_grad():
-            if has_labels:
+            if has_loss_labels:
                 with self.autocast_smart_context_manager():
                     outputs = model(**inputs)
                 if self.label_smoother is not None:

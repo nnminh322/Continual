@@ -76,23 +76,44 @@ def _expand_mask(mask: torch.Tensor, dtype: torch.dtype, tgt_len: Optional[int] 
     return inverted_mask.masked_fill(inverted_mask.to(torch.bool), torch.finfo(dtype).min)
 
 class Trans_input(nn.Module):
+    """
+    Two-layer MLP that maps hidden states to a lower-dimensional space and back.
+
+    IMPORTANT — deferred init:
+    When created inside LlamaModel via from_pretrained(low_cpu_mem_usage=True),
+    this module is instantiated on META tensors. We defer ALL initialization
+    (weight fill + SiLU construction) until the first forward pass, AFTER the
+    model has been sharded to real device/dtype by post_init().
+
+    Previously, nn.SiLU() was called in __init__() — this crashes on meta tensors.
+    Now it is lazily created on first forward().
+    """
     def __init__(self, d_model, hidden_dim=100, n_tasks=1) -> None:
         super().__init__()
-        self.input_linear = nn.Parameter(torch.randn((n_tasks, hidden_dim, d_model)))
-        self.output_linear = nn.Parameter(torch.randn((n_tasks, d_model, hidden_dim)))
+        self.input_linear = nn.Parameter(torch.empty((n_tasks, hidden_dim, d_model)))
+        self.output_linear = nn.Parameter(torch.empty((n_tasks, d_model, hidden_dim)))
+        # NOTE: do NOT call kaiming init or create SiLU here.
+        # Both require real tensors (non-meta). See _init_weights() called from
+        # LlamaModel.__init__ after post_init() finalizes the model.
 
-        nn.init.kaiming_uniform_(self.input_linear.view(-1, d_model), math.sqrt(3))
-        nn.init.kaiming_uniform_(self.output_linear.view(-1, hidden_dim), math.sqrt(3))
-
-        self.activation = nn.SiLU()
-        # self.norm = nn.LayerNorm(d_model)
+    def _init_weights(self):
+        """Initialize weights on real tensors. Call from LlamaModel._init_weights()."""
+        if self.input_linear.device.type == 'meta':
+            return  # not yet materialized — will be called again on first forward
+        nn.init.kaiming_uniform_(self.input_linear, a=math.sqrt(3))
+        nn.init.kaiming_uniform_(self.output_linear, a=math.sqrt(3))
 
     def forward(self, x):
-        # ipdb.set_trace()
+        # Lazy init: when first called after meta→real tensor transition,
+        # materialize weights and activation.
+        if not hasattr(self, '_activation'):
+            nn.init.kaiming_uniform_(self.input_linear, a=math.sqrt(3))
+            nn.init.kaiming_uniform_(self.output_linear, a=math.sqrt(3))
+            self._activation = nn.SiLU()
         x = x.unsqueeze(1)
         x = torch.matmul(x, self.input_linear.permute(0, 2, 1))
         x = torch.matmul(x, self.output_linear.permute(0, 2, 1))
-        x = self.activation(x)
+        x = self._activation(x)
         return x.squeeze(2)
 
 class LoRALayer(nn.Module):
@@ -743,13 +764,11 @@ class LlamaModel(LlamaPreTrainedModel):
             self.prompt_key = nn.Parameter(torch.randn((1, config.hidden_size)))
             nn.init.uniform_(self.prompt_key, -1, 1)
 
-            # ipdb.set_trace()
             self.trans_input = nn.Sequential(
                 nn.Linear(config.hidden_size, prompt_config["trans_hidden_dim"], bias=False),
-                nn.Linear(prompt_config["trans_hidden_dim"], config.hidden_size, bias=False),
                 nn.SiLU(),
-                # nn.LayerNorm(config.hidden_size)
-                )
+                nn.Linear(prompt_config["trans_hidden_dim"], config.hidden_size, bias=False),
+            )
 
             self.get_trans_feature = False
             self.stage_trans = 0
@@ -923,12 +942,13 @@ class LlamaModel(LlamaPreTrainedModel):
         # ═══════════ SRT HARD ONE-HOT ROUTING (replaces cal_attention) ═══════════
         key_attention_weights = None
         if not self.prompt_config["run_single"]:
+            pad_token_id = self.padding_idx if self.padding_idx is not None else 0
             inputs_embeds_for_query = self.embed_tokens(input_ids_wo_label)
             if self.previous_prompts_keys is not None:
                 n_adapters = 1 + self.previous_prompts_keys.shape[0]
 
                 # GPM feature collection (still needed for gradient projection)
-                avg_inputs_embeds = ((input_ids_wo_label!=1).long().unsqueeze(-1)*inputs_embeds_for_query).mean(dim=1, keepdim=True)
+                avg_inputs_embeds = ((input_ids_wo_label != pad_token_id).long().unsqueeze(-1) * inputs_embeds_for_query).mean(dim=1, keepdim=True)
                 medium = self.trans_input[0](avg_inputs_embeds)
                 x = self.trans_input[2](self.trans_input[1](medium))
                 if self.get_trans_feature:
@@ -944,7 +964,7 @@ class LlamaModel(LlamaPreTrainedModel):
                         and self.is_inference):
                     # ── SRT inference: last-token pooling (MUST match FrozenLlamaExtractor space) ──
                     # Extract last non-padding token embedding → matches signature extraction exactly
-                    _mask = (input_ids_wo_label != 1).long()           # (B, L), 1=real token
+                    _mask = (input_ids_wo_label != pad_token_id).long()  # (B, L), 1=real token
                     _seq_lens = _mask.sum(dim=1) - 1                   # (B,)
                     _B = inputs_embeds_for_query.size(0)
                     _last_emb = inputs_embeds_for_query[torch.arange(_B, device=inputs_embeds_for_query.device), _seq_lens]  # (B, d)
@@ -961,7 +981,7 @@ class LlamaModel(LlamaPreTrainedModel):
                     key_attention_weights[:, 0, 0] = 1.0
             else:
                 # First task: only one adapter, weight = 1
-                avg_inputs_embeds = ((input_ids_wo_label!=1).long().unsqueeze(-1)*inputs_embeds_for_query).mean(dim=1, keepdim=True)
+                avg_inputs_embeds = ((input_ids_wo_label != pad_token_id).long().unsqueeze(-1) * inputs_embeds_for_query).mean(dim=1, keepdim=True)
                 medium = self.trans_input[0](avg_inputs_embeds)
                 x = self.trans_input[2](self.trans_input[1](medium))
                 if self.get_trans_feature:
@@ -986,9 +1006,16 @@ class LlamaModel(LlamaPreTrainedModel):
             if self.gradient_checkpointing and self.training:
 
                 def create_custom_forward(module):
-                    def custom_forward(*inputs):
-                        # None for past_key_value
-                        return module(*inputs, output_attentions, None)
+                    def custom_forward(hidden_states, attention_mask, position_ids):
+                        return module(
+                            hidden_states,
+                            attention_mask=attention_mask,
+                            position_ids=position_ids,
+                            past_key_value=None,
+                            output_attentions=output_attentions,
+                            use_cache=False,
+                            key_attention_weights=key_attention_weights,
+                        )
 
                     return custom_forward
 
@@ -997,7 +1024,6 @@ class LlamaModel(LlamaPreTrainedModel):
                     hidden_states,
                     attention_mask,
                     position_ids,
-                    None,
                 )
             else:
                 layer_outputs = decoder_layer(

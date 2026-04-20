@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 class SGWI_DualFisher_LLaMA_Trainer(GainLoRA_OLoRA_Trainer):
     """
     GainLoRA_OLoRA_Trainer (LLaMA GPM) + SRT Router + SGWI + Dual Fisher.
-    
+
     Combines:
       1. GPM gradient projection from GainLoRA_OLoRA_Trainer
       2. SRT non-parametric routing (replaces cal_attention)
@@ -116,7 +116,9 @@ class SGWI_DualFisher_LLaMA_Trainer(GainLoRA_OLoRA_Trainer):
             self.load_srt_signatures(self.srt_load_path, wire_model=True)
 
     def _srt_emb_cache_path(self, task_name: str) -> Optional[str]:
-        model_name = getattr(self.args, 'model_name_or_path', '') or ''
+        model_name = getattr(self.model.config, '_name_or_path', None)
+        if not model_name:
+            model_name = getattr(self.args, 'model_name_or_path', '') or ''
         backbone = None
         if 'llama-3' in model_name.lower():
             backbone = 'Meta-Llama-3-8B'

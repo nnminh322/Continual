@@ -501,9 +501,6 @@ def main():
         revision=model_args.model_revision,
         token=True if model_args.use_auth_token else None,
     )
-    config.bos_token_id = 1
-    config.eos_token_id = 2
-    config.pad_token_id = 1
 
     # FIX Bug 4: Use AutoTokenizer for all cases (LlamaTokenizer deprecated in Transformers 5)
     tokenizer = AutoTokenizer.from_pretrained(
@@ -513,9 +510,36 @@ def main():
         revision=model_args.model_revision,
         token=True if model_args.use_auth_token else None,
     )
-    tokenizer.bos_token_id = 1
-    tokenizer.eos_token_id = 2
-    tokenizer.pad_token_id = 1
+    if tokenizer.pad_token_id is None:
+        if tokenizer.eos_token is not None:
+            tokenizer.pad_token = tokenizer.eos_token
+        elif tokenizer.unk_token is not None:
+            tokenizer.pad_token = tokenizer.unk_token
+
+    resolved_bos_token_id = tokenizer.bos_token_id
+    if resolved_bos_token_id is None:
+        resolved_bos_token_id = config.bos_token_id if config.bos_token_id is not None else 1
+
+    resolved_eos_token_id = tokenizer.eos_token_id
+    if resolved_eos_token_id is None:
+        resolved_eos_token_id = config.eos_token_id if config.eos_token_id is not None else 2
+
+    resolved_pad_token_id = tokenizer.pad_token_id
+    if resolved_pad_token_id is None:
+        resolved_pad_token_id = config.pad_token_id if config.pad_token_id is not None else resolved_eos_token_id
+
+    config.bos_token_id = resolved_bos_token_id
+    config.eos_token_id = resolved_eos_token_id
+    config.pad_token_id = resolved_pad_token_id
+    tokenizer.bos_token_id = resolved_bos_token_id
+    tokenizer.eos_token_id = resolved_eos_token_id
+    tokenizer.pad_token_id = resolved_pad_token_id
+    logger.info(
+        "LLaMA special tokens: bos=%s eos=%s pad=%s",
+        resolved_bos_token_id,
+        resolved_eos_token_id,
+        resolved_pad_token_id,
+    )
 
     prompt_config = {
         'seq_len': data_args.max_source_length,
@@ -590,14 +614,40 @@ def main():
     model.persent = training_args.persent
     model.resize_token_embeddings(len(tokenizer))
 
+    # FIX: from_pretrained(low_cpu_mem_usage=True) constructs custom modules under
+    # no_init_weights(), so missing LoRA/trans_input parameters can stay zero or
+    # uninitialized on the LLaMA path. Reinitialize them explicitly here.
+    _n_reinit = 0
+    for _module in model.modules():
+        if hasattr(_module, 'lora_A') and hasattr(_module, 'lora_B') and hasattr(_module, 'reset_parameters'):
+            nn.init.kaiming_uniform_(_module.lora_A, a=math.sqrt(5))
+            _n_reinit += 1
+    print(f"[FIX] Re-initialized lora_A in {_n_reinit} LLaMA LoRA layers")
+
+    if hasattr(model, 'model') and hasattr(model.model, 'trans_input'):
+        _n_linear = 0
+        for _layer in model.model.trans_input:
+            if isinstance(_layer, nn.Linear):
+                nn.init.kaiming_uniform_(_layer.weight, a=math.sqrt(5))
+                if _layer.bias is not None:
+                    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(_layer.weight)
+                    bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+                    nn.init.uniform_(_layer.bias, -bound, bound)
+                _n_linear += 1
+        print(f"[FIX] Re-initialized {_n_linear} LLaMA trans_input Linear layers")
+
+    if hasattr(model, 'model') and hasattr(model.model, 'prompt_key'):
+        nn.init.uniform_(model.model.prompt_key.data, -1, 1)
+        print("[FIX] Re-initialized LLaMA prompt_key with uniform(-1, 1)")
+
     if 'llama' in model_args.model_name_or_path.lower():
         if not hasattr(model, "generation_config") or model.generation_config is None:
             # HF changed generation mixin wiring across versions; ensure this
             # custom LLaMA class always has a usable generation config.
             model.generation_config = GenerationConfig.from_model_config(model.config)
-        model.generation_config.bos_token_id = 1
-        model.generation_config.eos_token_id = 2
-        model.generation_config.pad_token_id = 1
+        model.generation_config.bos_token_id = resolved_bos_token_id
+        model.generation_config.eos_token_id = resolved_eos_token_id
+        model.generation_config.pad_token_id = resolved_pad_token_id
 
     if model_args.load_checkpoint_from:
         model.model.load_checkpoint_from = model_args.load_checkpoint_from
@@ -635,6 +685,17 @@ def main():
                 model.model.layers[j].self_attn.previous_lora_weights_v[i].lora_B.data.copy_(
                     lora_B[f"model.layers.{j}.self_attn.lora_v.lora_B"]
                 )
+
+    _dead_lora_layers = []
+    for _name, _module in model.named_modules():
+        if hasattr(_module, 'lora_A') and hasattr(_module, 'lora_B') and 'previous_lora_weights' not in _name:
+            if _module.lora_A.data.norm().item() == 0:
+                _dead_lora_layers.append(_name)
+    if _dead_lora_layers:
+        raise RuntimeError(
+            "Dead LoRA init detected after from_pretrained in LLaMA path: "
+            + ", ".join(_dead_lora_layers[:5])
+        )
 
     for name, param in model.named_parameters():
         if  training_args.model_name in ['olora', 'gainlora']:
