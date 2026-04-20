@@ -42,7 +42,21 @@ yelp → amazon → mnli → cb → copa → qqp → rte → imdb → sst2 → d
 
 ## Common Commands
 
-### Run SRT training (HPC)
+### Run SRT LLaMA training (HPC)
+```bash
+# Auto-detect GPU, use fp16 + grad_ckpt for 32GB cards
+bash gen_script_superni_order1_llama_srt.sh meta-llama/Llama-2-7b-hf
+
+# Explicit GPU override (use before MODEL_PATH)
+bash gen_script_superni_order1_llama_srt.sh --gpu 5090 meta-llama/Llama-2-7b-hf   # 32GB → fp16 + grad_ckpt, BSZ=2 GA=8
+bash gen_script_superni_order1_llama_srt.sh --gpu h100  meta-llama/Llama-2-7b-hf   # 80GB  → bf16, BSZ=8 GA=2
+bash gen_script_superni_order1_llama_srt.sh --gpu a100  meta-llama/Llama-2-7b-hf   # 80GB  → bf16/fp16 per CUDA version
+
+# With SGWI + Dual Fisher
+bash gen_script_superni_order1_llama_srt.sh --gpu 5090 --dual_fisher True --lambda_emb 0.05 meta-llama/Llama-2-7b-hf
+```
+
+### Run SRT T5 training (HPC)
 ```bash
 # generates gen_script_long_order3_t5_srt_hard.sh
 python generate_srt_order3.py hard

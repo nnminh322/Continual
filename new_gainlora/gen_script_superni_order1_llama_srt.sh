@@ -10,19 +10,23 @@
 export CUDA_DEVICE_ORDER="PCI_BUS_ID"
 
 # ============================================================
-# Parse named arguments: --sgwi, --dual_fisher, --lambda_emb
-# Usage: bash script.sh [MODEL_PATH] [--sgwi true/false] [--dual_fisher true/false] [--lambda_emb 0.01]
+# Parse named arguments: --sgwi, --dual_fisher, --lambda_emb, --gpu
+# Usage: bash script.sh [MODEL_PATH] [--gpu 5090|a100|h100] [--sgwi true/false] [--dual_fisher true/false] [--lambda_emb 0.01]
 #
 # Defaults:  SRT + SGWI (no Dual Fisher)
 # Examples:
-#   bash script.sh                                   # SRT + SGWI only
-#   bash script.sh --dual_fisher True                # SRT + SGWI + Dual Fisher
+#   bash script.sh                                              # SRT + SGWI only (auto-detect GPU)
+#   bash script.sh --gpu 5090                                   # RTX 5090 32GB → fp16 + grad_ckpt
+#   bash script.sh --gpu h100                                    # H100 80GB → bf16
+#   bash script.sh --gpu a100                                    # A100 80GB → bf16
+#   bash script.sh --dual_fisher True                            # SRT + SGWI + Dual Fisher
 #   bash script.sh --dual_fisher True --lambda_emb 0.05
-#   bash script.sh --sgwi False                      # SRT only (full random LoRA init)
+#   bash script.sh --sgwi False                                  # SRT only (full random LoRA init)
 # ============================================================
 SGWI_FLAG="True"          # default: SGWI warm-init enabled
 DUAL_FISHER_FLAG="False"  # default: Dual Fisher disabled
 LAMBDA_EMB=""             # default: auto (0.01 when dual_fisher=True)
+GPU_FORCE=""              # override GPU mode (e.g. 5090, a100, h100)
 
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
@@ -30,6 +34,7 @@ while [[ $# -gt 0 ]]; do
         --sgwi)        SGWI_FLAG="$2"; shift 2 ;;
         --dual_fisher) DUAL_FISHER_FLAG="$2"; shift 2 ;;
         --lambda_emb)  LAMBDA_EMB="$2"; shift 2 ;;
+        --gpu)         GPU_FORCE="$2"; shift 2 ;;
         *)             POSITIONAL+=("$1"); shift ;;
     esac
 done
@@ -65,31 +70,49 @@ fi
 # Ampere+ hardware ≠ PyTorch bf16 support — bf16 requires CUDA 12.1+ with Ampere.
 # To be safe, only use bf16 on 80GB+ A100/H100 cards (where CUDA version is reliable).
 # All other tiers default to fp16 with gradient checkpointing.
-if [ "$GPU_MEM" -lt 50000 ]; then
+if [ -n "$GPU_FORCE" ]; then
+    # Explicit GPU type override: --gpu 5090 | --gpu a100 | --gpu h100
+    case "$GPU_FORCE" in
+        5090|rtx5090)
+            IS_T4=0; GPU_MODE="mid_fp16"
+            BSZ=2; GA=8; EVAL_BSZ=4   # tighter BS for 32GB
+            FP16_FLAG="--gradient_checkpointing --fp16"
+            ;;
+        h100)
+            IS_T4=0; GPU_MODE="h100_bf16"
+            BSZ=8; GA=2; EVAL_BSZ=16
+            FP16_FLAG="--bf16"
+            ;;
+        a100|*)
+            # Treat as 80GB A100
+            if [ "$BF16_SUPPORTED" -eq 1 ]; then
+                IS_T4=0; GPU_MODE="a100_bf16"
+                BSZ=8; GA=2; EVAL_BSZ=16
+                FP16_FLAG="--bf16"
+            else
+                IS_T4=0; GPU_MODE="a100_fp16"
+                BSZ=8; GA=2; EVAL_BSZ=16
+                FP16_FLAG="--gradient_checkpointing --fp16"
+            fi
+            ;;
+    esac
+    GPU_IDS="${2:-0}"
+elif [ "$GPU_MEM" -lt 50000 ]; then
     IS_T4=0; GPU_MODE="mid_fp16"; GPU_IDS="${2:-0}"
+    BSZ=4; GA=4; EVAL_BSZ=8
     FP16_FLAG="--gradient_checkpointing --fp16"
 elif [ "$GPU_MEM" -ge 50000 ] && [ "$BF16_SUPPORTED" -eq 1 ]; then
     IS_T4=0; GPU_MODE="a100_bf16"; GPU_IDS="${2:-0}"
+    BSZ=8; GA=2; EVAL_BSZ=16
     FP16_FLAG="--bf16"
 else
     IS_T4=0; GPU_MODE="a100_fp16"; GPU_IDS="${2:-0}"
+    BSZ=8; GA=2; EVAL_BSZ=16
     FP16_FLAG="--gradient_checkpointing --fp16"
 fi
 
 echo "[GPU] $GPU_MODE ($GPU_MEM MB) | CUDA_VISIBLE_DEVICES=$GPU_IDS | $MODEL_PATH"
 echo "============================================================"
-
-# Llama: batch size tuned per VRAM tier (effective BS = BSZ * GA = 16)
-# VRAM budget: model(~16GB fp16) + activations(~6GB/sample w/o grad_ckpt)
-if [ "$GPU_MODE" = "t4_1gpu" ]; then
-    BSZ=1; GA=16; EVAL_BSZ=2
-elif [ "$GPU_MODE" = "mid" ]; then
-    # 32GB VRAM — tight with grad_ckpt
-    BSZ=4; GA=4; EVAL_BSZ=8
-else
-    # 80-96GB VRAM — NO grad_ckpt, real parallelism: 16 + 8×6 = ~64GB
-    BSZ=8; GA=2; EVAL_BSZ=16
-fi
 
 RUN_NAME="superni_order1_llama_srt"
 TASK_ORDER="task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification"
