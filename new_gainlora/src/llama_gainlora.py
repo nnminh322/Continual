@@ -1102,6 +1102,12 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         **kwargs,
     ):
         """Pass input_ids_wo_label through to enable SRT routing in decoder layers."""
+        # This custom LLaMA path still uses legacy tuple-style KV handling.
+        # Transformers 5 generation defaults to DynamicCache, which is not
+        # compatible with llama_gainlora.py. Force cache-free generation.
+        if generation_config is not None:
+            generation_config.use_cache = False
+        kwargs["use_cache"] = False
         return super().generate(
             input_ids=input_ids,
             input_ids_wo_label=input_ids_wo_label,
@@ -1210,7 +1216,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
     def prepare_inputs_for_generation(
         self, input_ids, past_key_values=None, attention_mask=None, inputs_embeds=None, **kwargs
     ):
-        if past_key_values:
+        if past_key_values is not None:
             input_ids = input_ids[:, -1:]
 
         position_ids = kwargs.get("position_ids", None)
@@ -1218,7 +1224,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
             # create position_ids on the fly for batch generation
             position_ids = attention_mask.long().cumsum(-1) - 1
             position_ids.masked_fill_(attention_mask == 0, 1)
-            if past_key_values:
+            if past_key_values is not None:
                 position_ids = position_ids[:, -1].unsqueeze(-1)
 
         # if `inputs_embeds` are passed, we only want to use them in the 1st generation step

@@ -799,6 +799,11 @@ class GainLoRATrainer(Seq2SeqTrainer):
         with self.compute_loss_context_manager():
             loss = self.compute_loss(model, inputs)
 
+        if not torch.isfinite(loss).all():
+            raise RuntimeError(
+                f"Non-finite training loss detected in LLaMA trainer at global_step={self.state.global_step}: {loss.detach().float().cpu().item()}"
+            )
+
         if self.args.n_gpu > 1:
             loss = loss.mean()  # mean() to average on multi-gpu parallel training
 
@@ -830,6 +835,11 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 replay_inputs = self._prepare_inputs(b)
                 with self.compute_loss_context_manager():
                     kl_loss = self.args.kl_ratio * self.model.memory_replay(replay_inputs["input_ids"], replay_inputs["replay_labels"])
+
+                if not torch.isfinite(kl_loss).all():
+                    raise RuntimeError(
+                        f"Non-finite replay KL loss detected in LLaMA trainer at global_step={self.state.global_step}: {kl_loss.detach().float().cpu().item()}"
+                    )
 
                 if self.args.n_gpu > 1:
                     kl_loss = kl_loss.mean()  # mean() to average on multi-gpu parallel trainin
