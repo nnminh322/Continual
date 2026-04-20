@@ -11,6 +11,9 @@ from torch.utils.data import DataLoader, RandomSampler, DistributedSampler
 
 import numpy as np
 
+from cl_collator import SUPPORTED_DECODER_MODELS, check_model
+from cl_dataset import ANSWER_PREFIX
+
 # CuPy compat — wrap hard import so setup_server can pass even if CuPy fails.
 # CuPy is used ONLY in get_repsentation() (GPM SVD), not at module import time
 # for the core training loop. If CuPy is missing, the trainer still works but GPM
@@ -803,16 +806,11 @@ class GainLoRATrainer(Seq2SeqTrainer):
             # deepspeed handles loss scaling by gradient_accumulation_steps in its `backward`
             loss = loss / self.args.gradient_accumulation_steps
 
-        if getattr(self, 'do_grad_scaling', False):
-            self.scaler.scale(loss).backward()
-        elif getattr(self, 'use_apex', False):
-            with amp.scale_loss(loss, self.optimizer) as scaled_loss:
-                scaled_loss.backward()
-        elif self.is_deepspeed_enabled:
-            # loss gets scaled under gradient_accumulation_steps in deepspeed
-            self.accelerator.backward(loss)
-        else:
-            loss.backward()
+        # Use accelerator.backward() — it handles AMP (fp16/bf16) scaling internally.
+        # Accelerate 1.13.0 wraps GradScaler; calling accelerator.backward() ensures
+        # scaler.scale() is invoked so clip_grad_norm_ → unscale_gradients() works.
+        # NEVER call loss.backward() directly — that bypasses the scaler → _scale=None crash.
+        self.accelerator.backward(loss)
 
         if self.state.global_step > self.args.replay_after_n_epoch*self.args.step_per_epoch and self.args.data_replay_freq != -1 and self.state.global_step % self.args.data_replay_freq == 0:
             for item in self.replay_iterator_dict.keys():
@@ -836,15 +834,8 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 if self.args.n_gpu > 1:
                     kl_loss = kl_loss.mean()  # mean() to average on multi-gpu parallel trainin
 
-                if getattr(self, 'do_grad_scaling', False):
-                    self.scaler.scale(kl_loss).backward()
-                elif getattr(self, 'use_apex', False):
-                    with amp.scale_loss(kl_loss, self.optimizer) as scaled_loss:
-                        scaled_loss.backward()
-                elif self.is_deepspeed_enabled:
-                    self.accelerator.backward(kl_loss)
-                else:
-                    kl_loss.backward()
+                # Same fix: use accelerator.backward() for AMP-aware gradient scaling
+                self.accelerator.backward(kl_loss)
 
         return loss.detach()
 
@@ -1653,19 +1644,10 @@ class GainLoRATrainer(Seq2SeqTrainer):
 
                     # Gradient clipping
                     if args.max_grad_norm is not None and args.max_grad_norm > 0:
-                        # deepspeed does its own clipping
-
-                        if getattr(self, 'do_grad_scaling', False):
-                            # Reduce gradients first for XLA
-                            if is_torch_tpu_available():
-                                gradients = xm._fetch_gradients(self.optimizer)
-                                xm.all_reduce("sum", gradients, scale=1.0 / xm.xrt_world_size())
-                            # AMP: gradients need unscaling
-                            self.scaler.unscale_(self.optimizer)
-
-                        if is_sagemaker_mp_enabled() and args.fp16:
-                            self.optimizer.clip_master_grads(args.max_grad_norm)
-                        elif hasattr(self.optimizer, "clip_grad_norm"):
+                        # NOTE: use accelerator.clip_grad_norm_() — it calls unscale_gradients()
+                        # internally when running in fp16 AMP mode. DO NOT call scaler.unscale_()
+                        # directly here (scaler is stored in accelerator.scaler, not self.scaler).
+                        if hasattr(self.optimizer, "clip_grad_norm"):
                             # Some optimizers (like the sharded optimizer) have a specific way to do gradient clipping
                             self.optimizer.clip_grad_norm(args.max_grad_norm)
                         elif hasattr(model, "clip_grad_norm_"):
@@ -1686,18 +1668,11 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     # Optimizer step
                     optimizer_was_run = True
                     if is_torch_tpu_available():
-                        if getattr(self, 'do_grad_scaling', False):
-                            self.scaler.step(self.optimizer)
-                            self.scaler.update()
-                        else:
-                            xm.optimizer_step(self.optimizer)
-                    elif getattr(self, 'do_grad_scaling', False):
-                        scale_before = self.scaler.get_scale()
-                        self.scaler.step(self.optimizer)
-                        self.scaler.update()
-                        scale_after = self.scaler.get_scale()
-                        optimizer_was_run = scale_before <= scale_after
+                        xm.optimizer_step(self.optimizer)
                     else:
+                        # AcceleratedOptimizer handles native AMP scaler stepping internally.
+                        # Do not call self.scaler.step/update here; that belongs to the wrapped
+                        # optimizer and causes fp16 state desynchronization on newer accelerate.
                         self.optimizer.step()
                         optimizer_was_run = not self.accelerator.optimizer_step_was_skipped
 

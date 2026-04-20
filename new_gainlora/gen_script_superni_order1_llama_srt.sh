@@ -8,6 +8,7 @@
 #SBATCH --gres=gpu:a100-sxm4-80gb:1
 
 export CUDA_DEVICE_ORDER="PCI_BUS_ID"
+set -eo pipefail
 
 # ============================================================
 # Parse named arguments: --sgwi, --dual_fisher, --lambda_emb, --gpu
