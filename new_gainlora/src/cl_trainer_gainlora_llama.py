@@ -147,7 +147,19 @@ except ImportError:
 # Core trainer imports — must come after compat fallbacks so any name
 # shadowed above (e.g. TrainerState) is resolved correctly.
 # ----------------------------------------------------------------------
-from transformers import GenerationConfig, TrainerOutput
+from transformers import GenerationConfig
+try:
+    from transformers import TrainerOutput
+except ImportError:
+    try:
+        from transformers.trainer_utils import TrainerOutput
+    except ImportError:
+        from dataclasses import dataclass as _dc
+        @_dc
+        class TrainerOutput:
+            global_step: int = 0
+            training_loss: float = 0.0
+            metrics: dict = None
 from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.trainer import *
 from transformers.trainer_pt_utils import (
