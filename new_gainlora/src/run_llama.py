@@ -53,7 +53,10 @@ from assets import task_config, lora_state_dict_A, lora_state_dict_B, lora_state
 from cl_trainer_gainlora_llama import DenserEvalCallback, skip_instructions
 from compute_metrics import compute_metrics, compute_grouped_metrics
 
-import ipdb
+try:
+    import ipdb
+except ImportError:
+    ipdb = None
 
 # off wandb
 os.environ['WANDB_DISABLED'] = "True"

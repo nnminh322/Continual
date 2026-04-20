@@ -28,7 +28,10 @@ except ImportError:
     sys.modules[__name__].__dict__['cp'] = None  # mark cp as dead
 from torch.utils.dlpack import to_dlpack, from_dlpack
 
-import ipdb
+try:
+    import ipdb
+except Exception:
+    ipdb = None
 from copy import deepcopy
 
 # ----------------------------------------------------------------------
@@ -73,23 +76,33 @@ except ImportError:
     except ImportError:
         hp_params = None
 
-# 5. get_parameter_names + ALL_LAYERNORM_LAYERS — may have moved to pytorch_utils
+# 5. ALL_LAYERNORM_LAYERS — import separately so one missing symbol doesn't
+#    block the other that IS still available in the installed version.
 try:
-    from transformers.trainer import get_parameter_names, ALL_LAYERNORM_LAYERS
+    from transformers.trainer import ALL_LAYERNORM_LAYERS
 except ImportError:
     try:
-        from transformers.pytorch_utils import get_parameter_names, ALL_LAYERNORM_LAYERS
+        from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
     except ImportError:
+        ALL_LAYERNORM_LAYERS = (nn.LayerNorm,)
+
+# 5b. get_parameter_names — removed from pytorch_utils in newer HF;
+#     provide a pure-Python fallback.
+try:
+    from transformers.trainer import get_parameter_names
+except ImportError:
+    try:
         from transformers.pytorch_utils import get_parameter_names
-        # Build ALL_LAYERNORM_LAYERS manually if missing
-        def _get_all_layernorm_layers():
-            import transformers
-            if hasattr(transformers, "ALL_LAYERNORM_LAYERS"):
-                return transformers.ALL_LAYERNORM_LAYERS
-            # fallback: common layer-norm named modules
-            from transformers.pytorch_utils import Conv1D
-            return [nn.LayerNorm, nn.GroupNorm]
-        ALL_LAYERNORM_LAYERS = _get_all_layernorm_layers()
+    except ImportError:
+        def get_parameter_names(module, forbidden_layer_types: Tuple = (nn.LayerNorm,)) -> List[str]:
+            """Return all parameter names that do NOT belong to forbidden layer types."""
+            result = []
+            for name, child in module.named_modules():
+                if isinstance(child, tuple(forbidden_layer_types)):
+                    continue
+                for pname, _ in child.named_parameters(recurse=False):
+                    result.append(f"{name}.{pname}" if name else pname)
+            return result
 
 # 6. get_model_param_count — added in transformers 4.27, may move in v5
 try:
