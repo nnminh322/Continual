@@ -41,6 +41,7 @@ from transformers import (
     AutoConfig,
     AutoTokenizer,
     AutoModelForCausalLM,
+    GenerationConfig,
     HfArgumentParser,
     Seq2SeqTrainingArguments,
     set_seed, )
@@ -589,6 +590,10 @@ def main():
     model.resize_token_embeddings(len(tokenizer))
 
     if 'llama' in model_args.model_name_or_path.lower():
+        if not hasattr(model, "generation_config") or model.generation_config is None:
+            # HF changed generation mixin wiring across versions; ensure this
+            # custom LLaMA class always has a usable generation config.
+            model.generation_config = GenerationConfig.from_model_config(model.config)
         model.generation_config.bos_token_id = 1
         model.generation_config.eos_token_id = 2
         model.generation_config.pad_token_id = 1
