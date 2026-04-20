@@ -559,7 +559,6 @@ def main():
     model = LlamaForCausalLM.from_pretrained(
         model_args.model_name_or_path,
         prompt_config,
-        from_tf=bool(".ckpt" in model_args.model_name_or_path),
         config=config,
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
@@ -602,15 +601,15 @@ def main():
     if model_args.load_checkpoint_from:
         model.model.load_checkpoint_from = model_args.load_checkpoint_from
         print("----------Loading Previous Query Projection Layer----------")
-        model.model.trans_input.load_state_dict(torch.load(model_args.load_checkpoint_from))
+        model.model.trans_input.load_state_dict(torch.load(model_args.load_checkpoint_from, weights_only=True))
         # FIX Bug 5: Removed duplicate 'gainlora' — use single check.
         if training_args.model_name == 'gainlora':
-            model.model.previous_trans_input.input_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from)['0.weight'])
-            model.model.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from)['1.weight'])
+            model.model.previous_trans_input.input_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, weights_only=True)['0.weight'])
+            model.model.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, weights_only=True)['1.weight'])
             # ipdb.set_trace()
             if cur_task_id > 1:
-                model.model.previous_trans_input.input_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'))['input_linear'])
-                model.model.previous_trans_input.output_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'))['output_linear'])
+                model.model.previous_trans_input.input_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), weights_only=True)['input_linear'])
+                model.model.previous_trans_input.output_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), weights_only=True)['output_linear'])
         print("----------Loading Previous Query Projection Layer Done----------")
 
     if model_args.previous_lora_path:
@@ -619,8 +618,8 @@ def main():
         print(previous_lora_list)
         print("----------Loading Previous LoRA Weights----------")
         for i, path in enumerate(previous_lora_list):
-            lora_A = torch.load(os.path.join(path, "lora_weights_A.pt"))
-            lora_B = torch.load(os.path.join(path, "lora_weights_B.pt"))
+            lora_A = torch.load(os.path.join(path, "lora_weights_A.pt"), weights_only=True)
+            lora_B = torch.load(os.path.join(path, "lora_weights_B.pt"), weights_only=True)
             ## Loading LoRA weights for LLaMA-2
             for j in range(config.num_hidden_layers):
                 model.model.layers[j].self_attn.previous_lora_weights_q[i].lora_A.data.copy_(

@@ -8,7 +8,44 @@
 #SBATCH --gres=gpu:a100-sxm4-80gb:1
 
 export CUDA_DEVICE_ORDER="PCI_BUS_ID"
+
+# ============================================================
+# Parse named arguments: --sgwi, --dual_fisher, --lambda_emb
+# Usage: bash script.sh [MODEL_PATH] [--sgwi true/false] [--dual_fisher true/false] [--lambda_emb 0.01]
+#
+# Defaults:  SRT + SGWI (no Dual Fisher)
+# Examples:
+#   bash script.sh                                   # SRT + SGWI only
+#   bash script.sh --dual_fisher True                # SRT + SGWI + Dual Fisher
+#   bash script.sh --dual_fisher True --lambda_emb 0.05
+#   bash script.sh --sgwi False                      # SRT only (full random LoRA init)
+# ============================================================
+SGWI_FLAG="True"          # default: SGWI warm-init enabled
+DUAL_FISHER_FLAG="False"  # default: Dual Fisher disabled
+LAMBDA_EMB=""             # default: auto (0.01 when dual_fisher=True)
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --sgwi)        SGWI_FLAG="$2"; shift 2 ;;
+        --dual_fisher) DUAL_FISHER_FLAG="$2"; shift 2 ;;
+        --lambda_emb)  LAMBDA_EMB="$2"; shift 2 ;;
+        *)             POSITIONAL+=("$1"); shift ;;
+    esac
+done
+set -- "${POSITIONAL[@]}"
+
 MODEL_PATH="${1:-meta-llama/Meta-Llama-3-8B}"
+
+# Build LAMBDA_ARG
+LAMBDA_ARG=""
+if [ -n "$LAMBDA_EMB" ]; then
+    LAMBDA_ARG="--lambda_emb $LAMBDA_EMB"
+fi
+
+echo "============================================================"
+echo "[CONFIG] sgwi=$SGWI_FLAG, dual_fisher=$DUAL_FISHER_FLAG, lambda_emb=${LAMBDA_EMB:-auto}"
+echo "============================================================"
 
 NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
 GPU_MEM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
@@ -38,10 +75,9 @@ fi
 RUN_NAME="superni_order1_llama_srt"
 TASK_ORDER="task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification"
 BASE_OUT="logs_and_outputs/$RUN_NAME"
-# SRT + SGWI + DualFisher flags
-SRT_FLAGS="--use_srt_router --srt_metric_mode hard --srt_max_emb_samples 500 --srt_skip_forward --sgwi --dual_fisher --lambda_emb 0.01"
-echo "NOTE: --srt_skip_forward=True: embeddings loaded from disk"
-echo "NOTE: --sgwi --dual_fisher: Contribution 2 enabled (SGWI warm-init + Dual Fisher)"
+# SRT flags: same pattern as T5 order 3/4
+SRT_FLAGS="--use_srt_router --srt_metric_mode hard --srt_max_emb_samples 500 --srt_skip_forward --sgwi $SGWI_FLAG --dual_fisher $DUAL_FISHER_FLAG $LAMBDA_ARG"
+echo "[SRT] use_srt_router=True, sgwi=$SGWI_FLAG, dual_fisher=$DUAL_FISHER_FLAG, srt_skip_forward=True"
 
 # ── TASK 1: task1572_samsum_summary ──────────────────────────────────────────
 OUTPUT_DIR="$BASE_OUT/outputs/1-task1572_samsum_summary"

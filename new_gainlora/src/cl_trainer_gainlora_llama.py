@@ -168,6 +168,98 @@ from transformers.trainer_pt_utils import (
 )
 from transformers.trainer_callback import TrainerCallback
 
+# ── Post-wildcard fallbacks: symbols removed/moved in transformers v5 ──────────
+# These were previously exported by `from transformers.trainer import *` in v4
+# but are no longer available in transformers >= 5.x on Python 3.12+.
+
+# 1. IS_SAGEMAKER_MP_POST_1_10 — SageMaker flag, always False on Kaggle/Colab
+try:
+    IS_SAGEMAKER_MP_POST_1_10  # noqa: F821 — check if wildcard export still works
+except NameError:
+    IS_SAGEMAKER_MP_POST_1_10 = False
+
+# 2. is_sagemaker_mp_enabled — returns False when not on SageMaker MP
+try:
+    is_sagemaker_mp_enabled  # noqa: F821
+except NameError:
+    def is_sagemaker_mp_enabled():
+        return False
+
+# 3. ParallelMode — may still be in training_args; fallback enum
+try:
+    ParallelMode  # noqa: F821
+except NameError:
+    try:
+        from transformers.training_args import ParallelMode
+    except ImportError:
+        from enum import Enum
+        class ParallelMode(str, Enum):
+            NOT_DISTRIBUTED = "not_distributed"
+            NOT_PARALLEL = "not_parallel"
+            DISTRIBUTED = "distributed"
+            SAGEMAKER_MODEL_PARALLEL = "sagemaker_model_parallel"
+            SAGEMAKER_DATA_PARALLEL = "sagemaker_data_parallel"
+            TPU = "tpu"
+
+# 4. dist — torch.distributed (was re-exported by trainer in v4)
+try:
+    dist  # noqa: F821
+except NameError:
+    import torch.distributed as dist
+
+# 5. has_length — may have moved to trainer_pt_utils
+try:
+    has_length  # noqa: F821
+except NameError:
+    try:
+        from transformers.trainer_pt_utils import has_length
+    except ImportError:
+        def has_length(dataset):
+            try:
+                return len(dataset) is not None
+            except TypeError:
+                return False
+
+# 6. seed_worker — may have moved to trainer_pt_utils
+try:
+    seed_worker  # noqa: F821
+except NameError:
+    try:
+        from transformers.trainer_pt_utils import seed_worker
+    except ImportError:
+        import random as _random
+        def seed_worker(worker_id):
+            worker_seed = torch.initial_seed() % 2**32
+            np.random.seed(worker_seed)
+            _random.seed(worker_seed)
+
+# 7. TRAINER_STATE_NAME — may have moved to trainer_utils
+try:
+    TRAINER_STATE_NAME  # noqa: F821
+except NameError:
+    try:
+        from transformers.trainer_utils import TRAINER_STATE_NAME
+    except ImportError:
+        TRAINER_STATE_NAME = "trainer_state.json"
+
+# 8. speed_metrics — may have moved to trainer_utils
+try:
+    speed_metrics  # noqa: F821
+except NameError:
+    try:
+        from transformers.trainer_utils import speed_metrics
+    except ImportError:
+        import time as _time
+        def speed_metrics(split, start_time, num_samples=None, num_steps=None):
+            runtime = _time.time() - start_time
+            result = {f"{split}_runtime": round(runtime, 4)}
+            if num_samples is not None and runtime > 0:
+                result[f"{split}_samples_per_second"] = round(num_samples / runtime, 3)
+            if num_steps is not None and runtime > 0:
+                result[f"{split}_steps_per_second"] = round(num_steps / runtime, 3)
+            return result
+# ── End post-wildcard fallbacks ─────────────────────────────────────────────────
+
 # ----------------------------------------------------------------------
 # Torch version check — replaces is_torch_less_than_1_11 (deprecated)
 # ----------------------------------------------------------------------
@@ -1655,7 +1747,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
-                    self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
+                    self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
 
                     # print(self.model.model.trans_input[0].weight-old_trans_input_0)
                 else:
@@ -1675,7 +1767,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-            self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
+            self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
 
             if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
                 if is_torch_tpu_available():

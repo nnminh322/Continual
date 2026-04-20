@@ -178,7 +178,7 @@ class SGWI_DualFisher_Trainer(SRT_Trainer):
 
     def _sgwi_init_a(self, srt_weights: Dict[int, float]):
         """SGWI warm-init for lora_A only, via SVD of weighted past ΔW.
-        
+
         delta_W = Σ w_s * (B_s @ A_s)  [out_dim, in_dim]
         SVD: delta_W = U @ S @ V^T
         A_new = sqrt(S[:r]) * V^T[:r, :]  — captures the important input directions
@@ -332,7 +332,7 @@ class SGWI_DualFisher_Trainer(SRT_Trainer):
         Strategy:
           1. For each past task s, get B_s and A_s from previous_lora_weights
           2. Compute delta_W = Σ w_s * (B_s @ A_s)
-          3. Warm-init current lora_B via least-squares: B_new = delta_W @ A_cur^+ 
+          3. Warm-init current lora_B via least-squares: B_new = delta_W @ A_cur^+
         """
         model = self.model
         device = next(model.parameters()).device
@@ -565,7 +565,7 @@ class SGWI_DualFisher_Trainer(SRT_Trainer):
         """Load previously saved θ* from checkpoint."""
         theta_path = os.path.join(srt_load_path, 'theta_stars.pt')
         if os.path.exists(theta_path):
-            self.theta_stars = torch.load(theta_path, map_location='cpu')
+            self.theta_stars = torch.load(theta_path, map_location='cpu', weights_only=True)
             logger.info(f"[SGWI] Loaded θ* for {len(self.theta_stars)} past tasks from {theta_path}")
         else:
             logger.info(f"[SGWI] No θ* found at {theta_path}")

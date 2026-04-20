@@ -23,7 +23,10 @@ import numpy as np
 import copy
 import numpy
 from typing import Optional, Tuple, Union
-import ipdb
+try:
+    import ipdb
+except ImportError:
+    ipdb = None
 
 import torch
 from torch import nn
@@ -38,7 +41,19 @@ from transformers.modeling_outputs import (
     Seq2SeqModelOutput,
 )
 from transformers.modeling_utils import PreTrainedModel
-from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS, find_pruneable_heads_and_indices, prune_linear_layer
+from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS, prune_linear_layer
+# find_pruneable_heads_and_indices removed in transformers v5
+try:
+    from transformers.pytorch_utils import find_pruneable_heads_and_indices
+except ImportError:
+    import torch as _torch
+    def find_pruneable_heads_and_indices(heads, n_heads, head_size, already_pruned_heads):
+        mask = _torch.ones(n_heads, head_size)
+        heads = set(heads) - already_pruned_heads
+        for head in heads:
+            head -= sum(1 if h < head else 0 for h in already_pruned_heads)
+            mask[head] = 0
+        return heads, mask.view(-1).contiguous().eq(1).nonzero().squeeze()
 from transformers.utils import (
     DUMMY_INPUTS,
     DUMMY_MASK,
@@ -48,7 +63,22 @@ from transformers.utils import (
     logging,
     replace_return_docstrings,
 )
-from transformers.utils.model_parallel_utils import assert_device_map, get_device_map
+# model_parallel_utils removed in transformers v5 — provide local fallbacks
+try:
+    from transformers.utils.model_parallel_utils import assert_device_map, get_device_map
+except ImportError:
+    def get_device_map(num_layers, devices):
+        layers_per_device = (num_layers + len(devices) - 1) // len(devices)
+        device_map = {}
+        for i, device in enumerate(devices):
+            start = i * layers_per_device
+            end = min((i + 1) * layers_per_device, num_layers)
+            device_map[device] = list(range(start, end))
+        return device_map
+
+    def assert_device_map(device_map, num_layers):
+        total = sum(len(v) for v in device_map.values())
+        assert total == num_layers, f"device_map covers {total} layers but model has {num_layers}"
 from transformers.models.t5.configuration_t5 import T5Config
 import loralib as lora
 
@@ -81,7 +111,7 @@ class Trans_input(nn.Module):
 
         self.activation = nn.SiLU()
         # self.norm = nn.LayerNorm(d_model)
-    
+
     def forward(self, x):
         # ipdb.set_trace()
         x = x.unsqueeze(1)
@@ -96,8 +126,8 @@ class LoRALayer(nn.Module):
         self,
         in_features: int,
         out_features: int,
-        r: int, 
-        lora_alpha: int = 1, 
+        r: int,
+        lora_alpha: int = 1,
         lora_dropout: float = 0.
     ):
         super(LoRALayer, self).__init__()
@@ -114,14 +144,14 @@ class LoRALayer(nn.Module):
         else:
             self.lora_dropout = lambda x: x
         # Mark the weight as unmerged
-        
+
         self.reset_parameters()
-    
+
     def reset_parameters(self):
         # initialize A the same way as the default for nn.Linear and B to zero
         nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
         nn.init.zeros_(self.lora_B)
-    
+
     def forward(self, x: torch.Tensor):
         result = (self.lora_dropout(x) @ self.lora_A.transpose(0, 1) @ self.lora_B.transpose(0, 1)) * self.scaling
         return result  # shape: (batch, seq, out_features=inner_dim)
@@ -635,7 +665,7 @@ class T5Attention(nn.Module):
                     # cross-attn
                     hidden_states = past_key_value
             return hidden_states
-        
+
         def agg_lora_states(hidden_states, lora_layer, pre_lora_layer, key_attention_weights):
             # key_attention_weights: (batch_size, 1+N_prev, 1)
             w_cur = key_attention_weights[:, 0:1, :]
@@ -719,7 +749,7 @@ class T5Attention(nn.Module):
         # Mask heads if we want to
         if layer_head_mask is not None:
             attn_weights = attn_weights * layer_head_mask
-        
+
         attn_output = unshape(torch.matmul(attn_weights, value_states))  # (batch_size, seq_length, dim)
         attn_output = self.o(attn_output)
 
@@ -1075,7 +1105,7 @@ class T5Stack(T5PreTrainedModel):
                 self.previous_prompts_keys = nn.Parameter(torch.randn((prompt_config["task_id"], config.d_model)))
                 self.previous_prompts_keys.data = torch.load(prompt_config["previous_prompt_key_path"], weights_only=True)
                 self.previous_prompts_keys.requires_grad = False
-                
+
                 self.previous_trans_input = Trans_input(config.d_model, prompt_config["mlp_hidden_dim"], prompt_config["task_id"])
                 for param in self.previous_trans_input.parameters():
                     param.requires_grad = False
@@ -1085,7 +1115,7 @@ class T5Stack(T5PreTrainedModel):
                 # self.previous_prompts_keys = torch.load(prompt_config["previous_prompt_key_path"])
                 # self.previous_prompts_keys.requires_grad = False
                 # self.previous_prompts_keys = self.previous_prompts_keys.to(dtype=torch.bfloat16)
-            
+
             self.all_attn_weights = []
             self.key_attention_weights = None
 
@@ -1134,7 +1164,7 @@ class T5Stack(T5PreTrainedModel):
             self.matrix_trans_2 = torch.bmm(medium.detach().permute(0, 2, 1), medium.detach()).sum(dim=0).float()/(medium.shape[0]*medium.shape[1])
         else:
             self.matrix_trans_2 = (self.matrix_trans_2*self.n_trans_matrix[index] + torch.bmm(medium.detach().permute(0, 2, 1), medium.detach()).sum(dim=0).float())/(self.n_trans_matrix[index] + medium.shape[0]*medium.shape[1])
-            
+
         return
 
     @add_start_docstrings(PARALLELIZE_DOCSTRING)
@@ -1186,7 +1216,7 @@ class T5Stack(T5PreTrainedModel):
 
     def set_input_embeddings(self, new_embeddings):
         self.embed_tokens = new_embeddings
-    
+
     def init_new_prompt(self, prompt_len):
         N = self.embed_tokens.weight.shape[0]
         prompt_weigths = []
@@ -1199,18 +1229,18 @@ class T5Stack(T5PreTrainedModel):
         return prompt_weigths
 
     def cal_attention(self, prompt_key, x, return_logits=False):
-        
+
         # avg_inputs_embeds = text_input.max(dim=1, keepdim=True).values
         # x = trans_input(avg_inputs_embeds)
-        
+
         if self.prompt_config["attn_temperature"] == 1:
             attn_temperature = math.sqrt(self.model_dim)
         else:
             attn_temperature = math.sqrt(2*self.model_dim)
-        
+
         x=x/(x.norm(dim=-1,keepdim=True) + 1e-12)
         prompt_key = prompt_key/(prompt_key.norm(dim=-1,keepdim=True) + 1e-12)
-        
+
         # attn_scores = prompt_key.bmm(
         #     x.transpose(1, 2))
         # ipdb.set_trace()
@@ -1225,7 +1255,7 @@ class T5Stack(T5PreTrainedModel):
         # if not return_logits:
         #     print(weights)
         if not return_logits:
-            return weights  
+            return weights
         else:
             return attn_scores  # shape (B, L, 1)
 
@@ -2008,7 +2038,7 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
             inputs_embeds = self.encoder.embed_tokens(input_ids)
             k = input_ids.shape[0]
             kl_loss_fct = nn.KLDivLoss(reduction="batchmean")
-            
+
             pre_prompt_key = torch.cat([self.encoder.prompt_key.repeat(k, 1, 1), self.encoder.previous_prompts_keys.repeat(k, 1, 1)], dim=1)
             # pre_prompts = torch.cat([self.encoder.prompt.repeat(k, 1, 1).unsqueeze(1),
             #                          self.encoder.previous_prompts.repeat(k, 1, 1).reshape(k, -1, self.prompt_config["prefix_len"], self.model_dim)], dim=1)
@@ -2018,7 +2048,7 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
             avg_inputs_embeds = (attention_mask.unsqueeze(-1)*inputs_embeds).mean(dim=1, keepdim=True)
             medium = self.encoder.trans_input[0](avg_inputs_embeds)
             x = self.encoder.trans_input[2](self.encoder.trans_input[1](medium))
-            
+
             attn_scores = self.encoder.cal_attention(pre_prompt_key, x, return_logits=True)
             # print("attn_scores", torch.nn.functional.softmax(attn_scores.squeeze(2), 1))
             # print("replay_labels", replay_labels)
@@ -2127,7 +2157,7 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
                 attention_mask = attention_mask.to(self.decoder.first_device)
             if decoder_attention_mask is not None:
                 decoder_attention_mask = decoder_attention_mask.to(self.decoder.first_device)
-        
+
         # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
@@ -2166,7 +2196,7 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
             # move labels to correct device to enable PP
             labels = labels.to(lm_logits.device)
             loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
-            
+
             # print(self.encoder.reduce_sim)
             # if self.training:
             #     if loss > 0.5 * self.encoder.reduce_sim:

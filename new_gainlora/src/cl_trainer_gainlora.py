@@ -22,10 +22,19 @@ except ImportError:
 
 from cl_collator import SUPPORTED_DECODER_MODELS, check_model
 from cl_dataset import ANSWER_PREFIX
-import cupy as cp
+# CuPy compat — guard for environments without GPU CuPy
+_cupy_available = False
+try:
+    import cupy as cp
+    _cupy_available = True
+except ImportError:
+    cp = None
 from torch.utils.dlpack import from_dlpack
 # Compatibility: cupy.fromDlpack deprecated; use cp.from_dlpack
-def fromDlpack(x): return cp.from_dlpack(x)
+def fromDlpack(x):
+    if cp is None:
+        raise ImportError("CuPy is required for GPM SVD but not installed")
+    return cp.from_dlpack(x)
 try:
     import ipdb
 except ImportError:
@@ -44,6 +53,127 @@ try:
 except NameError:
     def is_torch_tpu_available():
         return False
+
+# ── Post-wildcard fallbacks: symbols removed/moved in transformers v5 ──────────
+try:
+    IS_SAGEMAKER_MP_POST_1_10  # noqa: F821
+except NameError:
+    IS_SAGEMAKER_MP_POST_1_10 = False
+
+try:
+    is_sagemaker_mp_enabled  # noqa: F821
+except NameError:
+    def is_sagemaker_mp_enabled():
+        return False
+
+try:
+    ParallelMode  # noqa: F821
+except NameError:
+    try:
+        from transformers.training_args import ParallelMode
+    except ImportError:
+        from enum import Enum
+        class ParallelMode(str, Enum):
+            NOT_DISTRIBUTED = "not_distributed"
+            DISTRIBUTED = "distributed"
+            TPU = "tpu"
+
+try:
+    dist  # noqa: F821
+except NameError:
+    import torch.distributed as dist
+
+try:
+    has_length  # noqa: F821
+except NameError:
+    try:
+        from transformers.trainer_pt_utils import has_length
+    except ImportError:
+        def has_length(dataset):
+            try:
+                return len(dataset) is not None
+            except TypeError:
+                return False
+
+try:
+    seed_worker  # noqa: F821
+except NameError:
+    try:
+        from transformers.trainer_pt_utils import seed_worker
+    except ImportError:
+        import random as _random
+        def seed_worker(worker_id):
+            worker_seed = torch.initial_seed() % 2**32
+            np.random.seed(worker_seed)
+            _random.seed(worker_seed)
+
+try:
+    TRAINER_STATE_NAME  # noqa: F821
+except NameError:
+    try:
+        from transformers.trainer_utils import TRAINER_STATE_NAME
+    except ImportError:
+        TRAINER_STATE_NAME = "trainer_state.json"
+
+try:
+    speed_metrics  # noqa: F821
+except NameError:
+    try:
+        from transformers.trainer_utils import speed_metrics
+    except ImportError:
+        def speed_metrics(split, start_time, num_samples=None, num_steps=None):
+            runtime = time.time() - start_time
+            result = {f"{split}_runtime": round(runtime, 4)}
+            if num_samples is not None and runtime > 0:
+                result[f"{split}_samples_per_second"] = round(num_samples / runtime, 3)
+            if num_steps is not None and runtime > 0:
+                result[f"{split}_steps_per_second"] = round(num_steps / runtime, 3)
+            return result
+
+try:
+    get_parameter_names  # noqa: F821
+except NameError:
+    try:
+        from transformers.pytorch_utils import get_parameter_names
+    except ImportError:
+        def get_parameter_names(module, forbidden_layer_types=(nn.LayerNorm,)):
+            result = []
+            for name, child in module.named_modules():
+                if isinstance(child, tuple(forbidden_layer_types)):
+                    continue
+                for pname, _ in child.named_parameters(recurse=False):
+                    result.append(f"{name}.{pname}" if name else pname)
+            return result
+
+try:
+    ALL_LAYERNORM_LAYERS  # noqa: F821
+except NameError:
+    try:
+        from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
+    except ImportError:
+        ALL_LAYERNORM_LAYERS = (nn.LayerNorm,)
+
+try:
+    get_model_param_count  # noqa: F821
+except NameError:
+    def get_model_param_count(model, trainable_only=False):
+        if trainable_only:
+            return sum(p.numel() for p in model.parameters() if p.requires_grad)
+        return sum(p.numel() for p in model.parameters())
+
+try:
+    TrainOutput  # noqa: F821
+except NameError:
+    try:
+        from transformers.trainer_utils import TrainOutput
+    except ImportError:
+        from dataclasses import dataclass as _dc
+        @_dc
+        class TrainOutput:
+            global_step: int = 0
+            training_loss: float = 0.0
+            metrics: dict = None
+# ── End post-wildcard fallbacks ─────────────────────────────────────────────────
 
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
     # ── Robust conversion: handles ANY input format ───────────────
@@ -140,7 +270,8 @@ class DenserEvalCallback(TrainerCallback):
             control.should_log = True
 
         # Evaluate
-        if args.evaluation_strategy == IntervalStrategy.STEPS and state.global_step in log_eval_steps:
+        eval_strategy = getattr(args, 'eval_strategy', None) or getattr(args, 'evaluation_strategy', None)
+        if eval_strategy == IntervalStrategy.STEPS and state.global_step in log_eval_steps:
             control.should_evaluate = True
 
         # Save
@@ -197,7 +328,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                         pin_memory=False,
                         worker_init_fn=seed_worker)
         self.select_predict_iter = iter(self.select_predict_dataloader)
-    
+
     def load_previous_reg_matrix(self):
         paths = self.args.output_dir.split('/')
         log_path = ""
@@ -392,7 +523,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
 
                 module.get_feature=False
                 module.stage = 0
-        
+
         merged_trans_tensor = {}
         for index in range(self.model.encoder.index):
             merged_trans_tensor[index] = self.model.encoder.matrix_trans_1[index].cuda().float()
@@ -415,7 +546,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
         else:
             transthreshold = (1.0 - self.args.transthreshold)*self._cur_task/total_sessions + self.args.transthreshold
         # threshold = self.args.threshold
-        print ('Threshold: ', threshold, transthreshold) 
+        print ('Threshold: ', threshold, transthreshold)
         if len(self.feature_list) == 0:
             for i in range(len(mat_list)):
                 activation = mat_list[i]
@@ -427,7 +558,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     # criteria (Eq-5)
                     sval_total = (S**2).sum()
                     sval_ratio = (S**2)/sval_total
-                    r = torch.sum(torch.cumsum(sval_ratio, dim=0)<threshold) #+1  
+                    r = torch.sum(torch.cumsum(sval_ratio, dim=0)<threshold) #+1
                     feature[index] = U[:,0:max(r,1)]
                 self.feature_list.append(feature)
 
@@ -442,7 +573,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     # criteria (Eq-5)
                     sval_total = (S**2).sum()
                     sval_ratio = (S**2)/sval_total
-                    r = torch.sum(torch.cumsum(sval_ratio, dim=0)<transthreshold) #+1  
+                    r = torch.sum(torch.cumsum(sval_ratio, dim=0)<transthreshold) #+1
                     feature_trans[index] = U[:,0:max(r,1)]
                 self.feature_trans_list.append(feature_trans)
 
@@ -453,7 +584,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
             # criteria (Eq-5)
             sval_total = (S**2).sum()
             sval_ratio = (S**2)/sval_total
-            r = torch.sum(torch.cumsum(sval_ratio, dim=0)<transthreshold) #+1  
+            r = torch.sum(torch.cumsum(sval_ratio, dim=0)<transthreshold) #+1
             feature_trans = U[:,0:max(r,1)]
             self.feature_trans_list = self.feature_trans_list[:1] + [feature_trans] + self.feature_trans_list[1:]
             # ipdb.set_trace()
@@ -471,9 +602,9 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
                     # criteria (Eq-9)
                     sval_hat = (S**2).sum()
-                    sval_ratio = (S**2)/sval_total               
+                    sval_ratio = (S**2)/sval_total
                     accumulated_sval = (sval_total-sval_hat)/sval_total
-                
+
                     r = 0
                     for ii in range (sval_ratio.shape[0]):
                         if accumulated_sval < threshold:
@@ -482,10 +613,10 @@ class GainLoRATrainer(Seq2SeqTrainer):
                         else:
                             break
                     if r == 0:
-                        print ('Skip Updating GPM for layer: {}'.format(i+1)) 
+                        print ('Skip Updating GPM for layer: {}'.format(i+1))
                         continue
                     # update GPM
-                    Ui=cp.hstack((fromDlpack(self.feature_list[i][index]),U[:,0:r]))  
+                    Ui=cp.hstack((fromDlpack(self.feature_list[i][index]),U[:,0:r]))
 
                     # import ipdb
                     # ipdb.set_trace()
@@ -509,9 +640,9 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
                     # criteria (Eq-9)
                     sval_hat = (S**2).sum()
-                    sval_ratio = (S**2)/sval_total               
+                    sval_ratio = (S**2)/sval_total
                     accumulated_sval = (sval_total-sval_hat)/sval_total
-                
+
                     r = 0
                     for ii in range (sval_ratio.shape[0]):
                         if accumulated_sval < transthreshold:
@@ -520,10 +651,10 @@ class GainLoRATrainer(Seq2SeqTrainer):
                         else:
                             break
                     if r == 0:
-                        print ('Skip Updating GPM for layer: {}'.format(i+1)) 
+                        print ('Skip Updating GPM for layer: {}'.format(i+1))
                         continue
                     # update GPM
-                    Ui=cp.hstack((fromDlpack(self.feature_trans_list[i][index]),U[:,0:r]))  
+                    Ui=cp.hstack((fromDlpack(self.feature_trans_list[i][index]),U[:,0:r]))
 
                     if Ui.shape[1] > Ui.shape[0]:
                         self.feature_trans_list[i][index]=from_dlpack(Ui[:,0:Ui.shape[0]].toDlpack())
@@ -540,9 +671,9 @@ class GainLoRATrainer(Seq2SeqTrainer):
             U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
             # criteria (Eq-9)
             sval_hat = (S**2).sum()
-            sval_ratio = (S**2)/sval_total               
+            sval_ratio = (S**2)/sval_total
             accumulated_sval = (sval_total-sval_hat)/sval_total
-        
+
             r = 0
             for ii in range (sval_ratio.shape[0]):
                 if accumulated_sval < transthreshold:
@@ -551,10 +682,10 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 else:
                     break
             if r == 0:
-                print ('Skip Updating GPM for layer: {}'.format(1+1)) 
+                print ('Skip Updating GPM for layer: {}'.format(1+1))
             else:
                 # update GPM
-                Ui=cp.hstack((fromDlpack(self.feature_trans_list[1]),U[:,0:r]))  
+                Ui=cp.hstack((fromDlpack(self.feature_trans_list[1]),U[:,0:r]))
 
                 # import ipdb
                 # ipdb.set_trace()
@@ -563,14 +694,14 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 else:
                     self.feature_trans_list[1]=from_dlpack(Ui.toDlpack())
 
-            
+
         print('-'*40)
         print('Gradient Constraints Summary')
         print('-'*40)
         for i in range(len(self.feature_list)):
             for index in range(self.args.chunk):
                 print ('Layer {} Index {} : {}/{}'.format(i+1, index+1, self.feature_list[i][index].shape[1], self.feature_list[i][index].shape[0]))
-        print('-'*40)  
+        print('-'*40)
 
         for i in range(len(self.feature_list)):
             torch.save(self.feature_list[i], os.path.join(self.args.output_dir, 'reg_{}.pt'.format(i)))
@@ -609,13 +740,13 @@ class GainLoRATrainer(Seq2SeqTrainer):
             `torch.Tensor`: The tensor with training loss on this batch.
         """
         model.train()
-        
+
         inputs = self._prepare_inputs(inputs)
 
         if is_sagemaker_mp_enabled():
             loss_mb = smp_forward_backward(model, inputs, self.args.gradient_accumulation_steps)
             return loss_mb.reduce_mean().detach().to(self.args.device)
-        
+
         with self.compute_loss_context_manager():
             loss = self.compute_loss(model, inputs)
 
@@ -625,7 +756,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
         if self.args.gradient_accumulation_steps > 1 and not self.is_deepspeed_enabled:
             # deepspeed handles loss scaling by gradient_accumulation_steps in its `backward`
             loss = loss / self.args.gradient_accumulation_steps
-        
+
         if getattr(self, 'do_grad_scaling', False):
             self.scaler.scale(loss).backward()
         elif getattr(self, 'use_apex', False):
@@ -636,7 +767,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
             self.accelerator.backward(loss)
         else:
             loss.backward()
-        
+
         if self.state.global_step > self.args.replay_after_n_epoch*self.args.step_per_epoch and self.args.data_replay_freq != -1 and self.state.global_step % self.args.data_replay_freq == 0:
             for item in self.replay_iterator_dict.keys():
                 generator_mem1 = self.replay_iterator_dict[item]
@@ -651,14 +782,14 @@ class GainLoRATrainer(Seq2SeqTrainer):
 
                 replay_task_id = self.task_order.index(item)
                 b["replay_labels"] = self.replay_label_dict[self.task_order[replay_task_id]]
-                
+
                 replay_inputs = self._prepare_inputs(b)
                 with self.compute_loss_context_manager():
                     kl_loss = self.args.kl_ratio * self.model.memory_replay(replay_inputs["input_ids"], replay_inputs["replay_labels"])
 
                 if self.args.n_gpu > 1:
                     kl_loss = kl_loss.mean()  # mean() to average on multi-gpu parallel trainin
-        
+
                 if getattr(self, 'do_grad_scaling', False):
                     self.scaler.scale(kl_loss).backward()
                 elif getattr(self, 'use_apex', False):
@@ -670,7 +801,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     kl_loss.backward()
 
         return loss.detach()
-    
+
     def create_optimizer_and_scheduler(self, num_training_steps: int):
         """
         Setup the optimizer and the learning rate scheduler.
@@ -695,7 +826,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
         Trainer's init through `optimizers`, or subclass and override this method in a subclass.
         """
         opt_model = self.model_wrapped if is_sagemaker_mp_enabled() else self.model
-        
+
         if self.optimizer is None:
             if self.args.attn_lr == 0:
                 print("Using Same Learning Rate for All Modules")
@@ -719,9 +850,9 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 print("Using Different Learning Rates for Different Modules")
                 decay_parameters = get_parameter_names(opt_model, ALL_LAYERNORM_LAYERS)
                 decay_parameters = [name for name in decay_parameters if "bias" not in name]
-                
+
                 param_no_decay = [p for n, p in opt_model.named_parameters() if n not in decay_parameters and p.requires_grad]
-                
+
                 resett_param_with_decay = [p for n, p in opt_model.named_parameters() if "trans_input" in n and n in decay_parameters and p.requires_grad]
                 other_param_with_decay = [p for n, p in opt_model.named_parameters() if "trans_input" not in n and n in decay_parameters and p.requires_grad]
                 optimizer_grouped_parameters = [
@@ -1013,7 +1144,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     "eos_token_id": 1,
                     "pad_token_id": 0,
                 }
-                
+
             synced_gpus = gen_kwargs.pop("synced_gpus", False)
 
         attention_mask = inputs.get("attention_mask", None)
@@ -1025,9 +1156,9 @@ class GainLoRATrainer(Seq2SeqTrainer):
         # varying model input names
         if hasattr(self.model, "encoder") and self.model.encoder.main_input_name != self.model.main_input_name:
             generation_inputs = inputs[self.model.encoder.main_input_name]
-            
+
             generated_tokens = self.model.generate(
-                input_ids=generation_inputs, 
+                input_ids=generation_inputs,
                 generation_config=generation_config,
                 attention_mask=attention_mask,
                 synced_gpus=synced_gpus,
@@ -1043,7 +1174,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     attention_mask=attention_mask,
                     synced_gpus=synced_gpus,
                 )
-            
+
             else:
                 generated_tokens = self.model.generate(
                     input_ids=generation_inputs,
@@ -1470,7 +1601,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                         #         module.lora_q.lora_A.data.copy_(new_weight_q)
                         #         module.lora_v.lora_A.data.copy_(new_weight_v)
                         #         i += 1
-                        
+
                         new_trans_input_0 = deepcopy(self.model.encoder.trans_input[0].weight.detach())
                         new_trans_input_1 = deepcopy(self.model.encoder.trans_input[2].weight.detach())
                         new_trans_input_0norm = new_trans_input_0.norm(dim=1, keepdim=True)
@@ -1499,7 +1630,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
                     grad_norm: Optional[float] = None
-                    self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
+                    self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
@@ -1514,7 +1645,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-            self._maybe_log_save_evaluate(tr_loss, None, model, trial, epoch, ignore_keys_for_eval)
+            self._maybe_log_save_evaluate(tr_loss, None, model, trial, epoch, ignore_keys_for_eval, start_time)
 
             if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
                 if is_torch_tpu_available():

@@ -381,7 +381,7 @@ class TrainingArguments(Seq2SeqTrainingArguments):
     do_demo: bool = field(default=False, metadata={"help": "Whether to run the model as a demo in the terminal."})
     lamda_1: float = field(default = 0.5)
     lamda_2: float = field(default = 0)
-    
+
     kl_ratio: Optional[float] = field(
         default=0.5,
         metadata={"help": "ratio of the replay kl loss"}
@@ -502,7 +502,7 @@ def main():
     data_cache_dir = gen_cache_path(training_args.output_dir, data_args)
 
     task_order = data_args.task_order.split(',')
-    
+
     cur_task = data_args.task_config_dir.split('/')[-1]
     cur_task_id = task_order.index(cur_task)
 
@@ -533,14 +533,14 @@ def main():
         model_args.config_name if model_args.config_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
+        token=True if model_args.use_auth_token else None,
     )
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
         use_fast=model_args.use_fast_tokenizer,
         revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
+        token=True if model_args.use_auth_token else None,
     )
 
     prompt_config = {
@@ -561,11 +561,10 @@ def main():
     model = T5ForConditionalGeneration.from_pretrained(
             model_args.model_name_or_path,
             prompt_config,
-            from_tf=bool(".ckpt" in model_args.model_name_or_path),
             config=config,
             cache_dir=model_args.cache_dir,
             revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
+            token=True if model_args.use_auth_token else None,
         )
 
     model.persent = training_args.persent
@@ -645,7 +644,7 @@ def main():
         for i, path in enumerate(previous_lora_list):
             lora_A = torch.load(os.path.join(path, "lora_weights_A.pt"), map_location=device, weights_only=True)
             lora_B = torch.load(os.path.join(path, "lora_weights_B.pt"), map_location=device, weights_only=True)
-            ## Encoder Layer       
+            ## Encoder Layer
             for j in range(config.num_layers):
                 model.encoder.block[j].layer[0].SelfAttention.previous_lora_weights_q[i].lora_A.data.copy_(
                     lora_A[f"encoder.block.{j}.layer.0.SelfAttention.lora_q.lora_A"]
@@ -702,8 +701,8 @@ def main():
         _cur_lora_B_path = os.path.join(model_args.current_lora_path, "lora_weights_B.pt")
         if os.path.exists(_cur_lora_A_path) and os.path.exists(_cur_lora_B_path):
             print(f"[EVAL-ONLY] Loading current task LoRA from {model_args.current_lora_path}")
-            _cur_lora_A = torch.load(_cur_lora_A_path, map_location=device)
-            _cur_lora_B = torch.load(_cur_lora_B_path, map_location=device)
+            _cur_lora_A = torch.load(_cur_lora_A_path, map_location=device, weights_only=True)
+            _cur_lora_B = torch.load(_cur_lora_B_path, map_location=device, weights_only=True)
             for _name, _param in model.named_parameters():
                 if _name in _cur_lora_A:
                     _param.data.copy_(_cur_lora_A[_name].to(device))
