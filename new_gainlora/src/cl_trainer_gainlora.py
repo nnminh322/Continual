@@ -152,7 +152,10 @@ class DenserEvalCallback(TrainerCallback):
 class GainLoRATrainer(Seq2SeqTrainer):
 
     def __init__(self, model, args, train_dataset, cur_task_id, task_order, data_collator_replay=None, replay_dataset_dict=None, replay_label_dict=None, eval_dataset=None, tokenizer=None, data_collator=None, compute_metrics=None, callbacks=None):
-        super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, tokenizer=tokenizer, data_collator=data_collator, compute_metrics=compute_metrics, callbacks=callbacks)
+        # Fix: Transformers 5 removed `tokenizer` from Seq2SeqTrainer.__init__
+        super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset,
+                         processing_class=tokenizer,
+                         data_collator=data_collator, compute_metrics=compute_metrics, callbacks=callbacks)
 
         self.data_collator_replay = data_collator_replay
         self.replay_dataset_dict = replay_dataset_dict
@@ -1495,7 +1498,8 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
-                    self._maybe_log_save_evaluate(tr_loss, None, model, trial, epoch, ignore_keys_for_eval)
+                    grad_norm: Optional[float] = None
+                    self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 

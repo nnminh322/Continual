@@ -264,7 +264,7 @@ class DataTrainingArguments:
     max_predict_samples: Optional[int] = field(
         default=None,
         metadata={
-            "help": "For debugging purposes or quicker training, truncate the number of prediction examples to this "
+            "help": "For debugging purposes or quicker training, truncate the number of training examples to this "
                     "value if set."
         },
     )
@@ -302,7 +302,7 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         metadata={"help": "If specifid, the model will do more evaluation at the beginning of training."}
     )
     do_demo: bool = field(default=False, metadata={"help": "Whether to run the model as a demo in the terminal."})
-    
+
     kl_ratio: Optional[float] = field(
         default=0.5,
         metadata={"help": "ratio of the replay kl loss"}
@@ -470,15 +470,25 @@ def main():
     data_cache_dir = gen_cache_path(training_args.output_dir, data_args)
 
     task_order = data_args.task_order.split(',')
-    
+
     cur_task = data_args.task_config_dir.split('/')[-1]
     cur_task_id = task_order.index(cur_task)
 
-    # Get the CL dataset
+    # Get the CL dataset (matching HF load_dataset pattern used in run_t5.py)
+    # This custom script (cl_dataset.py) requires local_files_only=True for datasets>=3.0
+    from datasets import DownloadConfig
+    download_config = DownloadConfig(local_files_only=True)
+    dataset_script_path = os.path.join(CURRENT_DIR, "cl_dataset.py")
+    if not os.path.exists(dataset_script_path):
+        raise FileNotFoundError(f"Dataset script not found: {dataset_script_path}")
+    abs_data_dir = os.path.abspath(data_args.data_dir) if data_args.data_dir else None
+    abs_task_config_dir = os.path.abspath(data_args.task_config_dir) if data_args.task_config_dir else None
     raw_datasets = load_dataset(
-        os.path.join(CURRENT_DIR, "cl_dataset.py"),
-        data_dir=data_args.data_dir,
-        task_config_dir=data_args.task_config_dir,
+        dataset_script_path,
+        data_dir=abs_data_dir,
+        download_config=download_config,
+        task_config_dir=abs_task_config_dir,
+        trust_remote_code=True,  # needed for custom dataset script
         # cache_dir=data_cache_dir,  # for debug, change dataset size, otherwise open it
         max_num_instances_per_task=data_args.max_num_instances_per_task,
         max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
@@ -496,22 +506,15 @@ def main():
     config.bos_token_id = 1
     config.eos_token_id = 2
     config.pad_token_id = 1
-    if 'Llama-3' in model_args.model_name_or_path:
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_args.model_name_or_path,
-            cache_dir = model_args.cache_dir,
-            use_fast = model_args.use_fast_tokenizer,
-            revision = model_args.model_revision,
-            use_auth_token = True if model_args.use_auth_token else None,
-        )
-    else:
-        tokenizer = transformers.LlamaTokenizer.from_pretrained(
-            model_args.model_name_or_path,
-            cache_dir = model_args.cache_dir,
-            use_fast = model_args.use_fast_tokenizer,
-            revision = model_args.model_revision,
-            use_auth_token = True if model_args.use_auth_token else None,
-        )
+
+    # FIX Bug 4: Use AutoTokenizer for all cases (LlamaTokenizer deprecated in Transformers 5)
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_args.model_name_or_path,
+        cache_dir=model_args.cache_dir,
+        use_fast=model_args.use_fast_tokenizer,
+        revision=model_args.model_revision,
+        use_auth_token=True if model_args.use_auth_token else None,
+    )
     tokenizer.bos_token_id = 1
     tokenizer.eos_token_id = 2
     tokenizer.pad_token_id = 1
@@ -531,22 +534,15 @@ def main():
         'load_checkpoint_from': model_args.load_checkpoint_from
     }
 
+    # FIX Bug 1: Consolidated model loading — all Llama-2 only.
+    # Non-existent llama_3_inflora and llama_3_inflorap1 imports removed.
+    # FIX Bug 5: Removed duplicate 'gainlora' in list.
     if training_args.model_name in ['inflora', 'olora']:
-        if 'llama-2' in  model_args.model_name_or_path.lower():
-            from llama_inflora import LlamaForCausalLM
-        elif 'llama-3' in model_args.model_name_or_path.lower():
-            from llama_3_inflora import LlamaForCausalLM
-        else:
-            raise NotImplementedError
-    elif training_args.model_name in ['gainlora', 'gainlora']:
-        if 'llama-2' in  model_args.model_name_or_path.lower():
-            from llama_gainlora import LlamaForCausalLM
-        elif 'llama-3' in model_args.model_name_or_path.lower():
-            from llama_3_inflorap1 import LlamaForCausalLM
-        else:
-            raise NotImplementedError
+        from llama_inflora import LlamaForCausalLM
+    elif training_args.model_name == 'gainlora':
+        from llama_gainlora import LlamaForCausalLM
     else:
-        raise NotImplementedError
+        raise NotImplementedError(f"Unknown model_name: {training_args.model_name}")
 
     # for cur_rank in range(torch.distributed.get_world_size()):
     #     if torch.distributed.get_rank() == cur_rank:
@@ -561,7 +557,7 @@ def main():
     #             use_safetensors=True,
     #         )
     #     torch.distributed.barrier()
-        
+
     model = LlamaForCausalLM.from_pretrained(
         model_args.model_name_or_path,
         prompt_config,
@@ -572,17 +568,11 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
         use_safetensors=True,
     )
-
-    # ── SRT: Attach frozen LLaMA extractor for routing ─────────────────────────
-    # Matches routing_analysis/extract_embeddings_llama.py:
-    #   Layer: hidden_states[-1] (last decoder layer)
-    #   Pool:  last non-padding token  (pool="last")
-    # MUST be attached BEFORE training so cl_trainer_srt.py can use it.
-    if training_args.use_srt_router:
-        from llama_inflora import FrozenLlamaExtractor
-        model.model.encoder_frozen = FrozenLlamaExtractor(model.model)
-        print(f"[SRT] Attached FrozenLlamaExtractor to model.model.encoder_frozen")
-        print(f"      Layer=last_hidden, Pool=last_token (matches routing_analysis)")
+    # NOTE: Bug 3 — encoder_frozen FrozenLlamaExtractor block REMOVED.
+    # SRT routing uses the model's own embed_tokens + input_ids_wo_label path in
+    # llama_gainlora.py; FrozenLlamaExtractor is used directly in
+    # sgwi_trainer_llama.py via extract_embeddings_from_batch() — no need to attach
+    # as an attribute here.
 
     # from transformers.models.llama.modeling_llama import LlamaForCausalLM
     # model = LlamaForCausalLM.from_pretrained(
@@ -610,7 +600,8 @@ def main():
         model.model.load_checkpoint_from = model_args.load_checkpoint_from
         print("----------Loading Previous Query Projection Layer----------")
         model.model.trans_input.load_state_dict(torch.load(model_args.load_checkpoint_from))
-        if training_args.model_name in ['gainlora', 'gainlora']:
+        # FIX Bug 5: Removed duplicate 'gainlora' — use single check.
+        if training_args.model_name == 'gainlora':
             model.model.previous_trans_input.input_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from)['0.weight'])
             model.model.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from)['1.weight'])
             # ipdb.set_trace()
@@ -641,13 +632,13 @@ def main():
                 model.model.layers[j].self_attn.previous_lora_weights_v[i].lora_B.data.copy_(
                     lora_B[f"model.layers.{j}.self_attn.lora_v.lora_B"]
                 )
-    
+
     for name, param in model.named_parameters():
         if  training_args.model_name in ['olora', 'gainlora']:
             param.requires_grad = False
             if ("lora" in name and "previous_lora_weights" not in name) or ("trans_input" in name and "previous_trans_input" not in name) or "prompt_key" in name:
                 param.requires_grad = True
-        elif training_args.model_name in ['inflora', 'gainlora']:
+        elif training_args.model_name == 'inflora':
             param.requires_grad = False
             if ("lora_B" in name and "previous_lora_weights" not in name) or ("trans_input" in name and "previous_trans_input" not in name) or "prompt_key" in name:
                 param.requires_grad = True
@@ -750,8 +741,10 @@ def main():
                 raw_datasets_gen = load_dataset(
                     os.path.join(CURRENT_DIR, "cl_dataset.py"),
                     data_dir=data_args.gen_data_dir,
+                    download_config=download_config,
                     task_config_dir=task_config[task_order[idx]],
-                    cache_dir=data_cache_dir,  # for debug, change dataset size, otherwise open it
+                    trust_remote_code=True,  # needed for custom dataset script
+                    # cache_dir=data_cache_dir,  # for debug, change dataset size, otherwise open it
                     max_num_instances_per_task=data_args.max_num_instances_per_task,
                     max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
                     num_examples=data_args.num_examples)
@@ -760,7 +753,7 @@ def main():
                 print(raw_datasets_gen)
 
             replay_label_dict = {}
-            
+
             for idx in range(cur_task_id):
                 with open(os.path.join("../logs_and_outputs/" + training_args.run_name + "/outputs/", str(idx+1)+"-"+task_order[idx], "saved_weights", "attention_weights.pkl"), 'rb') as f:
                     attn_weights = pickle.load(f)
@@ -802,21 +795,23 @@ def main():
     training_args.eval_steps = training_args.eval_every_n_epoch * training_args.step_per_epoch
     training_args.save_steps = training_args.eval_every_n_epoch * training_args.step_per_epoch
 
+    # Chunk setup for inflora / gainlora
     if training_args.model_name in ['inflora', 'gainlora']:
         for module in model.modules():
             if hasattr(module, 'get_feature'):
                 module.get_chunk(training_args.chunk)
-        if training_args.model_name in ['gainlora']:
+        if training_args.model_name == 'gainlora':
             model.model.get_chunk(training_args.chunk)
-    elif training_args.model_name in ['gainlora']:
+    elif training_args.model_name == 'olora':
         model.model.get_chunk(training_args.chunk)
+
+    # FIX Bug 2: Consolidated trainer branching.
+    # All Llama-3 branches removed (files don't exist). All models Llama-2 only.
+    # Dead gainlora branch (previously line 884) MERGED into single gainlora handler
+    # below, with SRT/SGWI/DualFisher logic inline.
     if training_args.model_name == 'olora':
-        if 'llama-2' in model_args.model_name_or_path.lower():
-            from cl_trainer_olora_llama import OLoRATrainer
-        elif 'llama-3' in model_args.model_name_or_path.lower():
-            from cl_trainer_olora_llama3 import OLoRATrainer
-        else:
-            raise NotImplementedError
+        # FIX Bug 7: Llama-2 only — Llama-3 import removed.
+        from cl_trainer_olora_llama import OLoRATrainer
         trainer = OLoRATrainer(
             model=model,
             args=training_args,
@@ -833,57 +828,11 @@ def main():
             callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
         )
     elif training_args.model_name == 'gainlora':
-        if 'llama-2' in model_args.model_name_or_path.lower():
-            from cl_trainer_gainlora_llama import GainLoRA_OLoRA_Trainer
-        elif 'llama-3' in model_args.model_name_or_path.lower():
-            from cl_trainer_gainlora_llama3 import GainLoRA_OLoRA_Trainer
-        else:
-            raise NotImplementedError
-        trainer = GainLoRA_OLoRA_Trainer(
-            model=model,
-            args=training_args,
-            train_dataset=train_dataset if training_args.do_train else None,
-            cur_task_id=cur_task_id,
-            task_order=task_order,
-            data_collator_replay=data_collator_replay,
-            replay_dataset_dict=replay_dataset_dict,
-            replay_label_dict=replay_label_dict,
-            eval_dataset=eval_dataset if training_args.do_eval else None,
-            tokenizer=tokenizer,
-            data_collator=data_collator,
-            compute_metrics=compute_rouge_metrics,
-            callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
-        )
-        if training_args.do_train:
-            trainer.get_reg_matrix()
-    elif training_args.model_name == 'inflora':
-        if 'llama-3' in model_args.model_name_or_path.lower():
-            from cl_trainer_inflora_llama3 import InfLoRATrainer
-        elif 'llama-2' in model_args.model_name_or_path.lower():
-            from cl_trainer_inflora_llama import InfLoRATrainer
-        else:
-            raise NotImplementedError
-        # from cl_trainer_inflora_llama3 import InfLoRATrainer
-        trainer = InfLoRATrainer(
-            model=model,
-            args=training_args,
-            train_dataset=train_dataset if training_args.do_train else None,
-            cur_task_id=cur_task_id,
-            task_order=task_order,
-            data_collator_replay=data_collator_replay,
-            replay_dataset_dict=replay_dataset_dict,
-            replay_label_dict=replay_label_dict,
-            eval_dataset=eval_dataset if training_args.do_eval else None,
-            tokenizer=tokenizer,
-            data_collator=data_collator,
-            compute_metrics=compute_rouge_metrics,
-            callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
-        )
-        if training_args.do_train:
-            trainer.get_reg_matrix()
-    elif training_args.model_name == 'gainlora':
-        # ── SGWI + Dual Fisher + SRT (Contribution 2) for LLaMA ──
+        # FIX Bug 2: Dead branch removed. SRT/SGWI/DualFisher logic merged here.
+        # When SRT router is enabled, use SGWI_DualFisher_LLaMA_Trainer;
+        # otherwise fall back to standard GainLoRA_OLoRA_Trainer.
         if training_args.use_srt_router:
+            # ── SGWI + Dual Fisher + SRT (Contribution 2) for LLaMA ────────────
             _sgwi_mode = 'sgwi_full' if training_args.sgwi else 'full_lora'
             _lambda_emb = training_args.lambda_emb
             if training_args.dual_fisher and _lambda_emb == 0.0:
@@ -922,13 +871,9 @@ def main():
             print(f"[SRT-LLaMA] Using SGWI_DualFisher_LLaMA_Trainer "
                   f"(srt_mode={training_args.srt_metric_mode}, skip_fwd={training_args.srt_skip_forward})")
         else:
-            if 'llama-3' in model_args.model_name_or_path.lower():
-                from cl_trainer_gainlora_llama3 import GainLoRATrainer
-            elif 'llama-2' in model_args.model_name_or_path.lower():
-                from cl_trainer_gainlora_llama import GainLoRA_OLoRA_Trainer as GainLoRATrainer
-            else:
-                raise NotImplementedError
-            trainer = GainLoRATrainer(
+            # FIX Bug 7: Llama-2 only — Llama-3 import removed.
+            from cl_trainer_gainlora_llama import GainLoRA_OLoRA_Trainer
+            trainer = GainLoRA_OLoRA_Trainer(
                 model=model,
                 args=training_args,
                 train_dataset=train_dataset if training_args.do_train else None,
@@ -945,8 +890,28 @@ def main():
             )
             if training_args.do_train:
                 trainer.get_reg_matrix()
+    elif training_args.model_name == 'inflora':
+        # FIX Bug 7: Llama-2 only — Llama-3 import removed.
+        from cl_trainer_inflora_llama import InfLoRATrainer
+        trainer = InfLoRATrainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset if training_args.do_train else None,
+            cur_task_id=cur_task_id,
+            task_order=task_order,
+            data_collator_replay=data_collator_replay,
+            replay_dataset_dict=replay_dataset_dict,
+            replay_label_dict=replay_label_dict,
+            eval_dataset=eval_dataset if training_args.do_eval else None,
+            tokenizer=tokenizer,
+            data_collator=data_collator,
+            compute_metrics=compute_rouge_metrics,
+            callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
+        )
+        if training_args.do_train:
+            trainer.get_reg_matrix()
     else:
-        raise NotImplementedError
+        raise NotImplementedError(f"Unknown model_name: {training_args.model_name}")
 
     all_metrics = {"run_name": training_args.run_name}
 
@@ -973,13 +938,14 @@ def main():
             is_main_process = 1
 
         if is_main_process:
-            if training_args.model_name in ['gainlora', 'gainlora'] and prompt_config["previous_prompt_key_path"] is not None:
+            # FIX Bug 5: Removed duplicate 'gainlora' — use single check.
+            if training_args.model_name == 'gainlora' and prompt_config["previous_prompt_key_path"] is not None:
                 previous_trans_input = deepcopy(trainer.model.model.previous_trans_input.state_dict())
                 torch.save(previous_trans_input, os.path.join(save_path, 'previous_trans_input.pt'))
 
             torch.save(trainer.model.model.trans_input.state_dict(), os.path.join(save_path, 'trans_input.pt'))
 
-        
+
             if prompt_config["previous_prompt_key_path"] is not None:
                 torch.save(lora_state_dict_A(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_A.pt'))
                 torch.save(lora_state_dict_B(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_B.pt'))
@@ -1002,7 +968,8 @@ def main():
         logger.info(f"Metrics {metrics}")
         all_metrics.update(metrics)
 
-        if training_args.model_name in ['inflora', 'gainlora', 'gainlora']:
+        # FIX Bug 5: Removed duplicate 'gainlora' in list.
+        if training_args.model_name in ['inflora', 'gainlora']:
             trainer.get_repsentation()
 
         # SRT: compute and store statistical signature AFTER training this task

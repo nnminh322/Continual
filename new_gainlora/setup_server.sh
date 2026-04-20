@@ -21,22 +21,26 @@ PIP_CMD="python -m pip"
 PY_VER=$(${PY_CMD} -c "import sys; print('.'.join(map(str, sys.version_info[:2])))")
 echo "[Python] ${PY_VER}"
 
+if [[ "${PY_VER}" != "3.12" ]]; then
+  echo "[WARN] This script targets Python 3.12. Detected: ${PY_VER}"
+fi
+
 ${PIP_CMD} install --upgrade pip wheel
 
 # ── 1. Uninstall conflicting torch (cu124 blocks cu128/cu130) ──────────────
 echo ""
-echo "[1/5] Uninstalling old CUDA packages..."
+echo "[1/7] Uninstalling old CUDA packages..."
 ${PIP_CMD} uninstall -y \
   torch torchvision torchaudio triton \
   cupy cupy-cuda12x cuda-pathfinder \
   flash-attn \
   2>/dev/null || true
 
-# ── 2. Install PyTorch nightly (sm_120 / RTX 5090 Blackwell support) ─────────
+# ── 2. Install PyTorch nightly (sm_120 / RTX 5090 Blackwell support) ──────────
 #    RTX 5090 (CC 12.0) needs CUDA 12.8+ — only available in nightly builds.
 #    Try cu128 first, fallback to cu130.
 echo ""
-echo "[2/5] Installing PyTorch nightly (sm_120 support)..."
+echo "[2/7] Installing PyTorch nightly (sm_120 support)..."
 if ! ${PIP_CMD} install --no-cache-dir -q --pre torch torchvision torchaudio \
   --index-url https://download.pytorch.org/whl/nightly/cu128; then
   echo "[Fallback] cu128 unavailable, trying cu130..."
@@ -54,11 +58,11 @@ if ${PY_CMD} -c "import torch; torch.cuda.get_device_capability()" 2>&1 | grep -
   exit 1
 fi
 
-# ── 3. Core Python dependencies (exact pinned versions) ───────────────────────
+# ── 3. Core Python dependencies (pinned versions for Python 3.12) ────────────
 echo ""
-echo "[3/5] Installing pinned Python dependencies..."
+echo "[3/7] Installing pinned Python dependencies..."
 ${PIP_CMD} install --no-cache-dir -q \
-  "numpy==1.26.4" \
+  "numpy==2.2.2" \
   "protobuf==5.29.3" \
   "pyarrow==17.0.0" \
   "fsspec==2024.6.1" \
@@ -71,29 +75,40 @@ ${PIP_CMD} install --no-cache-dir -q \
   "loralib==0.1.2" \
   "ipdb==0.13.13" \
   "nltk==3.9.1" \
-  "accelerate==0.34.2" \
   "absl-py==2.0.0" \
   2>&1 | grep -v "which is not installed\|which is incompatible\|dependency resolver" || true
 
-# ── 4. transformers + tokenizers (EXACT — newer versions have breaking changes) ─
+# ── 4. transformers + tokenizers (transformers 5 series) ─────────────────────
 echo ""
-echo "[4/5] Installing transformers (exact pinned) + datasets..."
+echo "[4/7] Installing transformers 5 + tokenizers..."
 ${PIP_CMD} install --no-cache-dir -q \
-  "transformers==4.40.2" \
-  "tokenizers==0.19.1" \
-  "datasets==2.21.0" \
+  "transformers>=5.0.0" \
+  "tokenizers>=0.21.0" \
+  "accelerate>=1.3.0" \
   2>&1 | grep -v "which is not installed\|which is incompatible\|dependency resolver" || true
 
-# ── 5. CuPy (optional — compute covariance matrix, not critical for training) ─
-#    cupy-cuda12x ships prebuilt; skip if build fails (not blocking).
+# ── 5. datasets (transformers 5 compatible) ──────────────────────────────────
 echo ""
-echo "[5/5] Installing CuPy (optional, skip if fails)..."
-${PIP_CMD} install --no-cache-dir -q --no-deps cupy-cuda12x \
-  2>&1 | grep -v "which is not installed\|which is incompatible\|dependency resolver\|error:" || true
+echo "[5/7] Installing datasets..."
+${PIP_CMD} install --no-cache-dir -q \
+  "datasets>=3.0.0" \
+  2>&1 | grep -v "which is not installed\|which is incompatible\|dependency resolver" || true
+
+# ── 6. CuPy (optional — compute covariance matrix, not critical for training) ─
+#    Try cupy-cuda12x first (prebuilt), fall back to generic cupy if unavailable
+#    for this CUDA version. Skip entirely if build fails (not blocking).
+echo ""
+echo "[6/7] Installing CuPy (optional, skip if fails)..."
+if ! ${PIP_CMD} install --no-cache-dir -q --no-deps cupy-cuda12x \
+  2>&1 | grep -v "which is not installed\|which is incompatible\|dependency resolver\|error:\|WARNING"; then
+  echo "[Fallback] cupy-cuda12x unavailable, trying generic cupy..."
+  ${PIP_CMD} install --no-cache-dir -q --no-deps cupy \
+    2>&1 | grep -v "which is not installed\|which is incompatible\|dependency resolver\|error:\|WARNING" || true
+fi
 
 # ── Symlinks ──────────────────────────────────────────────────────────────────
 echo ""
-echo "[Symlink] Config aliases..."
+echo "[7/7] Symlink Config aliases..."
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 [ -d configs/gen_script_long_order3_t5_configs ] && \
@@ -112,10 +127,21 @@ try:
     import torch
     import transformers
     import datasets
+    import accelerate
+    from packaging.version import Version
+
     print(f'✓ python {sys.version.split()[0]}')
     print(f'✓ torch {torch.__version__}')
     print(f'✓ numpy {__import__("numpy").__version__}')
     print(f'✓ transformers {transformers.__version__}')
+
+    tf_ver = Version(transformers.__version__)
+    if tf_ver >= Version("5.0.0"):
+        print(f'  [transformers 5.x detected — load_best_model_at_end removed]')
+    else:
+        print(f'  [WARN] transformers {transformers.__version__} (< 5.0.0)')
+
+    print(f'✓ accelerate {accelerate.__version__}')
     print(f'✓ datasets {datasets.__version__}')
     if torch.cuda.is_available():
         cc = torch.cuda.get_device_capability()
@@ -134,6 +160,5 @@ PY
 
 echo ""
 echo "=========================================="
-echo "[Next] Xoá --load_best_model_at_end (transformers 4.40.2 validate strict):"
-echo "  sed -i 's/--load_best_model_at_end //g' gen_script_long_order3_t5_srt_hard.sh"
+echo "[Done] Setup complete."
 echo "=========================================="

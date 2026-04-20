@@ -1,46 +1,153 @@
-import torch
+import os
+import math
+import time
+import sys
+import shutil
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
-from transformers import GenerationConfig
-from transformers.trainer_seq2seq import Seq2SeqTrainer
-from transformers.trainer import *
-from transformers.trainer_pt_utils import (
-    nested_truncate, nested_concat, nested_numpify,
-    find_batch_size,
-)
+
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, RandomSampler, DistributedSampler
+
+import numpy as np
+
+# CuPy compat — wrap hard import so setup_server can pass even if CuPy fails.
+# CuPy is used ONLY in get_repsentation() (GPM SVD), not at module import time
+# for the core training loop. If CuPy is missing, the trainer still works but GPM
+# SVD will fail at save-time. Marking this clearly so the error is discoverable.
+_cupy_available = False
+try:
+    import cupy as cp
+    from cupy import fromDlpack  # keep same name so call sites don't need changing
+    _cupy_available = True
+except ImportError:
+    import sys
+    # Still allow module to load — GPM SVD will fail at save-time with ImportError
+    cp = None
+    fromDlpack = None  # safe dummy so name resolution succeeds
+    sys.modules[__name__].__dict__['cp'] = None  # mark cp as dead
+from torch.utils.dlpack import to_dlpack, from_dlpack
+
+import ipdb
+from copy import deepcopy
+
+# ----------------------------------------------------------------------
+# Transformers compat imports (order matters: most specific last)
+# ----------------------------------------------------------------------
+
+# 1. denumpify_detensorize (moved between trainer_pt_utils and trainer_utils)
 try:
     from transformers.trainer_pt_utils import denumpify_detensorize
 except ImportError:
     from transformers.trainer_utils import denumpify_detensorize
-from transformers.trainer_callback import TrainerCallback
-import numpy as np
 
-from cl_collator import SUPPORTED_DECODER_MODELS, check_model
-from cl_dataset import ANSWER_PREFIX
-import cupy as cp
-from torch.utils.dlpack import to_dlpack, from_dlpack
-from cupy import fromDlpack
-import ipdb
-from copy import deepcopy
+# 2. TrainerState — may live in trainer_utils (not re-exported by `from transformers.trainer import *`)
+try:
+    from transformers.trainer import TrainerState
+except ImportError:
+    try:
+        from transformers.trainer_utils import TrainerState
+    except ImportError:
+        from transformers import TrainerState
 
-# Compat: ShardedDDPOption removed in transformers >= 4.40
+# 3. IntervalStrategy, DebugOption, HPSearchBackend — may need training_args fallback
+try:
+    from transformers import IntervalStrategy, DebugOption
+except ImportError:
+    from transformers.training_args import IntervalStrategy, DebugOption
+
+try:
+    from transformers import HPSearchBackend
+except ImportError:
+    try:
+        from transformers.trainer_utils import HPSearchBackend
+    except ImportError:
+        from transformers.training_args import HPSearchBackend
+
+# 4. hp_params — moved in newer versions
+try:
+    from transformers.trainer import hp_params
+except ImportError:
+    try:
+        from transformers.trainer_utils import hp_params
+    except ImportError:
+        hp_params = None
+
+# 5. get_parameter_names + ALL_LAYERNORM_LAYERS — may have moved to pytorch_utils
+try:
+    from transformers.trainer import get_parameter_names, ALL_LAYERNORM_LAYERS
+except ImportError:
+    try:
+        from transformers.pytorch_utils import get_parameter_names, ALL_LAYERNORM_LAYERS
+    except ImportError:
+        from transformers.pytorch_utils import get_parameter_names
+        # Build ALL_LAYERNORM_LAYERS manually if missing
+        def _get_all_layernorm_layers():
+            import transformers
+            if hasattr(transformers, "ALL_LAYERNORM_LAYERS"):
+                return transformers.ALL_LAYERNORM_LAYERS
+            # fallback: common layer-norm named modules
+            from transformers.pytorch_utils import Conv1D
+            return [nn.LayerNorm, nn.GroupNorm]
+        ALL_LAYERNORM_LAYERS = _get_all_layernorm_layers()
+
+# 6. get_model_param_count — added in transformers 4.27, may move in v5
+try:
+    from transformers import get_model_param_count
+except ImportError:
+    def get_model_param_count(model, trainable_only=False):
+        """Fallback if get_model_param_count not available."""
+        if trainable_only:
+            return sum(p.numel() for p in model.parameters() if p.requires_grad)
+        return sum(p.numel() for p in model.parameters())
+
+# 7. skip_first_batches — moved between trainer_seq2seq and trainer
+try:
+    from transformers.trainer_seq2seq import skip_first_batches
+except ImportError:
+    try:
+        from transformers.trainer import skip_first_batches
+    except ImportError:
+        skip_first_batches = None  # may not be needed; guard with `if skip_first_batches is not None`
+
+# 8. ShardedDDPOption removed in transformers >= 4.40
 try:
     from transformers.trainer_utils import ShardedDDPOption
 except ImportError:
     from types import SimpleNamespace
     ShardedDDPOption = SimpleNamespace(SIMPLE='simple')
 
-# Compat: is_torch_tpu_available removed in transformers >= 4.40
+# 9. is_torch_tpu_available removed in transformers >= 4.40
 try:
     from transformers import is_torch_tpu_available
 except ImportError:
     def is_torch_tpu_available():
         return False
 
-# Compat: IterableDatasetShard moved/removed in transformers >= 4.40
+# 10. IterableDatasetShard moved/removed in transformers >= 4.40
 try:
     from transformers.trainer_pt_utils import IterableDatasetShard
 except ImportError:
     from torch.utils.data import IterableDataset as IterableDatasetShard
+
+# ----------------------------------------------------------------------
+# Core trainer imports — must come after compat fallbacks so any name
+# shadowed above (e.g. TrainerState) is resolved correctly.
+# ----------------------------------------------------------------------
+from transformers import GenerationConfig, TrainerOutput
+from transformers.trainer_seq2seq import Seq2SeqTrainer
+from transformers.trainer import *
+from transformers.trainer_pt_utils import (
+    nested_truncate, nested_concat, nested_numpify,
+    find_batch_size,
+)
+from transformers.trainer_callback import TrainerCallback
+
+# ----------------------------------------------------------------------
+# Torch version check — replaces is_torch_less_than_1_11 (deprecated)
+# ----------------------------------------------------------------------
+_TORCH_GE_1_11 = torch.__version__ >= "1.11.0"
+
 
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
     predictions_ids = np.where(predictions_ids == ignore_idx, tokenizer.pad_token_id, predictions_ids)
@@ -82,7 +189,10 @@ class DenserEvalCallback(TrainerCallback):
             control.should_log = True
 
         # Evaluate
-        if args.evaluation_strategy == IntervalStrategy.STEPS and state.global_step in log_eval_steps:
+        # Fix Finding 4: `eval_strategy` is the canonical name in TF5
+        # Try both to support both old (backward compat) and new names
+        eval_strategy = getattr(args, 'eval_strategy', None) or getattr(args, 'evaluation_strategy', None)
+        if eval_strategy == IntervalStrategy.STEPS and state.global_step in log_eval_steps:
             control.should_evaluate = True
 
         # Save
@@ -94,7 +204,11 @@ class DenserEvalCallback(TrainerCallback):
 class GainLoRATrainer(Seq2SeqTrainer):
 
     def __init__(self, model, args, train_dataset, cur_task_id, task_order, data_collator_replay=None, replay_dataset_dict=None, replay_label_dict=None, eval_dataset=None, tokenizer=None, data_collator=None, compute_metrics=None, callbacks=None):
-        super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset, tokenizer=tokenizer, data_collator=data_collator, compute_metrics=compute_metrics, callbacks=callbacks)
+        # Fix Finding 1: Transformers 5 removed `tokenizer` from Seq2SeqTrainer.__init__
+        # Changed to `processing_class` which accepts PreTrainedTokenizerBase
+        super().__init__(model=model, args=args, train_dataset=train_dataset, eval_dataset=eval_dataset,
+                         processing_class=tokenizer,
+                         data_collator=data_collator, compute_metrics=compute_metrics, callbacks=callbacks)
 
         self.data_collator_replay = data_collator_replay
         self.replay_dataset_dict = replay_dataset_dict
@@ -120,7 +234,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                         pin_memory=False,
                         worker_init_fn=seed_worker)
             self.replay_iterator_dict = create_memory_replay_generators(task_order[cur_task_id], task_order, self.replay_dataloader_dict)
-    
+
     def load_previous_reg_matrix(self):
         paths = self.args.output_dir.split('/')
         log_path = ""
@@ -133,7 +247,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
         reg_matrix, reg_trans_matrix = [], []
         for all_dir in all_dirs:
             if not os.path.isdir(os.path.join(log_path, all_dir)): continue
-            if eval(all_dir.split('-')[0]) == eval(local_dir.split('-')[0])-1: 
+            if eval(all_dir.split('-')[0]) == eval(local_dir.split('-')[0])-1:
                 i = 0
                 for module in self.model.modules():
                     if hasattr(module, 'get_feature'):
@@ -187,7 +301,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     # print(index*module.step, (index+1)*module.step)
                     # print(feature_mat[index])
                     # print()
-                    # print(torch.mm(module.loranew_A[module.active_adapter].weight[:,index*module.step:(index+1)*module.step].data,feature_mat[index].cpu()))
+                    # print(torch.mm(module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step],feature_mat[index].cpu()))
                     # print()
                     module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step].copy_(module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step] - torch.mm(module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step], feature_mat[index].cpu()))
                     module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step].copy_(module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step] - torch.mm(module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step], feature_mat[index].cpu()))
@@ -324,7 +438,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     mat_list.append(merged_tensor)
                 module.get_feature=False
                 module.stage = 0
-        
+
         merged_trans_tensor = {}
         for index in range(self.model.model.index):
             if dist.get_rank() == 0:
@@ -370,7 +484,13 @@ class GainLoRATrainer(Seq2SeqTrainer):
 
 
         # U, S, V = torch.linalg.svd(merged_tensor)
-                
+
+        # CuPy required for GPM SVD — fail fast if missing
+        if not _cupy_available:
+            raise ImportError(
+                "CuPy is required for GPM (Gradient Projection Memory) SVD computation in "
+                "get_repsentation(). Please install: pip install cupy-cuda12x  (or cupy for other CUDA)"
+            )
         if dist.get_rank() == 0:
             total_sessions = 15
             threshold = (1.0 - self.args.threshold)*self._cur_task/total_sessions + self.args.threshold
@@ -388,7 +508,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                         # criteria (Eq-5)
                         sval_total = (S**2).sum()
                         sval_ratio = (S**2)/sval_total
-                        r = torch.sum(torch.cumsum(sval_ratio, dim=0)<threshold) #+1  
+                        r = torch.sum(torch.cumsum(sval_ratio, dim=0)<threshold) #+1
                         feature[index] = U[:,0:max(r,1)]
                     self.feature_list.append(feature)
 
@@ -403,7 +523,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                         # criteria (Eq-5)
                         sval_total = (S**2).sum()
                         sval_ratio = (S**2)/sval_total
-                        r = torch.sum(torch.cumsum(sval_ratio, dim=0)<transthreshold) #+1  
+                        r = torch.sum(torch.cumsum(sval_ratio, dim=0)<transthreshold) #+1
                         feature_trans[index] = U[:,0:max(r,1)]
                     self.feature_trans_list.append(feature_trans)
 
@@ -414,7 +534,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 # criteria (Eq-5)
                 sval_total = (S**2).sum()
                 sval_ratio = (S**2)/sval_total
-                r = torch.sum(torch.cumsum(sval_ratio, dim=0)<transthreshold) #+1  
+                r = torch.sum(torch.cumsum(sval_ratio, dim=0)<transthreshold) #+1
                 feature_trans = U[:,0:max(r,1)]
                 self.feature_trans_list = self.feature_trans_list[:1] + [feature_trans] + self.feature_trans_list[1:]
             else:
@@ -430,9 +550,9 @@ class GainLoRATrainer(Seq2SeqTrainer):
                         U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
                         # criteria (Eq-9)
                         sval_hat = (S**2).sum()
-                        sval_ratio = (S**2)/sval_total               
+                        sval_ratio = (S**2)/sval_total
                         accumulated_sval = (sval_total-sval_hat)/sval_total
-                    
+
                         r = 0
                         for ii in range (sval_ratio.shape[0]):
                             if accumulated_sval < threshold:
@@ -441,10 +561,10 @@ class GainLoRATrainer(Seq2SeqTrainer):
                             else:
                                 break
                         if r == 0:
-                            print ('Skip Updating GPM for layer: {}'.format(i+1)) 
+                            print ('Skip Updating GPM for layer: {}'.format(i+1))
                             continue
                         # update GPM
-                        Ui=cp.hstack((fromDlpack(to_dlpack(self.feature_list[i][index])),U[:,0:r]))  
+                        Ui=cp.hstack((fromDlpack(to_dlpack(self.feature_list[i][index])),U[:,0:r]))
 
                         # import ipdb
                         # ipdb.set_trace()
@@ -452,7 +572,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                             self.feature_list[i][index]=from_dlpack(Ui[:,0:Ui.shape[0]].toDlpack())
                         else:
                             self.feature_list[i][index]=from_dlpack(Ui.toDlpack())
-        
+
 
                 # ipdb.set_trace()
                 for i in range(3):
@@ -469,9 +589,9 @@ class GainLoRATrainer(Seq2SeqTrainer):
                         U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
                         # criteria (Eq-9)
                         sval_hat = (S**2).sum()
-                        sval_ratio = (S**2)/sval_total               
+                        sval_ratio = (S**2)/sval_total
                         accumulated_sval = (sval_total-sval_hat)/sval_total
-                    
+
                         r = 0
                         for ii in range (sval_ratio.shape[0]):
                             if accumulated_sval < transthreshold:
@@ -480,10 +600,10 @@ class GainLoRATrainer(Seq2SeqTrainer):
                             else:
                                 break
                         if r == 0:
-                            print ('Skip Updating GPM for layer: {}'.format(i+1)) 
+                            print ('Skip Updating GPM for layer: {}'.format(i+1))
                             continue
                         # update GPM
-                        Ui=cp.hstack((fromDlpack(to_dlpack(self.feature_trans_list[i][index])),U[:,0:r]))  
+                        Ui=cp.hstack((fromDlpack(to_dlpack(self.feature_trans_list[i][index])),U[:,0:r]))
 
                         if Ui.shape[1] > Ui.shape[0]:
                             self.feature_trans_list[i][index]=from_dlpack(Ui[:,0:Ui.shape[0]].toDlpack())
@@ -500,9 +620,9 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 U,S,Vh = cp.linalg.svd(act_hat, full_matrices=False)
                 # criteria (Eq-9)
                 sval_hat = (S**2).sum()
-                sval_ratio = (S**2)/sval_total               
+                sval_ratio = (S**2)/sval_total
                 accumulated_sval = (sval_total-sval_hat)/sval_total
-            
+
                 r = 0
                 for ii in range (sval_ratio.shape[0]):
                     if accumulated_sval < transthreshold:
@@ -511,10 +631,10 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     else:
                         break
                 if r == 0:
-                    print ('Skip Updating GPM for layer: {}'.format(1+1)) 
+                    print ('Skip Updating GPM for layer: {}'.format(1+1))
                 else:
                     # update GPM
-                    Ui=cp.hstack((fromDlpack(to_dlpack(self.feature_trans_list[1])),U[:,0:r]))  
+                    Ui=cp.hstack((fromDlpack(to_dlpack(self.feature_trans_list[1])),U[:,0:r]))
 
                     # import ipdb
                     # ipdb.set_trace()
@@ -530,7 +650,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
             for i in range(len(self.feature_list)):
                 for index in range(self.args.chunk):
                     print ('Layer {} Index {} : {}/{}'.format(i+1, index+1, self.feature_list[i][index].shape[1], self.feature_list[i][index].shape[0]))
-            print('-'*40)  
+            print('-'*40)
 
             for i in range(len(self.feature_list)):
                 torch.save(self.feature_list[i], os.path.join(self.args.output_dir, 'reg_{}.pt'.format(i)))
@@ -568,13 +688,13 @@ class GainLoRATrainer(Seq2SeqTrainer):
             `torch.Tensor`: The tensor with training loss on this batch.
         """
         model.train()
-        
+
         inputs = self._prepare_inputs(inputs)
 
         if is_sagemaker_mp_enabled():
             loss_mb = smp_forward_backward(model, inputs, self.args.gradient_accumulation_steps)
             return loss_mb.reduce_mean().detach().to(self.args.device)
-        
+
         with self.compute_loss_context_manager():
             loss = self.compute_loss(model, inputs)
 
@@ -584,7 +704,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
         if self.args.gradient_accumulation_steps > 1 and not self.is_deepspeed_enabled:
             # deepspeed handles loss scaling by gradient_accumulation_steps in its `backward`
             loss = loss / self.args.gradient_accumulation_steps
-        
+
         if getattr(self, 'do_grad_scaling', False):
             self.scaler.scale(loss).backward()
         elif getattr(self, 'use_apex', False):
@@ -595,7 +715,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
             self.accelerator.backward(loss)
         else:
             loss.backward()
-        
+
         if self.state.global_step > self.args.replay_after_n_epoch*self.args.step_per_epoch and self.args.data_replay_freq != -1 and self.state.global_step % self.args.data_replay_freq == 0:
             for item in self.replay_iterator_dict.keys():
                 generator_mem1 = self.replay_iterator_dict[item]
@@ -610,14 +730,14 @@ class GainLoRATrainer(Seq2SeqTrainer):
 
                 replay_task_id = self.task_order.index(item)
                 b["replay_labels"] = self.replay_label_dict[self.task_order[replay_task_id]]
-                
+
                 replay_inputs = self._prepare_inputs(b)
                 with self.compute_loss_context_manager():
                     kl_loss = self.args.kl_ratio * self.model.memory_replay(replay_inputs["input_ids"], replay_inputs["replay_labels"])
 
                 if self.args.n_gpu > 1:
                     kl_loss = kl_loss.mean()  # mean() to average on multi-gpu parallel trainin
-        
+
                 if getattr(self, 'do_grad_scaling', False):
                     self.scaler.scale(kl_loss).backward()
                 elif getattr(self, 'use_apex', False):
@@ -629,7 +749,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     kl_loss.backward()
 
         return loss.detach()
-    
+
     def create_optimizer_and_scheduler(self, num_training_steps: int):
         """
         Setup the optimizer and the learning rate scheduler.
@@ -654,7 +774,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
         Trainer's init through `optimizers`, or subclass and override this method in a subclass.
         """
         opt_model = self.model_wrapped if is_sagemaker_mp_enabled() else self.model
-        
+
         if self.optimizer is None:
             if self.args.attn_lr == 0:
                 print("Using Same Learning Rate for All Modules")
@@ -678,9 +798,9 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 print("Using Different Learning Rates for Different Modules")
                 decay_parameters = get_parameter_names(opt_model, ALL_LAYERNORM_LAYERS)
                 decay_parameters = [name for name in decay_parameters if "bias" not in name]
-                
+
                 param_no_decay = [p for n, p in opt_model.named_parameters() if n not in decay_parameters and p.requires_grad]
-                
+
                 resett_param_with_decay = [p for n, p in opt_model.named_parameters() if "trans_input" in n and n in decay_parameters and p.requires_grad]
                 other_param_with_decay = [p for n, p in opt_model.named_parameters() if "trans_input" not in n and n in decay_parameters and p.requires_grad]
                 optimizer_grouped_parameters = [
@@ -972,7 +1092,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     "eos_token_id": 1,
                     "pad_token_id": 0,
                 }
-                
+
             gen_kwargs["synced_gpus"] = False
 
         attention_mask = inputs.get("attention_mask", None)
@@ -985,9 +1105,9 @@ class GainLoRATrainer(Seq2SeqTrainer):
         # varying model input names
         if hasattr(self.model, "encoder") and self.model.encoder.main_input_name != self.model.main_input_name:
             generation_inputs = inputs[self.model.encoder.main_input_name]
-            
+
             generated_tokens = self.model.generate(
-                input_ids=generation_inputs, 
+                input_ids=generation_inputs,
                 generation_config=generation_config,
                 attention_mask=attention_mask,
                 synced_gpus=synced_gpus,
@@ -1003,7 +1123,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 attention_mask=attention_mask,
                     synced_gpus=synced_gpus,
                 )
-            
+
             else:
                 generated_tokens = self.model.generate(
                     input_ids=generation_inputs,
@@ -1239,7 +1359,10 @@ class GainLoRATrainer(Seq2SeqTrainer):
             self.state.trial_name = self.hp_name(self._trial)
         if trial is not None:
             assignments = trial.assignments if self.hp_search_backend == HPSearchBackend.SIGOPT else trial
-            self.state.trial_params = hp_params(assignments)
+            if hp_params is not None:
+                self.state.trial_params = hp_params(assignments)
+            else:
+                self.state.trial_params = None
         else:
             self.state.trial_params = None
         # This should be the same if the state has been saved but in case the training arguments changed, it's safer
@@ -1264,7 +1387,8 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 is_random_sampler = hasattr(train_dataloader, "sampler") and isinstance(
                     train_dataloader.sampler, RandomSampler
                 )
-                if is_torch_less_than_1_11 or not is_random_sampler:
+                # Replaced is_torch_less_than_1_11 with direct torch version check
+                if not _TORCH_GE_1_11 or not is_random_sampler:
                     # We just need to begin an iteration to create the randomization of the sampler.
                     # That was before PyTorch 1.11 however...
                     for _ in train_dataloader:
@@ -1345,7 +1469,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
 
                 with self.accelerator.accumulate(model):
                     tr_loss_step = self.training_step(model, inputs)
-                
+
                 if self._cur_task:
                     # i = 0
                     # for module in self.model.modules():
@@ -1358,7 +1482,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     #         module.lora_q.lora_A.data.copy_(new_weight_q)
                     #         module.lora_v.lora_A.data.copy_(new_weight_v)
                     #         i += 1
-                    
+
                     new_trans_input_0 = deepcopy(self.model.model.trans_input[0].weight.detach().float())
                     new_trans_input_1 = deepcopy(self.model.model.trans_input[1].weight.detach().float())
                     new_trans_input_0norm = new_trans_input_0.norm(dim=1, keepdim=True)
@@ -1473,7 +1597,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     #     #         module.lora_q.lora_A.data.copy_(new_weight_q)
                     #     #         module.lora_v.lora_A.data.copy_(new_weight_v)
                     #     #         i += 1
-                        
+
                     #     new_trans_input_0 = deepcopy(self.model.model.trans_input[0].weight.detach().float())
                     #     new_trans_input_1 = deepcopy(self.model.model.trans_input[1].weight.detach().float())
                     #     new_trans_input_0norm = new_trans_input_0.norm(dim=1, keepdim=True)
@@ -1500,12 +1624,13 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     #     self.model.model.trans_input[1].weight.data.copy_(new_trans_input_1)
                     #     self.model.model.prompt_key.data.copy_(new_prompt_key)
 
+                    grad_norm: Optional[float] = None
                     model.zero_grad()
                     self.state.global_step += 1
                     self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
-                    self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+                    self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
 
                     # print(self.model.model.trans_input[0].weight-old_trans_input_0)
                 else:
@@ -1525,7 +1650,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-            self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+            self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
 
             if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
                 if is_torch_tpu_available():
@@ -1537,7 +1662,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                         "configured. Check your training configuration if this is unexpected."
                     )
 
-            
+
             if self.control.should_training_stop:
                 break
 
@@ -1585,8 +1710,3 @@ class GainLoRATrainer(Seq2SeqTrainer):
         self.control = self.callback_handler.on_train_end(args, self.state, self.control)
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
-
-
-
-
-
