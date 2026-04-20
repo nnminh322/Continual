@@ -51,12 +51,29 @@ NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
 GPU_MEM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
 : ${GPU_MEM:=16000}; : ${NUM_GPUS:=1}
 
-if [ "$GPU_MEM" -lt 20000 ]; then
-    IS_T4=1; GPU_MODE="t4_1gpu"; GPU_IDS="${2:-0}"; FP16_FLAG="--gradient_checkpointing --fp16"
-elif [ "$GPU_MEM" -lt 50000 ]; then
-    IS_T4=0; GPU_MODE="mid"; GPU_IDS="${2:-0}"; FP16_FLAG="--gradient_checkpointing --bf16"
+# ── Determine GPU capability ──────────────────────────────────────────────────
+# Check if bf16 is supported (Ampere+ A100, H100, RTX 3090/4090, or newer)
+BF16_SUPPORTED=0
+COMPUTE_CAPABILITY=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits 2>/dev/null | head -1 | tr '.' ' ')
+if [ -n "$COMPUTE_CAPABILITY" ]; then
+    MAJOR=$(echo $COMPUTE_CAPABILITY | awk '{print $1}')
+    if [ "$MAJOR" -ge 8 ]; then
+        BF16_SUPPORTED=1
+    fi
+fi
+
+# Ampere+ hardware ≠ PyTorch bf16 support — bf16 requires CUDA 12.1+ with Ampere.
+# To be safe, only use bf16 on 80GB+ A100/H100 cards (where CUDA version is reliable).
+# All other tiers default to fp16 with gradient checkpointing.
+if [ "$GPU_MEM" -lt 50000 ]; then
+    IS_T4=0; GPU_MODE="mid_fp16"; GPU_IDS="${2:-0}"
+    FP16_FLAG="--gradient_checkpointing --fp16"
+elif [ "$GPU_MEM" -ge 50000 ] && [ "$BF16_SUPPORTED" -eq 1 ]; then
+    IS_T4=0; GPU_MODE="a100_bf16"; GPU_IDS="${2:-0}"
+    FP16_FLAG="--bf16"
 else
-    IS_T4=0; GPU_MODE="a100"; GPU_IDS="${2:-0}"; FP16_FLAG="--bf16"
+    IS_T4=0; GPU_MODE="a100_fp16"; GPU_IDS="${2:-0}"
+    FP16_FLAG="--gradient_checkpointing --fp16"
 fi
 
 echo "[GPU] $GPU_MODE ($GPU_MEM MB) | CUDA_VISIBLE_DEVICES=$GPU_IDS | $MODEL_PATH"

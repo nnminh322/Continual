@@ -613,15 +613,10 @@ class LlamaDecoderLayer(nn.Module):
         hidden_states = self.mlp(hidden_states)
         hidden_states = residual + hidden_states
 
-        outputs = (hidden_states,)
-
-        if output_attentions:
-            outputs += (self_attn_weights,)
-
-        if use_cache:
-            outputs += (present_key_value,)
-
-        return outputs
+        # Always return a consistent 3-tuple: (hidden_states, self_attn_weights, present_key_value)
+        # This is critical for LlamaModel.forward indexing: layer_outputs[2 if output_attentions else 1]
+        return (hidden_states, self_attn_weights if output_attentions else None,
+                present_key_value if use_cache else None)
 
 
 LLAMA_START_DOCSTRING = r"""
@@ -1090,6 +1085,40 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         return self.model
 
     # NOTE: memory_replay removed — SRT replaces cal_attention-based replay.
+
+    # ─────────────────────────────────────────────────────────────────────────
+    #  OVERRIDE: generate — pass input_ids_wo_label for SRT inference routing
+    # ─────────────────────────────────────────────────────────────────────────
+    def generate(
+        self,
+        input_ids: torch.LongTensor = None,
+        input_ids_wo_label: Optional[torch.LongTensor] = None,
+        generation_config=None,
+        logits_processor=None,
+        stopping_criteria=None,
+        prefix_allowed_tokens_fn=None,
+        synced_gpus=None,
+        assistant_model=None,
+        streamer=None,
+        negative_prompt_ids=None,
+        negative_prompt_attention_mask=None,
+        **kwargs,
+    ):
+        """Pass input_ids_wo_label through to enable SRT routing in decoder layers."""
+        return super().generate(
+            input_ids=input_ids,
+            input_ids_wo_label=input_ids_wo_label,
+            generation_config=generation_config,
+            logits_processor=logits_processor,
+            stopping_criteria=stopping_criteria,
+            prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+            synced_gpus=synced_gpus,
+            assistant_model=assistant_model,
+            streamer=streamer,
+            negative_prompt_ids=negative_prompt_ids,
+            negative_prompt_attention_mask=negative_prompt_attention_mask,
+            **kwargs,
+        )
 
     @add_start_docstrings_to_model_forward(LLAMA_INPUTS_DOCSTRING)
     @replace_return_docstrings(output_type=CausalLMOutputWithPast, config_class=_CONFIG_FOR_DOC)
