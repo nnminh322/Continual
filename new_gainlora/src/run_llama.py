@@ -477,26 +477,20 @@ def main():
     cur_task = data_args.task_config_dir.split('/')[-1]
     cur_task_id = task_order.index(cur_task)
 
-    # Get the CL dataset (matching HF load_dataset pattern used in run_t5.py)
-    # This custom script (cl_dataset.py) requires local_files_only=True for datasets>=3.0
-    from datasets import DownloadConfig
-    download_config = DownloadConfig(local_files_only=True)
-    dataset_script_path = os.path.join(CURRENT_DIR, "cl_dataset.py")
-    if not os.path.exists(dataset_script_path):
-        raise FileNotFoundError(f"Dataset script not found: {dataset_script_path}")
+    # Get the CL dataset — datasets v3 removed script-based loading, so we
+    # directly instantiate the builder from cl_dataset.py (already importable).
+    from cl_dataset import CLInstructions
     abs_data_dir = os.path.abspath(data_args.data_dir) if data_args.data_dir else None
     abs_task_config_dir = os.path.abspath(data_args.task_config_dir) if data_args.task_config_dir else None
-    raw_datasets = load_dataset(
-        dataset_script_path,
+    builder = CLInstructions(
         data_dir=abs_data_dir,
-        download_config=download_config,
         task_config_dir=abs_task_config_dir,
-        trust_remote_code=True,  # needed for custom dataset script
-        # cache_dir=data_cache_dir,  # for debug, change dataset size, otherwise open it
         max_num_instances_per_task=data_args.max_num_instances_per_task,
         max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
-        num_examples=data_args.num_examples
+        num_examples=data_args.num_examples,
     )
+    builder.download_and_prepare()
+    raw_datasets = builder.as_dataset()
     raw_datasets.cleanup_cache_files()
     print(raw_datasets)
 
