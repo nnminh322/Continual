@@ -704,6 +704,22 @@ def main():
             if ("lora_B" in name and "previous_lora_weights" not in name) or ("trans_input" in name and "previous_trans_input" not in name) or "prompt_key" in name:
                 param.requires_grad = True
 
+    # Keep the small trainable adapter stack in fp32 even when the frozen
+    # backbone runs under fp16 AMP. GradScaler refuses to unscale fp16 grads,
+    # so LoRA/trans_input/prompt_key must stay in full precision.
+    _n_upcast_fp32 = 0
+    _upcast_numel = 0
+    for name, param in model.named_parameters():
+        if param.requires_grad and param.is_floating_point() and param.dtype != torch.float32:
+            param.data = param.data.to(torch.float32)
+            _n_upcast_fp32 += 1
+            _upcast_numel += param.numel()
+    if _n_upcast_fp32 > 0:
+        print(
+            f"[FIX] Upcast {_n_upcast_fp32} trainable tensors to fp32 "
+            f"({_upcast_numel / 1_000_000:.3f}M params) for AMP-safe LoRA training"
+        )
+
     total_params, params = 0, 0
     for n, p in model.named_parameters():
         if p.requires_grad:
