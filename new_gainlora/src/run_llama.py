@@ -565,6 +565,7 @@ def main():
         revision=model_args.model_revision,
         token=True if model_args.use_auth_token else None,
         use_safetensors=True,
+        low_cpu_mem_usage=True,
     )
     # NOTE: Bug 3 — encoder_frozen FrozenLlamaExtractor block REMOVED.
     # SRT routing uses the model's own embed_tokens + input_ids_wo_label path in

@@ -1735,3 +1735,6 @@ class GainLoRATrainer(Seq2SeqTrainer):
         self.control = self.callback_handler.on_train_end(args, self.state, self.control)
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
+
+# Alias for backward compatibility with sgwi_trainer_llama.py
+GainLoRA_OLoRA_Trainer = GainLoRATrainer
