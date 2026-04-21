@@ -1,9 +1,12 @@
+import math
 import os
 import re
 import shutil
+import sys
 import time
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader, RandomSampler, DistributedSampler
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from transformers import GenerationConfig
 from transformers.trainer_seq2seq import Seq2SeqTrainer
@@ -80,6 +83,137 @@ except ImportError:
                 for pname, _ in child.named_parameters(recurse=False):
                     result.append(f"{name}.{pname}" if name else pname)
             return result
+
+# Compat: TrainerState may no longer be re-exported by transformers.trainer.
+try:
+    from transformers.trainer import TrainerState
+except ImportError:
+    try:
+        from transformers.trainer_utils import TrainerState
+    except ImportError:
+        from transformers import TrainerState
+
+# Compat: IntervalStrategy / DebugOption / HPSearchBackend moved across HF versions.
+try:
+    from transformers import IntervalStrategy, DebugOption
+except ImportError:
+    from transformers.training_args import IntervalStrategy, DebugOption
+
+try:
+    from transformers import HPSearchBackend
+except ImportError:
+    try:
+        from transformers.trainer_utils import HPSearchBackend
+    except ImportError:
+        from transformers.training_args import HPSearchBackend
+
+# Compat: hp_params moved/removed across transformers versions.
+try:
+    from transformers.trainer import hp_params
+except ImportError:
+    try:
+        from transformers.trainer_utils import hp_params
+    except ImportError:
+        hp_params = None
+
+# Compat: get_model_param_count moved/removed across transformers versions.
+try:
+    from transformers import get_model_param_count
+except ImportError:
+    def get_model_param_count(model, trainable_only=False):
+        if trainable_only:
+            return sum(p.numel() for p in model.parameters() if p.requires_grad)
+        return sum(p.numel() for p in model.parameters())
+
+# Compat: skip_first_batches moved between trainer modules.
+try:
+    from transformers.trainer_seq2seq import skip_first_batches
+except ImportError:
+    try:
+        from transformers.trainer import skip_first_batches
+    except ImportError:
+        skip_first_batches = None
+
+# Compat: symbols previously exported by `from transformers.trainer import *` in v4
+# may be missing in transformers >= 5.x.
+try:
+    IS_SAGEMAKER_MP_POST_1_10  # noqa: F821
+except NameError:
+    IS_SAGEMAKER_MP_POST_1_10 = False
+
+try:
+    is_sagemaker_mp_enabled  # noqa: F821
+except NameError:
+    def is_sagemaker_mp_enabled():
+        return False
+
+try:
+    ParallelMode  # noqa: F821
+except NameError:
+    try:
+        from transformers.training_args import ParallelMode
+    except ImportError:
+        from enum import Enum
+
+        class ParallelMode(str, Enum):
+            NOT_DISTRIBUTED = "not_distributed"
+            NOT_PARALLEL = "not_parallel"
+            DISTRIBUTED = "distributed"
+            SAGEMAKER_MODEL_PARALLEL = "sagemaker_model_parallel"
+            SAGEMAKER_DATA_PARALLEL = "sagemaker_data_parallel"
+            TPU = "tpu"
+
+try:
+    dist  # noqa: F821
+except NameError:
+    import torch.distributed as dist
+
+try:
+    has_length  # noqa: F821
+except NameError:
+    try:
+        from transformers.trainer_pt_utils import has_length
+    except ImportError:
+        def has_length(dataset):
+            try:
+                return len(dataset) is not None
+            except TypeError:
+                return False
+
+try:
+    seed_worker  # noqa: F821
+except NameError:
+    import random as _random
+
+    def seed_worker(worker_id):
+        worker_seed = torch.initial_seed() % 2**32
+        np.random.seed(worker_seed)
+        _random.seed(worker_seed)
+
+try:
+    TRAINER_STATE_NAME  # noqa: F821
+except NameError:
+    try:
+        from transformers.trainer_utils import TRAINER_STATE_NAME
+    except ImportError:
+        TRAINER_STATE_NAME = "trainer_state.json"
+
+try:
+    speed_metrics  # noqa: F821
+except NameError:
+    try:
+        from transformers.trainer_utils import speed_metrics
+    except ImportError:
+        def speed_metrics(split, start_time, num_samples=None, num_steps=None):
+            runtime = time.time() - start_time
+            result = {f"{split}_runtime": round(runtime, 4)}
+            if num_samples is not None and runtime > 0:
+                result[f"{split}_samples_per_second"] = round(num_samples / runtime, 3)
+            if num_steps is not None and runtime > 0:
+                result[f"{split}_steps_per_second"] = round(num_steps / runtime, 3)
+            return result
+
+_TORCH_GE_1_11 = torch.__version__ >= "1.11.0"
 
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
     predictions_ids = np.where(predictions_ids == ignore_idx, tokenizer.pad_token_id, predictions_ids)
@@ -160,6 +294,18 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                         pin_memory=False,
                         worker_init_fn=seed_worker)
             self.replay_iterator_dict = create_memory_replay_generators(task_order[cur_task_id], task_order, self.replay_dataloader_dict)
+
+    def _compat_nested_gather(self, tensors):
+        if hasattr(self, "_nested_gather"):
+            try:
+                return self._nested_gather(tensors)
+            except Exception:
+                pass
+        if hasattr(self.accelerator, "gather_for_metrics"):
+            return self.accelerator.gather_for_metrics(tensors)
+        if hasattr(self.accelerator, "gather"):
+            return self.accelerator.gather(tensors)
+        return tensors
 
     def _sorted_checkpoints(self, use_mtime=False, output_dir=None):
         run_dir = output_dir if output_dir is not None else self.args.output_dir
@@ -875,15 +1021,15 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
 
             # Update containers on host
             if loss is not None:
-                losses = self._nested_gather(loss.repeat(batch_size))
+                losses = self._compat_nested_gather(loss.repeat(batch_size))
                 losses_host = losses if losses_host is None else torch.cat((losses_host, losses), dim=0)
             if labels is not None:
                 labels = self.accelerator.pad_across_processes(labels)
-                labels = self._nested_gather(labels)
+                labels = self._compat_nested_gather(labels)
                 labels_host = labels if labels_host is None else nested_concat(labels_host, labels, padding_index=-100)
             if logits is not None:
                 logits = self.accelerator.pad_across_processes(logits)
-                logits = self._nested_gather(logits)
+                logits = self._compat_nested_gather(logits)
                 if self.preprocess_logits_for_metrics is not None:
                     logits = self.preprocess_logits_for_metrics(logits, labels)
                 preds_host = logits if preds_host is None else nested_concat(preds_host, logits, padding_index=-100)
@@ -1330,7 +1476,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 is_random_sampler = hasattr(train_dataloader, "sampler") and isinstance(
                     train_dataloader.sampler, RandomSampler
                 )
-                if is_torch_less_than_1_11 or not is_random_sampler:
+                if not _TORCH_GE_1_11 or not is_random_sampler:
                     # We just need to begin an iteration to create the randomization of the sampler.
                     # That was before PyTorch 1.11 however...
                     for _ in train_dataloader:
