@@ -131,7 +131,7 @@ def extract_embeddings_from_batch(model, inputs: Dict) -> torch.Tensor:
             mask = attention_mask.unsqueeze(-1).float()
             pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
 
-    return pooled  # (B, d), float32
+    return pooled.float()  # (B, d), float32
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -227,7 +227,7 @@ class SRT_Trainer(GainLoRATrainer):
             if emb_path is not None and os.path.exists(emb_path):
                 print(f"  [SRT] ★ LOAD FROM CACHE: {emb_path}")
                 data = np.load(emb_path, allow_pickle=True)
-                embeddings = torch.from_numpy(data['embeddings'])  # (n, d)
+                embeddings = torch.from_numpy(data['embeddings']).float()  # (n, d)
 
                 # Take at most max_samples (in samples, not batches)
                 if embeddings.shape[0] > max_samples:
@@ -256,7 +256,7 @@ class SRT_Trainer(GainLoRATrainer):
                 break
             inputs = self._prepare_inputs(inputs)
             h = extract_embeddings_from_batch(self.model, inputs)
-            h_list.append(h.cpu())
+            h_list.append(h.float().cpu())
             if 'task_ids' in inputs:
                 task_ids.extend(inputs['task_ids'].tolist())
 
@@ -312,7 +312,7 @@ class SRT_Trainer(GainLoRATrainer):
             print(f"  [SRT] WARNING: no embeddings extracted for task {task_id}")
             return
 
-        h_np = h_train.numpy()
+        h_np = h_train.float().cpu().numpy()
         sig = self.srt_router.add_task(task_id=task_id, h_train=h_np)
 
         summary = self.srt_router.summary()
@@ -328,7 +328,7 @@ class SRT_Trainer(GainLoRATrainer):
             B = h.shape[0]
             return torch.full((B,), cur_t, dtype=torch.long), torch.zeros(B, 1)
 
-        h_np = h.cpu().numpy()
+        h_np = h.float().cpu().numpy()
         pred, dists = self.srt_router.route(h_np)
 
         pred_t = torch.tensor(pred, dtype=torch.long, device=h.device)

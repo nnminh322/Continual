@@ -146,7 +146,7 @@ class SGWI_DualFisher_LLaMA_Trainer(GainLoRA_OLoRA_Trainer):
             if emb_path is not None and os.path.exists(emb_path):
                 print(f"  [SRT-LLaMA] ★ LOAD FROM CACHE: {emb_path}")
                 data = np.load(emb_path, allow_pickle=True)
-                embeddings = torch.from_numpy(data['embeddings'])
+                embeddings = torch.from_numpy(data['embeddings']).float()
                 if embeddings.shape[0] > max_samples:
                     embeddings = embeddings[:max_samples]
                 print(f"  [SRT-LLaMA]   → {embeddings.shape[0]} embeddings, dim={embeddings.shape[1]}")
@@ -163,7 +163,7 @@ class SGWI_DualFisher_LLaMA_Trainer(GainLoRA_OLoRA_Trainer):
                 break
             inputs = self._prepare_inputs(inputs)
             h = extract_embeddings_from_batch(self.model, inputs)
-            h_list.append(h.cpu())
+            h_list.append(h.float().cpu())
         if not h_list:
             return torch.empty(0), task_ids
         return torch.cat(h_list, dim=0), task_ids
@@ -175,7 +175,7 @@ class SGWI_DualFisher_LLaMA_Trainer(GainLoRA_OLoRA_Trainer):
         if h_train.shape[0] == 0:
             print(f"  [SRT-LLaMA] WARNING: no embeddings for task {task_id}")
             return
-        sig = self.srt_router.add_task(task_id=task_id, h_train=h_train.numpy())
+        sig = self.srt_router.add_task(task_id=task_id, h_train=h_train.float().cpu().numpy())
         print(f"  [SRT-LLaMA] Task {task_id}: PaR={sig.par:.1f}, metric={sig.metric}, n={sig.n}")
 
     def _replace_attention_routing(self):
@@ -278,7 +278,7 @@ class SGWI_DualFisher_LLaMA_Trainer(GainLoRA_OLoRA_Trainer):
         if h_train is None or (hasattr(h_train, '__len__') and len(h_train) == 0):
             return {}
 
-        current_mu = h_train.mean(dim=0).cpu().numpy()
+        current_mu = h_train.float().mean(dim=0).cpu().numpy()
         self._current_task_mu = current_mu
 
         distances = {}
