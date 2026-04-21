@@ -428,8 +428,13 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 for index in self.feature_list[i].keys():
                     module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step].copy_(module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step] - torch.mm(module.lora_q.lora_A.data[:,index*module.step:(index+1)*module.step], feature_mat[index].cpu()))
                     module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step].copy_(module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step] - torch.mm(module.lora_v.lora_A.data[:,index*module.step:(index+1)*module.step], feature_mat[index].cpu()))
-                module.lora_q.lora_A.data /= (math.sqrt(3) * module.lora_q.lora_A.data.norm(dim=1,keepdim=True))
-                module.lora_v.lora_A.data /= (math.sqrt(3) * module.lora_v.lora_A.data.norm(dim=1,keepdim=True))
+                eps = 1e-8
+                q_norm = module.lora_q.lora_A.data.norm(dim=1, keepdim=True).clamp_min(eps)
+                v_norm = module.lora_v.lora_A.data.norm(dim=1, keepdim=True).clamp_min(eps)
+                module.lora_q.lora_A.data.div_(math.sqrt(3) * q_norm)
+                module.lora_v.lora_A.data.div_(math.sqrt(3) * v_norm)
+                if (not torch.isfinite(module.lora_q.lora_A.data).all()) or (not torch.isfinite(module.lora_v.lora_A.data).all()):
+                    raise RuntimeError("Non-finite LoRA A detected right after GPM projection/normalization in LLaMA trainer")
                 i += 1
 
 
@@ -473,7 +478,10 @@ class GainLoRATrainer(Seq2SeqTrainer):
         for index in self.feature_trans_list[2].keys():
             module.prompt_key.data[:,index*module.step:(index+1)*module.step].copy_(module.prompt_key.data[:,index*module.step:(index+1)*module.step] - torch.mm(module.prompt_key.data[:,index*module.step:(index+1)*module.step], self.feature_trans_mat[2][index].cpu()))
         module.prompt_key.data /= math.sqrt(module.chunk_trans)
-        module.prompt_key.data /= (module.prompt_key.data.norm()*math.sqrt(3)/64)
+        prompt_norm = module.prompt_key.data.norm().clamp_min(1e-8)
+        module.prompt_key.data /= (prompt_norm * math.sqrt(3) / 64)
+        if not torch.isfinite(module.prompt_key.data).all():
+            raise RuntimeError("Non-finite prompt_key detected right after GPM projection/normalization in LLaMA trainer")
 
         return
 
@@ -800,8 +808,25 @@ class GainLoRATrainer(Seq2SeqTrainer):
             loss = self.compute_loss(model, inputs)
 
         if not torch.isfinite(loss).all():
+            valid_label_tokens = None
+            label_shape = None
+            if isinstance(inputs.get("labels", None), torch.Tensor):
+                valid_label_tokens = int((inputs["labels"] != -100).sum().item())
+                label_shape = tuple(inputs["labels"].shape)
+
+            input_shape = None
+            input_id_min = None
+            input_id_max = None
+            if isinstance(inputs.get("input_ids", None), torch.Tensor):
+                input_shape = tuple(inputs["input_ids"].shape)
+                input_id_min = int(inputs["input_ids"].min().item())
+                input_id_max = int(inputs["input_ids"].max().item())
+
             raise RuntimeError(
-                f"Non-finite training loss detected in LLaMA trainer at global_step={self.state.global_step}: {loss.detach().float().cpu().item()}"
+                "Non-finite training loss detected in LLaMA trainer at "
+                f"global_step={self.state.global_step}: {loss.detach().float().cpu().item()} "
+                f"(valid_label_tokens={valid_label_tokens}, label_shape={label_shape}, "
+                f"input_shape={input_shape}, input_id_range=[{input_id_min}, {input_id_max}])"
             )
 
         if self.args.n_gpu > 1:
