@@ -650,9 +650,11 @@ def main():
     _n_reinit = 0
     for _module in model.modules():
         if hasattr(_module, 'lora_A') and hasattr(_module, 'lora_B') and hasattr(_module, 'reset_parameters'):
-            nn.init.kaiming_uniform_(_module.lora_A, a=math.sqrt(5))
+            _module.reset_parameters()
+            # Safety: ensure LoRA-B starts from exact zeros.
+            nn.init.zeros_(_module.lora_B)
             _n_reinit += 1
-    print(f"[FIX] Re-initialized lora_A in {_n_reinit} LLaMA LoRA layers")
+    print(f"[FIX] Re-initialized lora_A/lora_B in {_n_reinit} LLaMA LoRA layers")
 
     if hasattr(model, 'model') and hasattr(model.model, 'trans_input'):
         _n_linear = 0
@@ -717,14 +719,22 @@ def main():
                 )
 
     _dead_lora_layers = []
+    _nonfinite_adapter_layers = []
     for _name, _module in model.named_modules():
         if hasattr(_module, 'lora_A') and hasattr(_module, 'lora_B') and 'previous_lora_weights' not in _name:
             if _module.lora_A.data.norm().item() == 0:
                 _dead_lora_layers.append(_name)
+            if (not torch.isfinite(_module.lora_A.data).all()) or (not torch.isfinite(_module.lora_B.data).all()):
+                _nonfinite_adapter_layers.append(_name)
     if _dead_lora_layers:
         raise RuntimeError(
             "Dead LoRA init detected after from_pretrained in LLaMA path: "
             + ", ".join(_dead_lora_layers[:5])
+        )
+    if _nonfinite_adapter_layers:
+        raise RuntimeError(
+            "Non-finite LoRA params detected right after init in LLaMA path: "
+            + ", ".join(_nonfinite_adapter_layers[:5])
         )
 
     for name, param in model.named_parameters():

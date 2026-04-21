@@ -882,7 +882,9 @@ class LlamaModel(LlamaPreTrainedModel):
         )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
 
-        _cfg_return_dict = getattr(self.config, "return_dict", getattr(self.config, "use_return_dict", True))
+        _cfg_return_dict = getattr(self.config, "return_dict", None)
+        if _cfg_return_dict is None:
+            _cfg_return_dict = getattr(self.config, "use_return_dict", True)
         return_dict = return_dict if return_dict is not None else _cfg_return_dict
 
         # retrieve input_ids and inputs_embeds
@@ -1170,7 +1172,9 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
-        _cfg_return_dict = getattr(self.config, "return_dict", getattr(self.config, "use_return_dict", True))
+        _cfg_return_dict = getattr(self.config, "return_dict", None)
+        if _cfg_return_dict is None:
+            _cfg_return_dict = getattr(self.config, "use_return_dict", True)
         return_dict = return_dict if return_dict is not None else _cfg_return_dict
 
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
@@ -1201,7 +1205,16 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
             shift_labels = shift_labels.view(-1)
             # Enable model parallelism
             shift_labels = shift_labels.to(shift_logits.device)
-            loss = loss_fct(shift_logits, shift_labels)
+            if not torch.isfinite(shift_logits).all():
+                nan_count = int(torch.isnan(shift_logits).sum().item())
+                inf_count = int(torch.isinf(shift_logits).sum().item())
+                raise RuntimeError(
+                    "Non-finite logits detected in LlamaForCausalLM.forward before CE loss: "
+                    f"nan={nan_count}, inf={inf_count}, dtype={shift_logits.dtype}, "
+                    f"shape={tuple(shift_logits.shape)}"
+                )
+            # Compute CE in fp32 for better stability under mixed precision.
+            loss = loss_fct(shift_logits.float(), shift_labels)
 
         if not return_dict:
             output = (logits,) + outputs[1:]
@@ -1309,7 +1322,9 @@ class LlamaForSequenceClassification(LlamaPreTrainedModel):
             config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
             `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
         """
-        _cfg_return_dict = getattr(self.config, "return_dict", getattr(self.config, "use_return_dict", True))
+        _cfg_return_dict = getattr(self.config, "return_dict", None)
+        if _cfg_return_dict is None:
+            _cfg_return_dict = getattr(self.config, "use_return_dict", True)
         return_dict = return_dict if return_dict is not None else _cfg_return_dict
 
         transformer_outputs = self.model(
