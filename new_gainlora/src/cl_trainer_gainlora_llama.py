@@ -357,6 +357,19 @@ class GainLoRATrainer(Seq2SeqTrainer):
                         worker_init_fn=seed_worker)
             self.replay_iterator_dict = create_memory_replay_generators(task_order[cur_task_id], task_order, self.replay_dataloader_dict)
 
+    def _compat_nested_gather(self, tensors):
+        """Compat gather for eval loop across Transformers/Accelerate versions."""
+        if hasattr(self, "_nested_gather"):
+            try:
+                return self._nested_gather(tensors)
+            except Exception:
+                pass
+        if hasattr(self.accelerator, "gather_for_metrics"):
+            return self.accelerator.gather_for_metrics(tensors)
+        if hasattr(self.accelerator, "gather"):
+            return self.accelerator.gather(tensors)
+        return tensors
+
     def load_previous_reg_matrix(self):
         paths = self.args.output_dir.split('/')
         log_path = ""
@@ -1058,15 +1071,15 @@ class GainLoRATrainer(Seq2SeqTrainer):
 
             # Update containers on host
             if loss is not None:
-                losses = self._nested_gather(loss.repeat(batch_size))
+                losses = self._compat_nested_gather(loss.repeat(batch_size))
                 losses_host = losses if losses_host is None else torch.cat((losses_host, losses), dim=0)
             if labels is not None:
                 labels = self.accelerator.pad_across_processes(labels)
-                labels = self._nested_gather(labels)
+                labels = self._compat_nested_gather(labels)
                 labels_host = labels if labels_host is None else nested_concat(labels_host, labels, padding_index=-100)
             if logits is not None:
                 logits = self.accelerator.pad_across_processes(logits)
-                logits = self._nested_gather(logits)
+                logits = self._compat_nested_gather(logits)
                 if self.preprocess_logits_for_metrics is not None:
                     logits = self.preprocess_logits_for_metrics(logits, labels)
                 preds_host = logits if preds_host is None else nested_concat(preds_host, logits, padding_index=-100)

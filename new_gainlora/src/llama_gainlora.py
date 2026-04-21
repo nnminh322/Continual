@@ -1110,7 +1110,9 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         # compatible with llama_gainlora.py. Force cache-free generation.
         if generation_config is not None:
             generation_config.use_cache = False
-        kwargs["use_cache"] = False
+            kwargs.pop("use_cache", None)
+        else:
+            kwargs["use_cache"] = False
         return super().generate(
             input_ids=input_ids,
             input_ids_wo_label=input_ids_wo_label,
