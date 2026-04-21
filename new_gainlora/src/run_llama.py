@@ -442,6 +442,26 @@ def main():
             )
     training_args._frozen = False
 
+    # Prefer bf16 for LLaMA when hardware/runtime supports it. fp16 can overflow
+    # early in CL runs and produce NaN loss at step 0.
+    _auto_precision_switched = False
+    if (
+        "llama" in model_args.model_name_or_path.lower()
+        and training_args.fp16
+        and not training_args.bf16
+        and os.environ.get("GAINLORA_FORCE_FP16", "0") != "1"
+    ):
+        bf16_supported = False
+        if torch.cuda.is_available() and hasattr(torch.cuda, "is_bf16_supported"):
+            try:
+                bf16_supported = bool(torch.cuda.is_bf16_supported())
+            except Exception:
+                bf16_supported = False
+        if bf16_supported:
+            training_args.fp16 = False
+            training_args.bf16 = True
+            _auto_precision_switched = True
+
     # Setup logging
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -455,10 +475,15 @@ def main():
     transformers.utils.logging.enable_default_handler()
     transformers.utils.logging.enable_explicit_format()
 
+    if _auto_precision_switched:
+        logger.warning(
+            "Auto-switched precision for LLaMA: --fp16 -> --bf16 (set GAINLORA_FORCE_FP16=1 to disable)."
+        )
+
     # Log on each process the small summary:
     logger.warning(
         f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}"
-        + f"distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.fp16}"
+        + f"distributed training: {bool(training_args.local_rank != -1)}, fp16: {training_args.fp16}, bf16: {training_args.bf16}"
     )
     logger.info(f"Training/evaluation parameters {training_args}")
 
@@ -791,7 +816,7 @@ def main():
         max_source_length=data_args.max_source_length,
         max_target_length=data_args.max_target_length,
         label_pad_token_id=label_pad_token_id,
-        pad_to_multiple_of=8 if training_args.fp16 else None,
+        pad_to_multiple_of=8 if (training_args.fp16 or training_args.bf16) else None,
         add_task_name=data_args.add_task_name,
         add_dataset_name=data_args.add_dataset_name,
         num_examples=data_args.num_examples,
@@ -812,7 +837,7 @@ def main():
             max_source_length=data_args.max_source_length,
             max_target_length=data_args.max_target_length,
             label_pad_token_id=label_pad_token_id,
-            pad_to_multiple_of=8 if training_args.fp16 else None,
+            pad_to_multiple_of=8 if (training_args.fp16 or training_args.bf16) else None,
             add_task_name=data_args.add_task_name,
             add_dataset_name=data_args.add_dataset_name,
             add_instruction_replay=data_args.add_instruction_replay,

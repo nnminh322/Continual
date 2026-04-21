@@ -882,7 +882,8 @@ class LlamaModel(LlamaPreTrainedModel):
         )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
 
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        _cfg_return_dict = getattr(self.config, "return_dict", getattr(self.config, "use_return_dict", True))
+        return_dict = return_dict if return_dict is not None else _cfg_return_dict
 
         # retrieve input_ids and inputs_embeds
         if input_ids is not None and inputs_embeds is not None:
@@ -1169,7 +1170,8 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        _cfg_return_dict = getattr(self.config, "return_dict", getattr(self.config, "use_return_dict", True))
+        return_dict = return_dict if return_dict is not None else _cfg_return_dict
 
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model(
@@ -1307,7 +1309,8 @@ class LlamaForSequenceClassification(LlamaPreTrainedModel):
             config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
             `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
         """
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        _cfg_return_dict = getattr(self.config, "return_dict", getattr(self.config, "use_return_dict", True))
+        return_dict = return_dict if return_dict is not None else _cfg_return_dict
 
         transformer_outputs = self.model(
             input_ids,

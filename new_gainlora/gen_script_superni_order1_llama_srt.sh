@@ -17,7 +17,7 @@ set -eo pipefail
 # Defaults:  SRT + SGWI (no Dual Fisher)
 # Examples:
 #   bash script.sh                                              # SRT + SGWI only (auto-detect GPU)
-#   bash script.sh --gpu 5090                                   # RTX 5090 32GB → fp16 + grad_ckpt, effective BS=16
+#   bash script.sh --gpu 5090                                   # RTX 5090 32GB → bf16 + grad_ckpt, effective BS=16
 #   bash script.sh --gpu h100                                    # H100 80GB → bf16
 #   bash script.sh --gpu a100                                    # A100 80GB → bf16
 #   bash script.sh --dual_fisher True                            # SRT + SGWI + Dual Fisher
@@ -75,9 +75,9 @@ if [ -n "$GPU_FORCE" ]; then
     # Explicit GPU type override: --gpu 5090 | --gpu a100 | --gpu h100
     case "$GPU_FORCE" in
         5090|rtx5090)
-            IS_T4=0; GPU_MODE="5090_fp16"
+            IS_T4=0; GPU_MODE="5090_bf16"
             BSZ=1; GA=16; EVAL_BSZ=2  # effective BS=16, targets ~20-22GB VRAM
-            FP16_FLAG="--gradient_checkpointing --fp16"
+            FP16_FLAG="--gradient_checkpointing --bf16"
             ;;
         h100)
             IS_T4=0; GPU_MODE="h100_bf16"
@@ -99,9 +99,15 @@ if [ -n "$GPU_FORCE" ]; then
     esac
     GPU_IDS="${2:-0}"
 elif [ "$GPU_MEM" -lt 50000 ]; then
-    IS_T4=0; GPU_MODE="mid_fp16"; GPU_IDS="${2:-0}"
+    IS_T4=0; GPU_IDS="${2:-0}"
     BSZ=4; GA=4; EVAL_BSZ=8
-    FP16_FLAG="--gradient_checkpointing --fp16"
+    if [ "$BF16_SUPPORTED" -eq 1 ]; then
+        GPU_MODE="mid_bf16"
+        FP16_FLAG="--gradient_checkpointing --bf16"
+    else
+        GPU_MODE="mid_fp16"
+        FP16_FLAG="--gradient_checkpointing --fp16"
+    fi
 elif [ "$GPU_MEM" -ge 50000 ] && [ "$BF16_SUPPORTED" -eq 1 ]; then
     IS_T4=0; GPU_MODE="a100_bf16"; GPU_IDS="${2:-0}"
     BSZ=8; GA=2; EVAL_BSZ=16
