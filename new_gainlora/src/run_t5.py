@@ -627,13 +627,26 @@ def main():
             logger.warning(f"load_checkpoint_from not found: {model_args.load_checkpoint_from}, skipping load")
         else:
             print("----------Loading Previous Query Projection Layer----------")
-            model.encoder.trans_input.load_state_dict(torch.load(model_args.load_checkpoint_from, map_location=device, weights_only=True))
-            model.encoder.previous_trans_input.input_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device, weights_only=True)['0.weight'])
-            model.encoder.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, map_location=device, weights_only=True)['2.weight'])
-            model.encoder.previous_trans_input.state_dict()
+            current_trans_state = torch.load(model_args.load_checkpoint_from, map_location='cpu', weights_only=True)
+            model.encoder.trans_input.load_state_dict(current_trans_state)
+            previous_input_linear = current_trans_state['0.weight'].unsqueeze(0)
+            previous_output_linear = current_trans_state['2.weight'].unsqueeze(0)
             if cur_task_id > 1:
-                model.encoder.previous_trans_input.input_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device, weights_only=True)['input_linear'])
-                model.encoder.previous_trans_input.output_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), map_location=device, weights_only=True)['output_linear'])
+                previous_trans_state = torch.load(
+                    model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'),
+                    map_location='cpu',
+                    weights_only=True,
+                )
+                previous_input_linear = torch.cat([previous_input_linear, previous_trans_state['input_linear']], dim=0)
+                previous_output_linear = torch.cat([previous_output_linear, previous_trans_state['output_linear']], dim=0)
+            model.encoder.previous_trans_input.input_linear = nn.Parameter(
+                previous_input_linear.detach().clone().to(dtype=model.encoder.trans_input[0].weight.dtype),
+                requires_grad=False,
+            )
+            model.encoder.previous_trans_input.output_linear = nn.Parameter(
+                previous_output_linear.detach().clone().to(dtype=model.encoder.trans_input[2].weight.dtype),
+                requires_grad=False,
+            )
             print("----------Loading Previous Query Projection Layer Done----------")
 
     if model_args.previous_lora_path:

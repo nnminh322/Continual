@@ -622,9 +622,25 @@ class LlamaModel(LlamaPreTrainedModel):
             self.previous_prompts_keys = None
             if prompt_config["previous_prompt_key_path"] is not None and prompt_config["task_id"]:
                 print("----------Loading Previous Keys----------")
-                self.previous_prompts_keys = nn.Parameter(torch.randn((prompt_config["task_id"], config.hidden_size)))
-                self.previous_prompts_keys.data = torch.load(prompt_config["previous_prompt_key_path"], weights_only=True)
-                self.previous_prompts_keys.requires_grad = False
+                loaded_previous_keys = torch.load(
+                    prompt_config["previous_prompt_key_path"],
+                    map_location='cpu',
+                    weights_only=True,
+                )
+                if not isinstance(loaded_previous_keys, torch.Tensor):
+                    loaded_previous_keys = torch.tensor(loaded_previous_keys)
+                if loaded_previous_keys.ndim == 1:
+                    loaded_previous_keys = loaded_previous_keys.unsqueeze(0)
+                expected_shape = (prompt_config["task_id"], config.hidden_size)
+                if tuple(loaded_previous_keys.shape) != expected_shape:
+                    raise ValueError(
+                        f"Loaded previous prompt keys have shape {tuple(loaded_previous_keys.shape)}, "
+                        f"expected {expected_shape} from {prompt_config['previous_prompt_key_path']}"
+                    )
+                self.previous_prompts_keys = nn.Parameter(
+                    loaded_previous_keys.detach().clone().to(dtype=self.prompt_key.dtype),
+                    requires_grad=False,
+                )
 
                 self.previous_trans_input = Trans_input(config.hidden_size, prompt_config["trans_hidden_dim"], prompt_config["task_id"])
                 for param in self.previous_trans_input.parameters():
