@@ -154,12 +154,10 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         return [path for _, path in sorted(ordering_and_checkpoint_path)]
 
     def load_previous_reg_matrix(self):
-        paths = self.args.output_dir.split('/')
-        log_path = ""
-        for path in paths[:-1]:
-            log_path = os.path.join(log_path, path)
+        normalized_output_dir = os.path.normpath(self.args.output_dir)
+        log_path = os.path.dirname(normalized_output_dir)
         print(log_path)
-        local_dir = paths[-1]
+        local_dir = os.path.basename(normalized_output_dir)
 
         all_dirs = os.listdir(log_path)
         reg_matrix, reg_trans_matrix = [], []
