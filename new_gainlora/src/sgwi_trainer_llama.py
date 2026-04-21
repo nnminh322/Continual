@@ -85,10 +85,14 @@ class SGWI_DualFisher_LLaMA_Trainer(GainLoRA_OLoRA_Trainer):
         # ── SGWI state ──
         self.sgwi_mode = sgwi_mode
         self.lambda_emb = lambda_emb
-        self._emb_anchor: Optional[torch.Tensor] = None
+        self.theta_stars: Dict[int, Dict[str, torch.Tensor]] = {}
+        self._current_task_mu = None
 
         if sgwi_mode not in self.SGWI_MODES:
             raise ValueError(f"sgwi_mode must be one of {self.SGWI_MODES}, got '{sgwi_mode}'")
+
+        if self.srt_load_path is not None:
+            self._load_theta_stars(self.srt_load_path)
 
         print(f"[SGWI-LLaMA] mode={sgwi_mode}, lambda_emb={lambda_emb}, "
               f"srt_mode={srt_metric_mode}, cur_task={cur_task_id}")
@@ -189,10 +193,6 @@ class SGWI_DualFisher_LLaMA_Trainer(GainLoRA_OLoRA_Trainer):
         core.use_srt_routing = True
         print(f"  [SRT-LLaMA] Wired router: {len(self.srt_router.signatures)} tasks, mapping={task_id_to_idx}")
 
-    def on_task_end(self, task_id):
-        self._compute_and_store_signature(task_id)
-        self._replace_attention_routing()
-
     def save_srt_signatures(self, output_dir: str):
         if self.srt_router is None:
             return
@@ -214,146 +214,277 @@ class SGWI_DualFisher_LLaMA_Trainer(GainLoRA_OLoRA_Trainer):
     #  SGWI WARM INITIALIZATION
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _compute_sgwi_weights(self) -> Optional[Dict[str, float]]:
-        """
-        Compute softmax weights over SRT distances to past tasks.
+    def get_reg_matrix(self):
+        """Override GainLoRA initialization with T5-aligned SGWI ablation semantics."""
+        mode = self.sgwi_mode
+        logger.info(f"[SGWI-LLaMA] get_reg_matrix: mode={mode}, task_id={self.cur_task_id}")
 
-        Uses CENTROID distance (consistent with T5 sgwi_trainer.py):
-          d = ||μ_cur - μ_s||  (L2 distance of means, NOT mean of per-sample distances)
+        if mode == 'inflora':
+            super().get_reg_matrix()
+            return
 
-        The current task's centroid μ_cur is computed from embeddings.
-        Each past task's centroid μ_s is stored in srt_router.signatures[task].
-        SRT routing already whitens embeddings → L2 distance is valid.
-        """
-        if self.srt_router is None or len(self.srt_router.signatures) == 0:
-            return None
-        h_cur, _ = self._extract_task_embeddings(min(200, self.srt_max_emb_samples))
-        if h_cur.shape[0] == 0:
-            return None
+        self._init_gpm_attrs_skip()
 
-        # Compute centroid of current task
-        mu_cur = h_cur.mean(axis=0).numpy()  # (d,)
-
-        # Compute L2 distance from μ_cur to each past task's centroid
-        task_ids = list(self.srt_router.signatures.keys())
-        centroid_dists = np.zeros(len(task_ids), dtype=np.float64)
-        for i, task_id in enumerate(task_ids):
-            sig = self.srt_router.signatures[task_id]
-            mu_s = sig.mu_raw if hasattr(sig, 'mu_raw') and sig.mu_raw is not None else sig.mu
-            centroid_dists[i] = np.linalg.norm(mu_cur - mu_s)
-
-        tau = max(np.median(centroid_dists), 1e-6)
-        scores = np.exp(-centroid_dists / tau)
-        scores /= scores.sum()
-        weights = {task_ids[i]: float(scores[i]) for i in range(len(task_ids))}
-        print(f"  [SGWI-LLaMA] weights (τ={tau:.4f}): {weights}")
-        return weights
-
-    def _sgwi_init_a(self):
-        """Warm-init LoRA A from weighted past tasks' ΔW."""
         if self.cur_task_id == 0:
+            logger.info(f"[SGWI-LLaMA] Task 0, mode={mode} → standard init (no prior tasks)")
             return
-        weights = self._compute_sgwi_weights()
-        if weights is None:
+
+        if mode == 'random':
+            logger.info("[SGWI-LLaMA] Config 2: random — no warm init")
             return
-        core = self._get_core()
-        for layer in core.layers:
-            attn = layer.self_attn
-            if attn.previous_lora_weights_q is None:
+
+        if mode == 'full_lora':
+            logger.info("[SGWI-LLaMA] Config 3: full_lora — no warm init")
+            return
+
+        srt_weights = self._compute_sgwi_weights()
+        if not srt_weights:
+            logger.warning("[SGWI-LLaMA] No SRT weights. Falling back to random init.")
+            return
+
+        logger.info(f"[SGWI-LLaMA] SRT weights: {srt_weights}")
+
+        if mode == 'sgwi_freeze_a':
+            logger.info("[SGWI-LLaMA] Config 5: warm-init A only (frozen)")
+            self._sgwi_init_a(srt_weights)
+            return
+
+        if mode == 'sgwi_train_a':
+            logger.info("[SGWI-LLaMA] Config 6: warm-init A only (trainable)")
+            self._sgwi_init_a(srt_weights)
+            return
+
+        if mode == 'sgwi_full':
+            logger.info("[SGWI-LLaMA] Config 4: warm-init both A and B")
+            self._sgwi_init_a(srt_weights)
+            self._fuse_past_lora_adapters(srt_weights)
+            return
+
+        raise ValueError(f"Unknown sgwi_mode: {mode}")
+
+    def _init_gpm_attrs_skip(self):
+        self._cur_task = 0
+        self.feature_list = []
+        self.feature_trans_list = []
+        self.feature_mat = []
+        self.feature_trans_mat = []
+        logger.info("[SGWI-LLaMA] GPM attrs initialized (skip mode): _cur_task=0, feature_list=[]")
+
+    def _compute_sgwi_weights(self) -> Dict[int, float]:
+        if self.srt_router is None or len(self.srt_router.signatures) == 0:
+            return {}
+
+        h_train, _ = self._extract_task_embeddings(max_samples=self.srt_max_emb_samples)
+        if h_train is None or (hasattr(h_train, '__len__') and len(h_train) == 0):
+            return {}
+
+        current_mu = h_train.mean(dim=0).cpu().numpy()
+        self._current_task_mu = current_mu
+
+        distances = {}
+        for task_id, sig in self.srt_router.signatures.items():
+            diff = current_mu - sig.mu
+            if hasattr(self.srt_router, 'pooled_cov') and self.srt_router.pooled_cov is not None:
+                try:
+                    cov_inv = np.linalg.inv(self.srt_router.pooled_cov + 1e-6 * np.eye(len(diff)))
+                    distance = float(diff @ cov_inv @ diff)
+                except np.linalg.LinAlgError:
+                    distance = float(np.sum(diff ** 2))
+            else:
+                distance = float(np.sum(diff ** 2))
+            distances[task_id] = distance
+
+        if not distances:
+            return {}
+        if len(distances) == 1:
+            return {task_id: 1.0 for task_id in distances}
+
+        tau = float(np.median(list(distances.values()))) + 1e-8
+        weights = {task_id: math.exp(-distance / tau) for task_id, distance in distances.items()}
+        denom = sum(weights.values()) + 1e-12
+        return {task_id: weight / denom for task_id, weight in weights.items()}
+
+    def _sgwi_init_a(self, srt_weights: Dict[int, float]):
+        model = self.model
+        device = next(model.parameters()).device
+        lora_r = self.args.lora_r if hasattr(self.args, 'lora_r') else 8
+
+        fused_count = 0
+        skipped_count = 0
+
+        for name, module in model.named_modules():
+            if not (hasattr(module, 'lora_q') and hasattr(module, 'lora_v')):
                 continue
-            for proj, prev_list in [('q', attn.previous_lora_weights_q), ('v', attn.previous_lora_weights_v)]:
-                cur_lora = attn.lora_q if proj == 'q' else attn.lora_v
-                fused_dw = torch.zeros_like(cur_lora.lora_B @ cur_lora.lora_A)
-                total_w = 0.0
-                for past_task_name, w in weights.items():
-                    # prev_list index: prev_list[0] = task_order[cur_task_id-1] (most recent),
-                    # prev_list[1] = task_order[cur_task_id-2], ..., prev_list[n-1] = task_order[0] (oldest)
-                    # → idx = (cur_task_id-1) - position_of(past_task_name in task_order)
-                    if isinstance(past_task_name, str):
+            if not hasattr(module, 'previous_lora_weights_q'):
+                continue
+
+            prev_q = getattr(module, 'previous_lora_weights_q', None)
+            prev_v = getattr(module, 'previous_lora_weights_v', None)
+            if prev_q is None or len(prev_q) == 0:
+                continue
+
+            for lora_tag, lora_cur, prev_list in [
+                ('lora_q', module.lora_q, prev_q),
+                ('lora_v', module.lora_v, prev_v),
+            ]:
+                if prev_list is None or len(prev_list) == 0:
+                    continue
+
+                delta_w = None
+                for past_task_id, weight in srt_weights.items():
+                    if isinstance(past_task_id, str):
                         try:
-                            pos = self.task_order.index(past_task_name)
-                            prev_idx = (self.cur_task_id - 1) - pos
+                            pos = self.task_order.index(past_task_id)
+                            idx = (self.cur_task_id - 1) - pos
                         except ValueError:
-                            print(f"  [SGWI-LLaMA] task '{past_task_name}' not in task_order, skipping")
+                            skipped_count += 1
                             continue
                     else:
-                        prev_idx = int(past_task_name)
-
-                    if prev_idx < 0 or prev_idx >= len(prev_list):
-                        print(f"  [SGWI-LLaMA] idx={prev_idx} out of range, skipping")
+                        idx = int(past_task_id)
+                    if idx < 0 or idx >= len(prev_list):
+                        skipped_count += 1
                         continue
 
-                    prev_lora = prev_list[prev_idx]
-                    if w < 1e-8:
-                        continue
-                    dw = prev_lora.lora_B.data @ prev_lora.lora_A.data
-                    fused_dw += w * dw
-                    total_w += w
-                if total_w < 1e-8:
+                    past_lora = prev_list[idx]
+                    ba = past_lora.lora_B.data.float() @ past_lora.lora_A.data.float()
+                    delta_w = weight * ba if delta_w is None else delta_w + weight * ba
+
+                if delta_w is None or delta_w.norm().item() < 1e-10:
+                    skipped_count += 1
                     continue
-                fused_dw /= total_w
+
                 try:
-                    U, S, Vh = torch.linalg.svd(fused_dw, full_matrices=False)
-                    r = cur_lora.lora_A.shape[0]
-                    cur_lora.lora_A.data = (torch.diag(S[:r].sqrt()) @ Vh[:r]).to(cur_lora.lora_A.dtype)
-                    cur_lora.lora_B.data = (U[:, :r] @ torch.diag(S[:r].sqrt())).to(cur_lora.lora_B.dtype)
-                except Exception as e:
-                    print(f"  [SGWI-LLaMA] SVD failed for {proj}: {e}")
-        print(f"  [SGWI-LLaMA] LoRA A/B warm-initialized from {len(weights)} past tasks")
+                    _, singular_values, vt = torch.linalg.svd(delta_w.to(device), full_matrices=False)
+                    rank = min(lora_r, len(singular_values))
+                    singular_sqrt = torch.sqrt(singular_values[:rank] + 1e-12)
+                    a_new = singular_sqrt.unsqueeze(1) * vt[:rank, :]
+                    lora_cur.lora_A.data.copy_(a_new.to(lora_cur.lora_A.data.device))
+                    fused_count += 1
+                except Exception as exc:
+                    logger.warning(f"[SGWI-LLaMA] SVD failed for {name}.{lora_tag}: {exc}")
+                    skipped_count += 1
 
-    # ─────────────────────────────────────────────────────────────────────────
-    #  DUAL FISHER REGULARIZATION
-    # ─────────────────────────────────────────────────────────────────────────
+        logger.info(f"[SGWI-LLaMA] Warm-init A for {fused_count} modules, skipped {skipped_count}")
 
-    def _snapshot_embeddings(self):
-        """Snapshot current embedding state as anchor for Dual Fisher."""
-        if self.lambda_emb <= 0:
-            return
-        core = self._get_core()
-        self._emb_anchor = core.embed_tokens.weight.data.clone()
-        print(f"  [DualFisher-LLaMA] Snapshot embedding anchor (shape={self._emb_anchor.shape})")
+    def _fuse_past_lora_adapters(self, srt_weights: Dict[int, float]):
+        model = self.model
+        device = next(model.parameters()).device
 
-    def _dual_fisher_loss(self) -> torch.Tensor:
-        """L2 penalty between current and anchored embeddings."""
-        if self._emb_anchor is None or self.lambda_emb <= 0:
-            return torch.tensor(0.0)
-        core = self._get_core()
-        diff = core.embed_tokens.weight - self._emb_anchor.to(core.embed_tokens.weight.device)
-        return self.lambda_emb * diff.pow(2).sum()
+        fused_count = 0
+        skipped_count = 0
 
-    # ─────────────────────────────────────────────────────────────────────────
-    #  OVERRIDE: get_reg_matrix — apply SGWI before GPM
-    # ─────────────────────────────────────────────────────────────────────────
+        for name, module in model.named_modules():
+            if not (hasattr(module, 'lora_q') and hasattr(module, 'lora_v')):
+                continue
+            if not hasattr(module, 'previous_lora_weights_q'):
+                continue
 
-    def get_reg_matrix(self):
-        """GPM init + SGWI warm-init + Dual Fisher snapshot."""
-        # SGWI: warm-init LoRA before GPM projects
-        if self.sgwi_mode.startswith('sgwi'):
-            self._sgwi_init_a()
+            prev_q = getattr(module, 'previous_lora_weights_q', None)
+            prev_v = getattr(module, 'previous_lora_weights_v', None)
+            if prev_q is None or len(prev_q) == 0:
+                continue
 
-        # Call parent GPM initialization
-        super().get_reg_matrix()
+            for lora_tag, lora_cur, prev_list in [
+                ('lora_q', module.lora_q, prev_q),
+                ('lora_v', module.lora_v, prev_v),
+            ]:
+                if prev_list is None or len(prev_list) == 0:
+                    continue
 
-        # Dual Fisher: snapshot embeddings after GPM
-        self._snapshot_embeddings()
+                delta_w = None
+                for past_task_id, weight in srt_weights.items():
+                    if isinstance(past_task_id, str):
+                        try:
+                            pos = self.task_order.index(past_task_id)
+                            idx = (self.cur_task_id - 1) - pos
+                        except ValueError:
+                            skipped_count += 1
+                            continue
+                    else:
+                        idx = int(past_task_id)
+                    if idx < 0 or idx >= len(prev_list):
+                        skipped_count += 1
+                        continue
 
-    # ─────────────────────────────────────────────────────────────────────────
-    #  OVERRIDE: compute_loss — add Dual Fisher penalty
-    # ─────────────────────────────────────────────────────────────────────────
+                    past_lora = prev_list[idx]
+                    a_past = past_lora.lora_A.data.float()
+                    b_past = past_lora.lora_B.data.float()
+                    ba = b_past @ a_past
+                    delta_w = weight * ba if delta_w is None else delta_w + weight * ba
+
+                if delta_w is None or delta_w.norm().item() < 1e-10:
+                    skipped_count += 1
+                    continue
+
+                try:
+                    a_cur = lora_cur.lora_A.data.float().to(device)
+                    ata = a_cur @ a_cur.T
+                    eps = 1e-4 * torch.eye(a_cur.shape[0], device=device)
+                    b_warm = delta_w.to(device) @ a_cur.T @ torch.linalg.inv(ata + eps)
+                    lora_cur.lora_B.data.copy_(b_warm.to(lora_cur.lora_B.data.device))
+                    fused_count += 1
+                except Exception as exc:
+                    logger.warning(f"[SGWI-LLaMA] lora_B warm init failed for {name}.{lora_tag}: {exc}")
+
+        logger.info(f"[SGWI-LLaMA] Fused {fused_count} LoRA modules, skipped {skipped_count}")
 
     def compute_loss(self, model, inputs, return_outputs=False):
-        """Add Dual Fisher L2 regularization to the standard loss."""
-        if return_outputs:
-            loss, outputs = super().compute_loss(model, inputs, return_outputs=True)
+        outputs = model(**inputs)
+        loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+
+        if self.lambda_emb > 0 and self.cur_task_id > 0 and len(self.theta_stars) > 0:
+            loss = loss + self._dual_fisher_penalty()
+
+        return (loss, outputs) if return_outputs else loss
+
+    def _dual_fisher_penalty(self) -> torch.Tensor:
+        total = torch.tensor(0.0, device=next(self.model.parameters()).device)
+
+        srt_weights = {}
+        if self.srt_router and len(self.srt_router.signatures) > 0:
+            for task_id in self.theta_stars:
+                if task_id in self.srt_router.signatures:
+                    srt_weights[task_id] = 1.0
+            if srt_weights:
+                normalizer = sum(srt_weights.values())
+                srt_weights = {task_id: weight / normalizer for task_id, weight in srt_weights.items()}
+
+        if not srt_weights:
+            return total
+
+        for task_id, weight in srt_weights.items():
+            if task_id not in self.theta_stars:
+                continue
+
+            for name, param in self.model.named_parameters():
+                if not param.requires_grad or 'lora_' not in name:
+                    continue
+                if name not in self.theta_stars[task_id]:
+                    continue
+
+                theta_star = self.theta_stars[task_id][name].to(param.device)
+                total = total + weight * (param - theta_star).pow(2).sum()
+
+        return self.lambda_emb * total
+
+    def on_task_end(self, task_id):
+        logger.info(f"[SGWI-LLaMA] Saving θ* for task {task_id} (Dual Fisher)")
+        self.theta_stars[task_id] = {}
+        for name, param in self.model.named_parameters():
+            if 'lora_' in name and param.requires_grad:
+                self.theta_stars[task_id][name] = param.detach().clone().cpu()
+
+        theta_stars_path = os.path.join(self.args.output_dir, 'saved_weights', 'theta_stars.pt')
+        os.makedirs(os.path.dirname(theta_stars_path), exist_ok=True)
+        torch.save(self.theta_stars, theta_stars_path)
+
+        self._compute_and_store_signature(task_id)
+        self._replace_attention_routing()
+
+    def _load_theta_stars(self, srt_load_path: str):
+        theta_path = os.path.join(srt_load_path, 'theta_stars.pt')
+        if os.path.exists(theta_path):
+            self.theta_stars = torch.load(theta_path, map_location='cpu', weights_only=True)
+            logger.info(f"[SGWI-LLaMA] Loaded θ* for {len(self.theta_stars)} past tasks from {theta_path}")
         else:
-            loss = super().compute_loss(model, inputs, return_outputs=False)
-            outputs = None
-
-        # Add Dual Fisher penalty
-        if self.lambda_emb > 0 and self._emb_anchor is not None:
-            fisher_loss = self._dual_fisher_loss()
-            loss = loss + fisher_loss
-
-        if return_outputs:
-            return loss, outputs
-        return loss
+            logger.info(f"[SGWI-LLaMA] No θ* found at {theta_path}")

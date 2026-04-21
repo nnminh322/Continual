@@ -20,11 +20,11 @@ def check_model(model_name, supported_models):
 def replace_sublist(lst, sublist, replacement):
     n = len(lst)
     m = len(sublist)
-    
+
     for i in range(n - m + 1):
         if lst[i:i+m] == sublist:
             return lst[:i] + replacement + lst[i+m:]
-    
+
     return lst
 
 @dataclass
@@ -161,17 +161,25 @@ class DataCollator:
             label = instance['Instance']['label']
             instruction = self.get_instruction(instance)
 
-            # add bos and eos
             task_input = instruction
-            label = label + self.tokenizer.eos_token
 
             tokenized_input = self.tokenizer(task_input, add_special_tokens=False)["input_ids"]
             if len(tokenized_input)>self.max_source_length:
                 tokenized_input=tokenized_input[:self.max_source_length]
 
             tokenized_label = self.tokenizer(label, add_special_tokens=False)["input_ids"]
-            if len(tokenized_label)>self.max_target_length:
-                tokenized_label=tokenized_label[:self.max_target_length]
+            eos_token_id = self.tokenizer.eos_token_id
+            if eos_token_id is not None:
+                if self.max_target_length is not None:
+                    if self.max_target_length <= 0:
+                        tokenized_label = []
+                    else:
+                        tokenized_label = tokenized_label[: self.max_target_length - 1]
+                        tokenized_label.append(eos_token_id)
+                else:
+                    tokenized_label.append(eos_token_id)
+            elif self.max_target_length is not None and len(tokenized_label) > self.max_target_length:
+                tokenized_label = tokenized_label[:self.max_target_length]
 
             # (input) for inference, (input + label) for training
             if instance['subset'] in ['dev', 'test']:
@@ -182,7 +190,7 @@ class DataCollator:
                 input_ids.append(tokenized_input+tokenized_label)
                 input_ids_wo_label.append(tokenized_input)
                 labels.append([self.label_pad_token_id]*len(tokenized_input)+tokenized_label)
-        
+
         inputs_length=[len(i) for i in input_ids]
         inputs_length_wo_label = [len(i) for i in input_ids_wo_label]
 

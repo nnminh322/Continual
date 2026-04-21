@@ -60,18 +60,31 @@ def extract_embeddings_from_batch(model, inputs: Dict) -> torch.Tensor:
       T5:  routing_analysis/extract_embeddings_t5.py (layer="encoder", pool="avg")
       LLaMA: routing_analysis/extract_embeddings_llama.py (pool="last", layer="hidden")
     """
-    input_ids = inputs.get('input_ids')
-    attention_mask = inputs.get('attention_mask')
-
-    if not isinstance(input_ids, torch.Tensor):
-        input_ids = torch.tensor(input_ids)
-    if not isinstance(attention_mask, torch.Tensor):
-        attention_mask = torch.tensor(attention_mask)
-
     device = next(model.parameters()).device
-    input_ids = input_ids.to(device)
+
+    def _to_tensor(value):
+        if value is None or isinstance(value, torch.Tensor):
+            return value
+        return torch.tensor(value)
+
+    input_ids = _to_tensor(inputs.get('input_ids'))
+    attention_mask = _to_tensor(inputs.get('attention_mask'))
+
+    if input_ids is not None:
+        input_ids = input_ids.to(device)
     if attention_mask is not None:
         attention_mask = attention_mask.to(device)
+
+    llama_source_ids = _to_tensor(inputs.get('input_ids_wo_label', inputs.get('input_ids')))
+    if llama_source_ids is not None:
+        llama_source_ids = llama_source_ids.to(device)
+
+    llama_pad_token_id = getattr(getattr(model, 'model', None), 'padding_idx', None)
+    if llama_pad_token_id is None:
+        llama_pad_token_id = getattr(getattr(model, 'config', None), 'pad_token_id', 0)
+    llama_source_mask = None
+    if llama_source_ids is not None:
+        llama_source_mask = (llama_source_ids != llama_pad_token_id).long()
 
     with torch.no_grad():
         # ── Case 1: T5 — frozen encoder (encoder_frozen has last_hidden_state) ──
@@ -88,11 +101,9 @@ def extract_embeddings_from_batch(model, inputs: Dict) -> torch.Tensor:
             mask = attention_mask.unsqueeze(-1).float()          # (B, L, 1)
             pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)  # (B, d)
 
-        # ── Case 2: LLaMA — frozen decoder (encoder_frozen = FrozenLlamaExtractor) ──
-        elif (hasattr(model, 'encoder') and hasattr(model.encoder, 'encoder_frozen')
-              and hasattr(model.encoder.encoder_frozen, 'forward')):
-            # encoder_frozen is FrozenLlamaExtractor → returns pooled (B, d) directly
-            pooled = model.encoder.encoder_frozen(input_ids, attention_mask)  # (B, d)
+        # ── Case 2: LLaMA gainlora wrapper — frozen decoder extractor on source-only inputs ──
+        elif hasattr(model, 'model') and hasattr(model.model, 'encoder_frozen') and model.model.encoder_frozen is not None:
+            pooled = model.model.encoder_frozen(llama_source_ids, llama_source_mask)
 
         # ── Case 3: bare T5EncoderModel (no gainlora wrapper) ──
         elif hasattr(model, 'encoder'):
@@ -101,15 +112,15 @@ def extract_embeddings_from_batch(model, inputs: Dict) -> torch.Tensor:
             mask = attention_mask.unsqueeze(-1).float()
             pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
 
-        # ── Case 4: bare LlamaForCausalLM (no gainlora wrapper) ──
+        # ── Case 4: bare LLaMA decoder/causal LM on source-only inputs ──
         elif hasattr(model, 'model'):
             out = model.model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
+                input_ids=llama_source_ids,
+                attention_mask=llama_source_mask,
                 output_hidden_states=True,
             )
             hidden = out.hidden_states[-1]                     # (B, L, d)
-            seq_lens = attention_mask.sum(dim=1) - 1          # (B,)
+            seq_lens = (llama_source_mask.sum(dim=1) - 1).clamp(min=0)  # (B,)
             B = hidden.size(0)
             pooled = hidden[torch.arange(B, device=device), seq_lens]  # (B, d)
 

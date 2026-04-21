@@ -1625,7 +1625,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                 if self._cur_task:
                     # old_params_q, old_params_v, num_train_modules = [], [], []
                     old_trans_input_0 = deepcopy(self.model.model.trans_input[0].weight.detach())
-                    old_trans_input_1 = deepcopy(self.model.model.trans_input[1].weight.detach())
+                    old_trans_input_1 = deepcopy(self.model.model.trans_input[2].weight.detach())
                     old_prompt_key = deepcopy(self.model.model.prompt_key.detach())
 
                 with self.accelerator.accumulate(model):
@@ -1645,7 +1645,7 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     #         i += 1
 
                     new_trans_input_0 = deepcopy(self.model.model.trans_input[0].weight.detach().float())
-                    new_trans_input_1 = deepcopy(self.model.model.trans_input[1].weight.detach().float())
+                    new_trans_input_1 = deepcopy(self.model.model.trans_input[2].weight.detach().float())
                     new_trans_input_0norm = new_trans_input_0.norm(dim=1, keepdim=True)
                     new_trans_input_1norm = new_trans_input_1.norm(dim=1, keepdim=True)
 
@@ -1655,10 +1655,10 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     for index in self.feature_trans_mat[0].keys():
                         new_trans_input_0[:,index*self.model.model.step:(index+1)*self.model.model.step] = self.model.model.trans_input[0].weight.detach()[:,index*self.model.model.step:(index+1)*self.model.model.step].float() - torch.mm(self.model.model.trans_input[0].weight.detach()[:,index*self.model.model.step:(index+1)*self.model.model.step].float()-old_trans_input_0[:,index*self.model.model.step:(index+1)*self.model.model.step], self.feature_trans_mat[0][index])
                         new_prompt_key[:,index*self.model.model.step:(index+1)*self.model.model.step] = self.model.model.prompt_key.detach()[:,index*self.model.model.step:(index+1)*self.model.model.step].float() - torch.mm(self.model.model.prompt_key.detach()[:,index*self.model.model.step:(index+1)*self.model.model.step].float()-old_prompt_key[:,index*self.model.model.step:(index+1)*self.model.model.step], self.feature_trans_mat[2][index])
-                    new_trans_input_1 = self.model.model.trans_input[1].weight.detach().float() - torch.mm(self.model.model.trans_input[1].weight.detach().float()-old_trans_input_1, self.feature_trans_mat[1])
+                    new_trans_input_1 = self.model.model.trans_input[2].weight.detach().float() - torch.mm(self.model.model.trans_input[2].weight.detach().float()-old_trans_input_1, self.feature_trans_mat[1])
 
                     self.model.model.trans_input[0].weight.data.copy_(new_trans_input_0)
-                    self.model.model.trans_input[1].weight.data.copy_(new_trans_input_1)
+                    self.model.model.trans_input[2].weight.data.copy_(new_trans_input_1)
                     self.model.model.prompt_key.data.copy_(new_prompt_key)
 
                 if (

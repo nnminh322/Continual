@@ -112,6 +112,7 @@ class Trans_input(nn.Module):
             self._activation = nn.SiLU()
         x = x.unsqueeze(1)
         x = torch.matmul(x, self.input_linear.permute(0, 2, 1))
+        x = self._activation(x)
         x = torch.matmul(x, self.output_linear.permute(0, 2, 1))
         x = self._activation(x)
         return x.squeeze(2)
@@ -141,9 +142,6 @@ class LoRALayer(nn.Module):
         else:
             self.lora_dropout = lambda x: x
         # Mark the weight as unmerged
-
-        self.lora_s = nn.Parameter(torch.randn(1))
-        self.s_avg = torch.ones(1)
 
         self.reset_parameters()
 
@@ -240,17 +238,6 @@ class LlamaMLP(nn.Module):
     def forward(self, x):
         return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
 
-class GetSubnetFaster(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, scores, k_val):
-        return torch.clamp((torch.sign(scores - k_val.to(scores.device))+1),max=1.0)
-
-    @staticmethod
-    def backward(ctx, g):
-        return g, None
-
-# GetSubnetFaster.apply(lora_layer.s.abs(), lora_layer.s_avg)
-
 
 class LlamaAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
@@ -329,24 +316,18 @@ class LlamaAttention(nn.Module):
         bsz, q_len, _ = hidden_states.size()
 
         def agg_lora_states(hidden_states, lora_layer, pre_lora_layer, key_attention_weights):
+            w_cur = key_attention_weights[:, 0:1, :]
+            cur_contribution = lora_layer(hidden_states) * w_cur
 
-            _, num_task, _ = key_attention_weights.size()
-            if pre_lora_layer is not None and num_task > 1:
-                cur_lora_states = lora_layer(hidden_states).unsqueeze(0)
+            if pre_lora_layer is not None:
                 with torch.no_grad():
-                    pre_lora_states = torch.cat([pre_lora(hidden_states).unsqueeze(0) for pre_lora in pre_lora_layer], dim=0)
-                concat_q = torch.cat([cur_lora_states, pre_lora_states], dim=0).transpose(0, 1).reshape(bsz, -1, hidden_states.shape[1]*self.num_heads * self.head_dim)
-                # if self.training:
-                #     import ipdb
-                #     ipdb.set_trace()
+                    prev_contribution = torch.zeros_like(cur_contribution)
+                    for idx, pre_lora in enumerate(pre_lora_layer):
+                        w_prev = key_attention_weights[:, idx + 1:idx + 2, :]
+                        prev_contribution = prev_contribution + pre_lora(hidden_states) * w_prev
+                return cur_contribution + prev_contribution
 
-                agg_lora_states = torch.matmul(key_attention_weights.transpose(1, 2), concat_q).squeeze()
-
-            else:
-                cur_lora_states = lora_layer(hidden_states).unsqueeze(0).transpose(0, 1).reshape(bsz, -1, hidden_states.shape[1]*self.num_heads * self.head_dim)
-                agg_lora_states = torch.matmul(key_attention_weights.transpose(1, 2), cur_lora_states).squeeze()
-
-            return agg_lora_states.reshape(bsz, -1, self.num_heads * self.head_dim)
+            return cur_contribution
 
         # modified
         if self.get_feature:
@@ -363,143 +344,6 @@ class LlamaAttention(nn.Module):
             value_states = (self.v_proj(hidden_states)+agg_lora_states(hidden_states, self.lora_v, self.previous_lora_weights_v, key_attention_weights)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         else:
             value_states = (self.v_proj(hidden_states)+self.lora_v(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-
-        kv_seq_len = key_states.shape[-2]
-        if past_key_value is not None:
-            kv_seq_len += past_key_value[0].shape[-2]
-        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
-        # [bsz, nh, t, hd]
-
-        if past_key_value is not None:
-            # reuse k, v, self_attention
-            key_states = torch.cat([past_key_value[0], key_states], dim=2)
-            value_states = torch.cat([past_key_value[1], value_states], dim=2)
-
-        past_key_value = (key_states, value_states) if use_cache else None
-
-        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
-
-        if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
-            raise ValueError(
-                f"Attention weights should be of size {(bsz, self.num_heads, q_len, kv_seq_len)}, but is"
-                f" {attn_weights.size()}"
-            )
-
-        if attention_mask is not None:
-            if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
-                raise ValueError(
-                    f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
-                )
-            attn_weights = attn_weights + attention_mask
-            attn_weights = torch.max(
-                attn_weights, torch.tensor(torch.finfo(attn_weights.dtype).min, device=attn_weights.device)
-            )
-
-        # upcast attention to fp32
-        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-        attn_output = torch.matmul(attn_weights, value_states)
-
-        if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
-            raise ValueError(
-                f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
-                f" {attn_output.size()}"
-            )
-
-        attn_output = attn_output.transpose(1, 2)
-        attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
-
-        attn_output = self.o_proj(attn_output)
-
-        if not output_attentions:
-            attn_weights = None
-
-        return attn_output, attn_weights, past_key_value
-
-class LlamaAttention_NCL(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
-
-    def __init__(self, config: LlamaConfig, prompt_config):
-        super().__init__()
-        self.config = config
-        self.hidden_size = config.hidden_size
-        self.num_heads = config.num_attention_heads
-        self.head_dim = self.hidden_size // self.num_heads
-        self.max_position_embeddings = config.max_position_embeddings
-
-        if (self.head_dim * self.num_heads) != self.hidden_size:
-            raise ValueError(
-                f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
-                f" and `num_heads`: {self.num_heads})."
-            )
-        self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=False)
-        self.lora_q = LoRALayer(self.hidden_size, self.num_heads * self.head_dim, r=prompt_config["lora_r"], lora_alpha=prompt_config["lora_alpha"], lora_dropout=prompt_config["lora_dropout"])
-        self.k_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=False)
-        self.v_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=False)
-        self.lora_v = LoRALayer(self.hidden_size, self.num_heads * self.head_dim, r=prompt_config["lora_r"], lora_alpha=prompt_config["lora_alpha"], lora_dropout=prompt_config["lora_dropout"])
-        self.o_proj = nn.Linear(self.num_heads * self.head_dim, self.hidden_size, bias=False)
-        self.rotary_emb = LlamaRotaryEmbedding(self.head_dim, max_position_embeddings=self.max_position_embeddings)
-
-        self.previous_lora_weights_q, self.previous_lora_weights_v = None, None
-        self.prompt_config = prompt_config
-        if prompt_config["previous_lora_path"] is not None:
-            with torch.no_grad():
-                self.previous_lora_weights_q = nn.ModuleList()
-                for i in range(prompt_config["task_id"]):
-                    layer = LoRALayer(self.hidden_size, self.num_heads * self.head_dim, r=prompt_config["lora_r"], lora_alpha=prompt_config["lora_alpha"], lora_dropout=prompt_config["lora_dropout"])
-                    self.previous_lora_weights_q.append(layer)
-
-                self.previous_lora_weights_v = nn.ModuleList()
-                for i in range(prompt_config["task_id"]):
-                    layer = LoRALayer(self.hidden_size, self.num_heads * self.head_dim, r=prompt_config["lora_r"], lora_alpha=prompt_config["lora_alpha"], lora_dropout=prompt_config["lora_dropout"])
-                    self.previous_lora_weights_v.append(layer)
-
-    def _shape(self, tensor: torch.Tensor, seq_len: int, bsz: int):
-        return tensor.view(bsz, seq_len, self.num_heads, self.head_dim).transpose(1, 2).contiguous()
-
-    def forward(
-        self,
-        hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_value: Optional[Tuple[torch.Tensor]] = None,
-        output_attentions: bool = False,
-        use_cache: bool = False,
-        key_attention_weights: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-        bsz, q_len, _ = hidden_states.size()
-
-        def agg_lora_states(hidden_states, lora_layer, pre_lora_layer, key_attention_weights):
-
-            _, num_task, _ = key_attention_weights.size()
-            if pre_lora_layer is not None and num_task > 1:
-                # cur_lora_states = lora_layer(hidden_states).unsqueeze(0)
-                cur_lora_states = GetSubnetFaster.apply(lora_layer.lora_s.abs(), lora_layer.s_avg) *  lora_layer(hidden_states).unsqueeze(0)
-                with torch.no_grad():
-                    pre_lora_states = torch.cat([GetSubnetFaster.apply(pre_lora.lora_s.abs(), pre_lora.s_avg) *  pre_lora(hidden_states).unsqueeze(0) for pre_lora in pre_lora_layer], dim=0)
-                    # pre_lora_states = torch.cat([pre_lora(hidden_states).unsqueeze(0) for pre_lora in pre_lora_layer], dim=0)
-                concat_q = torch.cat([cur_lora_states, pre_lora_states], dim=0).transpose(0, 1).reshape(bsz, -1, hidden_states.shape[1]*self.num_heads * self.head_dim)
-
-                agg_lora_states = torch.matmul(key_attention_weights.transpose(1, 2), concat_q).squeeze()
-
-            else:
-                # cur_lora_states = lora_layer(hidden_states).unsqueeze(0).transpose(0, 1).reshape(bsz, -1, hidden_states.shape[1]*self.num_heads * self.head_dim)
-                cur_lora_states = GetSubnetFaster.apply(lora_layer.lora_s.abs(), lora_layer.s_avg) * lora_layer(hidden_states).unsqueeze(0).transpose(0, 1).reshape(bsz, -1, hidden_states.shape[1]*self.num_heads * self.head_dim)
-                agg_lora_states = torch.matmul(key_attention_weights.transpose(1, 2), cur_lora_states).squeeze()
-
-            return agg_lora_states.reshape(bsz, -1, self.num_heads * self.head_dim)
-
-        if key_attention_weights is not None:
-            query_states = (self.q_proj(hidden_states)+agg_lora_states(hidden_states, self.lora_q, self.previous_lora_weights_q, key_attention_weights)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        else:
-            query_states = (self.q_proj(hidden_states)+GetSubnetFaster.apply(self.lora_q.lora_s.abs(), self.lora_q.s_avg) * self.lora_q(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-
-        key_states = self.k_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-
-        if key_attention_weights is not None:
-            value_states = (self.v_proj(hidden_states)+agg_lora_states(hidden_states, self.lora_v, self.previous_lora_weights_v, key_attention_weights)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        else:
-            value_states = (self.v_proj(hidden_states)+GetSubnetFaster.apply(self.lora_v.lora_s.abs(), self.lora_v.s_avg) * self.lora_v(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
 
         kv_seq_len = key_states.shape[-2]
         if past_key_value is not None:
@@ -759,6 +603,7 @@ class LlamaModel(LlamaPreTrainedModel):
                 nn.Linear(config.hidden_size, prompt_config["trans_hidden_dim"], bias=False),
                 nn.SiLU(),
                 nn.Linear(prompt_config["trans_hidden_dim"], config.hidden_size, bias=False),
+                nn.SiLU(),
             )
 
             self.get_trans_feature = False
@@ -767,11 +612,18 @@ class LlamaModel(LlamaPreTrainedModel):
             self.matrix_trans_2 = torch.zeros(prompt_config["trans_hidden_dim"], prompt_config["trans_hidden_dim"])
             self.n_trans_matrix = 0
 
+            self.srt_router = None
+            self.use_srt_routing = False
+            self.srt_task_id_to_idx = {}
+            self.all_attn_weights = []
+            self.key_attention_weights = None
+            self.encoder_frozen = None
+
             self.previous_prompts_keys = None
-            if prompt_config["previous_prompt_key_path"] is not None:
+            if prompt_config["previous_prompt_key_path"] is not None and prompt_config["task_id"]:
                 print("----------Loading Previous Keys----------")
                 self.previous_prompts_keys = nn.Parameter(torch.randn((prompt_config["task_id"], config.hidden_size)))
-                self.previous_prompts_keys.data = torch.load(prompt_config["previous_prompt_key_path"])
+                self.previous_prompts_keys.data = torch.load(prompt_config["previous_prompt_key_path"], weights_only=True)
                 self.previous_prompts_keys.requires_grad = False
 
                 self.previous_trans_input = Trans_input(config.hidden_size, prompt_config["trans_hidden_dim"], prompt_config["task_id"])
@@ -828,6 +680,10 @@ class LlamaModel(LlamaPreTrainedModel):
             self.matrix_trans_2 = (self.matrix_trans_2*self.n_trans_matrix[index] + torch.bmm(medium.detach().permute(0, 2, 1), medium.detach()).sum(dim=0).float())/(self.n_trans_matrix[index] + medium.shape[0]*medium.shape[1])
 
         return
+
+    def _get_source_attention_mask(self, source_input_ids: torch.LongTensor) -> torch.LongTensor:
+        pad_token_id = self.padding_idx if self.padding_idx is not None else 0
+        return (source_input_ids != pad_token_id).long()
 
     def get_input_embeddings(self):
         return self.embed_tokens
@@ -906,10 +762,16 @@ class LlamaModel(LlamaPreTrainedModel):
 
         if position_ids is None:
             device = input_ids.device if input_ids is not None else inputs_embeds.device
-            position_ids = torch.arange(
-                past_key_values_length, seq_length + past_key_values_length, dtype=torch.long, device=device
-            )
-            position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
+            if attention_mask is not None and attention_mask.dim() == 2:
+                position_ids = attention_mask.long().cumsum(-1) - 1
+                position_ids.masked_fill_(attention_mask == 0, 1)
+                if past_key_values is not None:
+                    position_ids = position_ids[:, -seq_length:]
+            else:
+                position_ids = torch.arange(
+                    past_key_values_length, seq_length + past_key_values_length, dtype=torch.long, device=device
+                )
+                position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
         else:
             position_ids = position_ids.view(-1, seq_length).long()
 
@@ -935,54 +797,45 @@ class LlamaModel(LlamaPreTrainedModel):
 
         # ═══════════ SRT HARD ONE-HOT ROUTING (replaces cal_attention) ═══════════
         key_attention_weights = None
+        self.key_attention_weights = None
         if not self.prompt_config["run_single"]:
-            pad_token_id = self.padding_idx if self.padding_idx is not None else 0
-            inputs_embeds_for_query = self.embed_tokens(input_ids_wo_label)
-            if self.previous_prompts_keys is not None:
-                n_adapters = 1 + self.previous_prompts_keys.shape[0]
+            source_input_ids = input_ids_wo_label if input_ids_wo_label is not None else input_ids
+            source_attention_mask = self._get_source_attention_mask(source_input_ids)
+            source_embeds = self.embed_tokens(source_input_ids)
 
-                # GPM feature collection (still needed for gradient projection)
-                avg_inputs_embeds = ((input_ids_wo_label != pad_token_id).long().unsqueeze(-1) * inputs_embeds_for_query).mean(dim=1, keepdim=True)
-                medium = self.trans_input[0](avg_inputs_embeds)
-                x = self.trans_input[2](self.trans_input[1](medium))
-                if self.get_trans_feature:
-                    self.get_matrix3(avg_inputs_embeds, medium, x)
+            if self.get_trans_feature:
+                masked_source = source_attention_mask.unsqueeze(-1).to(source_embeds.dtype) * source_embeds
+                medium = self.trans_input[1](self.trans_input[0](masked_source.mean(dim=1, keepdim=True)))
+                x = self.trans_input[3](self.trans_input[2](medium))
+                self.get_matrix3(masked_source.mean(dim=1, keepdim=True), medium, x)
 
-                # Hard one-hot routing
-                key_attention_weights = torch.zeros(
-                    batch_size, n_adapters, 1,
-                    device=inputs_embeds.device, dtype=inputs_embeds.dtype,
-                )
-                if (hasattr(self, 'use_srt_routing') and self.use_srt_routing
-                        and hasattr(self, 'srt_router') and self.srt_router is not None
-                        and self.is_inference):
-                    # ── SRT inference: last-token pooling (MUST match FrozenLlamaExtractor space) ──
-                    # Extract last non-padding token embedding → matches signature extraction exactly
-                    _mask = (input_ids_wo_label != pad_token_id).long()  # (B, L), 1=real token
-                    _seq_lens = _mask.sum(dim=1) - 1                   # (B,)
-                    _B = inputs_embeds_for_query.size(0)
-                    _last_emb = inputs_embeds_for_query[torch.arange(_B, device=inputs_embeds_for_query.device), _seq_lens]  # (B, d)
+            n_prev = self.previous_prompts_keys.shape[0] if self.previous_prompts_keys is not None else 0
+            n_slots = 1 + n_prev
+            key_attention_weights = torch.zeros(
+                batch_size, n_slots, 1,
+                device=inputs_embeds.device, dtype=inputs_embeds.dtype,
+            )
 
-                    _h = _last_emb.detach().float().cpu().numpy()
-                    _pred, _ = self.srt_router.route(_h)
-                    _map = getattr(self, 'srt_task_id_to_idx', {})
-                    for b in range(batch_size):
-                        _idx = _map.get(_pred[b], 0)
-                        _idx = min(_idx, n_adapters - 1)
-                        key_attention_weights[b, _idx, 0] = 1.0
-                else:
-                    # ── Training: current adapter only (index 0) ──
-                    key_attention_weights[:, 0, 0] = 1.0
+            if self.training:
+                key_attention_weights[:, 0, 0] = 1.0
+            elif self.use_srt_routing and self.srt_router is not None and self.encoder_frozen is not None:
+                with torch.no_grad():
+                    route_embeddings = self.encoder_frozen(source_input_ids, source_attention_mask)
+                    route_inputs = route_embeddings.detach().float().cpu().numpy()
+
+                srt_preds, _ = self.srt_router.route(route_inputs)
+                for batch_idx, task_id in enumerate(srt_preds):
+                    slot_idx = self.srt_task_id_to_idx.get(task_id, 0)
+                    slot_idx = min(slot_idx, n_slots - 1)
+                    key_attention_weights[batch_idx, slot_idx, 0] = 1.0
             else:
-                # First task: only one adapter, weight = 1
-                avg_inputs_embeds = ((input_ids_wo_label != pad_token_id).long().unsqueeze(-1) * inputs_embeds_for_query).mean(dim=1, keepdim=True)
-                medium = self.trans_input[0](avg_inputs_embeds)
-                x = self.trans_input[2](self.trans_input[1](medium))
-                if self.get_trans_feature:
-                    self.get_matrix3(avg_inputs_embeds, medium, x)
-                key_attention_weights = torch.ones(
-                    batch_size, 1, 1,
-                    device=inputs_embeds.device, dtype=inputs_embeds.dtype,
+                key_attention_weights[:, 0, 0] = 1.0
+
+            self.key_attention_weights = key_attention_weights
+            if self.is_inference:
+                self.all_attn_weights.append(
+                    key_attention_weights.squeeze().mean(dim=0, keepdim=True)
+                    .detach().to(torch.float).cpu().numpy()
                 )
         # ═══════════ END SRT ROUTING ═══════════
 

@@ -49,7 +49,7 @@ from transformers.trainer_utils import get_last_checkpoint
 
 from cl_collator import DataCollator
 from cl_dataset import gen_cache_path
-from assets import task_config, lora_state_dict_A, lora_state_dict_B, lora_state_dict_s
+from assets import task_config, lora_state_dict_A, lora_state_dict_B
 
 from cl_trainer_gainlora_llama import DenserEvalCallback, skip_instructions
 from compute_metrics import compute_metrics, compute_grouped_metrics
@@ -621,11 +621,6 @@ def main():
         low_cpu_mem_usage=True,
         torch_dtype=torch.bfloat16 if training_args.bf16 else None,
     )
-    # NOTE: Bug 3 — encoder_frozen FrozenLlamaExtractor block REMOVED.
-    # SRT routing uses the model's own embed_tokens + input_ids_wo_label path in
-    # llama_gainlora.py; FrozenLlamaExtractor is used directly in
-    # sgwi_trainer_llama.py via extract_embeddings_from_batch() — no need to attach
-    # as an attribute here.
 
     # from transformers.models.llama.modeling_llama import LlamaForCausalLM
     # model = LlamaForCausalLM.from_pretrained(
@@ -672,6 +667,23 @@ def main():
         nn.init.uniform_(model.model.prompt_key.data, -1, 1)
         print("[FIX] Re-initialized LLaMA prompt_key with uniform(-1, 1)")
 
+    if training_args.use_srt_router:
+        from llama_inflora import FrozenLlamaExtractor
+
+        frozen_backbone = AutoModelForCausalLM.from_pretrained(
+            model_args.model_name_or_path,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+            token=True if model_args.use_auth_token else None,
+            use_safetensors=True,
+            low_cpu_mem_usage=True,
+            torch_dtype=torch.bfloat16 if training_args.bf16 else None,
+        )
+        frozen_backbone.resize_token_embeddings(len(tokenizer))
+        frozen_decoder = frozen_backbone.model if hasattr(frozen_backbone, 'model') else frozen_backbone
+        model.model.encoder_frozen = FrozenLlamaExtractor(frozen_decoder)
+        print(f"[SRT] Attached frozen LLaMA backbone from {model_args.model_name_or_path}")
+
     if 'llama' in model_args.model_name_or_path.lower():
         if not hasattr(model, "generation_config") or model.generation_config is None:
             # HF changed generation mixin wiring across versions; ensure this
@@ -686,9 +698,9 @@ def main():
         print("----------Loading Previous Query Projection Layer----------")
         model.model.trans_input.load_state_dict(torch.load(model_args.load_checkpoint_from, weights_only=True))
         # FIX Bug 5: Removed duplicate 'gainlora' — use single check.
-        if training_args.model_name == 'gainlora':
+        if training_args.model_name == 'gainlora' and hasattr(model.model, 'previous_trans_input'):
             model.model.previous_trans_input.input_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, weights_only=True)['0.weight'])
-            model.model.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, weights_only=True)['1.weight'])
+            model.model.previous_trans_input.output_linear[0].data.copy_(torch.load(model_args.load_checkpoint_from, weights_only=True)['2.weight'])
             # ipdb.set_trace()
             if cur_task_id > 1:
                 model.model.previous_trans_input.input_linear[1:].data.copy_(torch.load(model_args.load_checkpoint_from.replace('trans_input.pt', 'previous_trans_input.pt'), weights_only=True)['input_linear'])

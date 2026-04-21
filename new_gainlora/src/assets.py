@@ -70,10 +70,3 @@ def lora_state_dict_B(model: nn.Module, bias: str = 'none', task_name=None) -> D
         return to_return
     else:
         raise NotImplementedError
-    
-def lora_state_dict_s(model: nn.Module, bias: str = 'none', task_name=None) -> Dict[str, torch.Tensor]:
-    my_state_dict = model.state_dict()
-    if bias == 'none':
-        return {k: my_state_dict[k] for k in my_state_dict if 'lora_s' in k}
-    else:
-        raise NotImplementedError
