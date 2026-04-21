@@ -431,7 +431,15 @@ def main():
         # let's parse it to get our arguments.
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
-        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+        parsed = parser.parse_args_into_dataclasses(return_remaining_strings=True)
+        model_args, data_args, training_args, remaining_args = parsed
+        if remaining_args:
+            hint = ""
+            if "--gpu" in remaining_args:
+                hint = " `--gpu` is only supported by gen_script_superni_order1_llama_srt.sh, not by src/run_llama.py."
+            raise ValueError(
+                f"Unrecognized CLI args passed to run_llama.py: {remaining_args}.{hint}"
+            )
     training_args._frozen = False
 
     # Setup logging
