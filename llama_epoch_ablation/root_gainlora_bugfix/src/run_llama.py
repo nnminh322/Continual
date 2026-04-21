@@ -296,6 +296,10 @@ class DataTrainingArguments:
 
 @dataclass
 class TrainingArguments(Seq2SeqTrainingArguments):
+    overwrite_output_dir: bool = field(
+        default=False,
+        metadata={"help": "Overwrite the output directory content if it already exists."}
+    )
     gradient_checkpointing: Optional[bool] = field(
         default=False,
         metadata={"help": "Whether to use computing time to gain more memory"}
