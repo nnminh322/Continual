@@ -279,8 +279,9 @@ class LlamaAttention(nn.Module):
 
         self.index, self.step = chunk, self.hidden_size // chunk
         self.matrix, self.n_matrix = {}, {}
+        target_device = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else self.q_proj.weight.device
         for index in range(self.index):
-            self.matrix[index] = torch.zeros(self.step, self.step).cuda()
+            self.matrix[index] = torch.zeros(self.step, self.step, device=target_device, dtype=torch.float32)
             self.n_matrix[index] = 0
 
     def get_matrix3(self, x):
@@ -782,11 +783,12 @@ class LlamaModel(LlamaPreTrainedModel):
         self.index_trans, self.step_trans = chunk, self.config.hidden_size // chunk
         self.step, self.index = self.step_trans, self.index_trans
         self.matrix_trans_1, self.matrix_trans_3, self.n_trans_matrix = {}, {}, {}
+        target_device = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else self.prompt_key.device
         for index in range(self.index_trans):
-            self.matrix_trans_1[index] = torch.zeros(self.step_trans, self.step_trans).cuda()
-            self.matrix_trans_3[index] = torch.zeros(self.step_trans, self.step_trans).cuda()
+            self.matrix_trans_1[index] = torch.zeros(self.step_trans, self.step_trans, device=target_device, dtype=torch.float32)
+            self.matrix_trans_3[index] = torch.zeros(self.step_trans, self.step_trans, device=target_device, dtype=torch.float32)
             self.n_trans_matrix[index] = 0
-        self.matrix_trans_2 = self.matrix_trans_2.cuda()
+        self.matrix_trans_2 = torch.zeros(self.step_trans, self.step_trans, device=target_device, dtype=torch.float32)
 
     def get_matrix3(self, x, medium, x_final):
         for index in range(self.index_trans):
