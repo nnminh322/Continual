@@ -1,6 +1,7 @@
 import os
 import math
 import time
+import re
 import sys
 import shutil
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
@@ -369,6 +370,25 @@ class GainLoRATrainer(Seq2SeqTrainer):
         if hasattr(self.accelerator, "gather"):
             return self.accelerator.gather(tensors)
         return tensors
+
+    def _sorted_checkpoints(self, use_mtime=False, output_dir=None):
+        """Transformers v5 compat helper for local checkpoint ordering."""
+        run_dir = output_dir if output_dir is not None else self.args.output_dir
+        if run_dir is None or not os.path.isdir(run_dir):
+            return []
+
+        ordering_and_checkpoint_path = []
+        for name in os.listdir(run_dir):
+            full_path = os.path.join(run_dir, name)
+            if not os.path.isdir(full_path):
+                continue
+            match = re.match(r"^checkpoint-(\d+)$", name)
+            if match is None:
+                continue
+            sort_key = os.path.getmtime(full_path) if use_mtime else int(match.group(1))
+            ordering_and_checkpoint_path.append((sort_key, full_path))
+
+        return [path for _, path in sorted(ordering_and_checkpoint_path)]
 
     def load_previous_reg_matrix(self):
         paths = self.args.output_dir.split('/')
