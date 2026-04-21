@@ -3,6 +3,7 @@ import re
 import shutil
 import time
 import torch
+import torch.nn as nn
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from transformers import GenerationConfig
 from transformers.trainer_seq2seq import Seq2SeqTrainer
@@ -54,6 +55,31 @@ try:
     from transformers.trainer_pt_utils import IterableDatasetShard
 except ImportError:
     from torch.utils.data import IterableDataset as IterableDatasetShard
+
+# Compat: ALL_LAYERNORM_LAYERS moved/removed across transformers versions.
+try:
+    from transformers.trainer import ALL_LAYERNORM_LAYERS
+except ImportError:
+    try:
+        from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
+    except ImportError:
+        ALL_LAYERNORM_LAYERS = (nn.LayerNorm,)
+
+# Compat: get_parameter_names moved/removed across transformers versions.
+try:
+    from transformers.trainer import get_parameter_names
+except ImportError:
+    try:
+        from transformers.pytorch_utils import get_parameter_names
+    except ImportError:
+        def get_parameter_names(module, forbidden_layer_types: Tuple = (nn.LayerNorm,)) -> List[str]:
+            result = []
+            for name, child in module.named_modules():
+                if isinstance(child, tuple(forbidden_layer_types)):
+                    continue
+                for pname, _ in child.named_parameters(recurse=False):
+                    result.append(f"{name}.{pname}" if name else pname)
+            return result
 
 def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
     predictions_ids = np.where(predictions_ids == ignore_idx, tokenizer.pad_token_id, predictions_ids)
