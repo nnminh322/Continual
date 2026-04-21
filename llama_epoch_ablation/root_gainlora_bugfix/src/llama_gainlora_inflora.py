@@ -28,6 +28,10 @@ from torch import nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
 from transformers.activations import ACT2FN
+try:
+    from transformers.generation import GenerationMixin
+except ImportError:
+    from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast, SequenceClassifierOutputWithPast
 from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import add_start_docstrings, add_start_docstrings_to_model_forward, logging, replace_return_docstrings
@@ -82,7 +86,7 @@ class Trans_input(nn.Module):
 
         self.activation = nn.SiLU()
         # self.norm = nn.LayerNorm(d_model)
-    
+
     def forward(self, x):
         # ipdb.set_trace()
         x = x.unsqueeze(1)
@@ -96,8 +100,8 @@ class LoRALayer(nn.Module):
         self,
         in_features: int,
         out_features: int,
-        r: int, 
-        lora_alpha: int = 1, 
+        r: int,
+        lora_alpha: int = 1,
         lora_dropout: float = 0.
     ):
         super(LoRALayer, self).__init__()
@@ -116,17 +120,17 @@ class LoRALayer(nn.Module):
         else:
             self.lora_dropout = lambda x: x
         # Mark the weight as unmerged
-        
+
         self.lora_s = nn.Parameter(torch.randn(1))
         self.s_avg = torch.ones(1)
 
         self.reset_parameters()
-    
+
     def reset_parameters(self):
         # initialize A the same way as the default for nn.Linear and B to zero
         nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
         nn.init.zeros_(self.lora_B)
-    
+
     def forward(self, x: torch.Tensor):
         result = (self.lora_dropout(x) @ self.lora_A.transpose(0, 1) @ self.lora_B.transpose(0, 1)) * self.scaling
         return result.reshape(x.shape[0], -1, self.out_features)
@@ -223,7 +227,7 @@ class GetSubnetFaster(torch.autograd.Function):
     @staticmethod
     def backward(ctx, g):
         return g, None
-    
+
 # GetSubnetFaster.apply(lora_layer.s.abs(), lora_layer.s_avg)
 
 
@@ -304,7 +308,7 @@ class LlamaAttention(nn.Module):
         bsz, q_len, _ = hidden_states.size()
 
         def agg_lora_states(hidden_states, lora_layer, pre_lora_layer, key_attention_weights):
-            
+
             _, num_task, _ = key_attention_weights.size()
             if pre_lora_layer is not None and num_task > 1:
                 cur_lora_states = lora_layer(hidden_states).unsqueeze(0)
@@ -331,9 +335,9 @@ class LlamaAttention(nn.Module):
             query_states = (self.q_proj(hidden_states)+agg_lora_states(hidden_states, self.lora_q, self.previous_lora_weights_q, key_attention_weights)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         else:
             query_states = (self.q_proj(hidden_states)+self.lora_q(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        
+
         key_states = self.k_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        
+
         if key_attention_weights is not None:
             value_states = (self.v_proj(hidden_states)+agg_lora_states(hidden_states, self.lora_v, self.previous_lora_weights_v, key_attention_weights)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         else:
@@ -445,7 +449,7 @@ class LlamaAttention_NCL(nn.Module):
         bsz, q_len, _ = hidden_states.size()
 
         def agg_lora_states(hidden_states, lora_layer, pre_lora_layer, key_attention_weights):
-            
+
             _, num_task, _ = key_attention_weights.size()
             if pre_lora_layer is not None and num_task > 1:
                 # cur_lora_states = lora_layer(hidden_states).unsqueeze(0)
@@ -468,9 +472,9 @@ class LlamaAttention_NCL(nn.Module):
             query_states = (self.q_proj(hidden_states)+agg_lora_states(hidden_states, self.lora_q, self.previous_lora_weights_q, key_attention_weights)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         else:
             query_states = (self.q_proj(hidden_states)+GetSubnetFaster.apply(self.lora_q.lora_s.abs(), self.lora_q.s_avg) * self.lora_q(hidden_states)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        
+
         key_states = self.k_proj(hidden_states).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
-        
+
         if key_attention_weights is not None:
             value_states = (self.v_proj(hidden_states)+agg_lora_states(hidden_states, self.lora_v, self.previous_lora_weights_v, key_attention_weights)).view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         else:
@@ -735,7 +739,7 @@ class LlamaModel(LlamaPreTrainedModel):
         if not prompt_config["run_single"]:
 
             self.model_dim = config.hidden_size
-            
+
             self.prompt_key = nn.Parameter(torch.randn((1, config.hidden_size)))
             nn.init.uniform_(self.prompt_key, -1, 1)
 
@@ -801,7 +805,7 @@ class LlamaModel(LlamaPreTrainedModel):
             self.matrix_trans_2 = torch.bmm(medium.detach().permute(0, 2, 1), medium.detach()).sum(dim=0).float()/(medium.shape[0]*medium.shape[1])
         else:
             self.matrix_trans_2 = (self.matrix_trans_2*self.n_trans_matrix[index] + torch.bmm(medium.detach().permute(0, 2, 1), medium.detach()).sum(dim=0).float())/(self.n_trans_matrix[index] + medium.shape[0]*medium.shape[1])
-            
+
         return
 
     def get_input_embeddings(self):
@@ -833,20 +837,20 @@ class LlamaModel(LlamaPreTrainedModel):
             )
 
         return combined_attention_mask
-    
+
     def cal_attention(self, prompt_key, x, return_logits=False):
-        
+
         # avg_inputs_embeds = text_input.max(dim=1, keepdim=True).values
         # x = trans_input(avg_inputs_embeds)
-        
+
         if self.prompt_config["attn_temperature"] == 1:
             attn_temperature = math.sqrt(self.model_dim)
         else:
             attn_temperature = math.sqrt(2*self.model_dim)
-        
+
         x=x/x.norm(dim=-1,keepdim=True)
         prompt_key = prompt_key/prompt_key.norm(dim=-1,keepdim=True)
-        
+
         # attn_scores = prompt_key.bmm(
         #     x.transpose(1, 2))
 
@@ -859,7 +863,7 @@ class LlamaModel(LlamaPreTrainedModel):
         weights = torch.abs(torch.nn.functional.sigmoid(attn_scores*4)*2-1)
         # if not return_logits:
         if not return_logits:
-            return weights  
+            return weights
         else:
             return attn_scores  # shape (B, L, 1)
 
@@ -930,7 +934,7 @@ class LlamaModel(LlamaPreTrainedModel):
                     "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
                 )
                 use_cache = False
-        
+
         #####################
         key_attention_weights = None
         if not self.prompt_config["run_single"]:
@@ -984,7 +988,7 @@ class LlamaModel(LlamaPreTrainedModel):
         for idx, decoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
-            
+
             past_key_value = past_key_values[idx] if past_key_values is not None else None
 
             if self.gradient_checkpointing and self.training:
@@ -1039,7 +1043,7 @@ class LlamaModel(LlamaPreTrainedModel):
         )
 
 
-class LlamaForCausalLM(LlamaPreTrainedModel):
+class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
     def __init__(self, config, prompt_config):
         super().__init__(config)
         self.model = LlamaModel(config, prompt_config)
@@ -1070,13 +1074,13 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
     def memory_replay(self, input_ids, replay_labels):
         kl_loss = None
         if replay_labels is not None:
-            
+
             inputs_embeds = self.model.embed_tokens(input_ids)
             k = input_ids.shape[0]
             kl_loss_fct = nn.KLDivLoss(reduction="batchmean")
-            
+
             pre_prompt_key = torch.cat([self.model.prompt_key.repeat(k, 1, 1), self.model.previous_prompts_keys.repeat(k, 1, 1)], dim=1)
-        
+
             attn_scores = self.model.cal_attention(pre_prompt_key, inputs_embeds, return_logits=True)
 
             kl_loss = kl_loss_fct(torch.nn.functional.log_softmax(attn_scores.squeeze(2), 1), replay_labels.squeeze().repeat(k, 1))
