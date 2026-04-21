@@ -14,6 +14,28 @@ MODEL_PATH="${1:-meta-llama/Llama-2-7b-hf}"
 GPU_IDS="${2:-0}"
 MASTER_PORT="${3:-49500}"
 
+resolve_deepspeed_launcher() {
+    if command -v "$DEEPSPEED_BIN" >/dev/null 2>&1; then
+        printf '%s
+' "$DEEPSPEED_BIN"
+        return 0
+    fi
+
+    if "$PYTHON_BIN" -c "import deepspeed.launcher.runner" >/dev/null 2>&1; then
+        printf '%s
+' "$PYTHON_BIN -m deepspeed.launcher.runner"
+        return 0
+    fi
+
+    echo "Could not find a runnable DeepSpeed launcher." >&2
+    echo "Tried CLI: $DEEPSPEED_BIN" >&2
+    echo "Tried module: $PYTHON_BIN -m deepspeed.launcher.runner" >&2
+    echo "Set DEEPSPEED_BIN explicitly or install deepspeed into the active environment." >&2
+    return 1
+}
+
+DEEPSPEED_LAUNCHER=$(resolve_deepspeed_launcher)
+
 RUN_NAME="gen_script_superni_order1_llama_gainlora_inflora_rootbugfix"
 BASE_OUT="$WORKSPACE_DIR/llama_epoch_ablation/logs_and_outputs/$RUN_NAME"
 
@@ -22,6 +44,7 @@ mkdir -p "$BASE_OUT/outputs"
 echo "[ROOT-ORDER1] model_path=$MODEL_PATH"
 echo "[ROOT-ORDER1] gpu_ids=$GPU_IDS"
 echo "[ROOT-ORDER1] master_port=$MASTER_PORT"
+echo "[ROOT-ORDER1] deepspeed_launcher=$DEEPSPEED_LAUNCHER"
 echo "[ROOT-ORDER1] output_root=$BASE_OUT"
 echo "============================================================"
 

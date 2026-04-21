@@ -18,6 +18,24 @@ RUN_NAME="root_task1572_gainlora_inflora_bugfix"
 OUT_DIR="$SCRIPT_DIR/logs_and_outputs/$RUN_NAME/outputs/1-task1572_samsum_summary"
 LOG_FILE="$LOG_DIR/${RUN_NAME}_$(date +%Y%m%d_%H%M%S).log"
 
+resolve_deepspeed_launcher() {
+    if command -v "$DEEPSPEED_BIN" >/dev/null 2>&1; then
+        printf '%s\n' "$DEEPSPEED_BIN"
+        return 0
+    fi
+
+    if "$PYTHON_BIN" -c "import deepspeed.launcher.runner" >/dev/null 2>&1; then
+        printf '%s\n' "$PYTHON_BIN -m deepspeed.launcher.runner"
+        return 0
+    fi
+
+    echo "Could not find a runnable DeepSpeed launcher." >&2
+    echo "Tried CLI: $DEEPSPEED_BIN" >&2
+    echo "Tried module: $PYTHON_BIN -m deepspeed.launcher.runner" >&2
+    echo "Set DEEPSPEED_BIN explicitly or install deepspeed into the active environment." >&2
+    return 1
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --model_path)  MODEL_PATH="$2"; shift 2 ;;
@@ -32,8 +50,10 @@ done
 
 mkdir -p "$OUT_DIR"
 
+DEEPSPEED_LAUNCHER=$(resolve_deepspeed_launcher)
+
 CMD=(
-    "$DEEPSPEED_BIN" --include "localhost:${GPU_IDS}" --master_port "$MASTER_PORT" "$ROOT_BASE/src/run_llama.py"
+    ${DEEPSPEED_LAUNCHER} --include "localhost:${GPU_IDS}" --master_port "$MASTER_PORT" "$ROOT_BASE/src/run_llama.py"
     --do_train
     --do_predict
     --predict_with_generate
@@ -91,6 +111,7 @@ chmod +x "$OUT_DIR/launch_command.sh"
     echo "[ROOT-T1572] model_path=$MODEL_PATH"
     echo "[ROOT-T1572] gpu_ids=$GPU_IDS"
     echo "[ROOT-T1572] master_port=$MASTER_PORT"
+    echo "[ROOT-T1572] deepspeed_launcher=$DEEPSPEED_LAUNCHER"
     echo "[ROOT-T1572] output_dir=$OUT_DIR"
     printf '[ROOT-T1572] command='
     printf '%q ' "${CMD[@]}"
