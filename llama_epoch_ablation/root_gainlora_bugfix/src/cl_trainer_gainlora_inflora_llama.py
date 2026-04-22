@@ -229,7 +229,9 @@ def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
                 splits = pred.split(ANSWER_PREFIX)
                 final_predictions.append(splits[-1].strip())
             else:
-                final_predictions.append('')
+                # Some decoder runs return generated tokens without echoing the prompt prefix.
+                # Falling back to raw decoded text avoids forcing empty predictions and zero metrics.
+                final_predictions.append(pred.strip())
     else:
         final_predictions = predictions
 
