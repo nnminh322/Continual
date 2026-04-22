@@ -87,9 +87,7 @@ CMD=(
     --logging_steps 10
     --metric_for_best_model eval_rougeL
     --eval_strategy steps
-    --save_strategy steps
-    --save_total_limit 1
-    --load_best_model_at_end
+    --save_strategy no
     --lora_r 4
     --lora_alpha 32
     --lora_dropout 0.0
