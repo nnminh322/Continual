@@ -1681,14 +1681,22 @@ class GainLoRATrainer(Seq2SeqTrainer):
                     self.model.model.trans_input[2].weight.data.copy_(new_trans_input_1)
                     self.model.model.prompt_key.data.copy_(new_prompt_key)
 
-                if (
-                    args.logging_nan_inf_filter
-                    and not is_torch_tpu_available()
-                    and (torch.isnan(tr_loss_step) or torch.isinf(tr_loss_step))
-                ):
-                    # if loss is nan or inf simply add the average of previous logged losses
+                nan_or_inf_loss = torch.isnan(tr_loss_step) or torch.isinf(tr_loss_step)
+                if args.logging_nan_inf_filter and not is_torch_tpu_available() and nan_or_inf_loss:
+                    # Keep one-step smoothing for logging continuity, but fail fast if instability persists.
+                    self._nan_loss_steps = getattr(self, "_nan_loss_steps", 0) + 1
+                    logger.warning(
+                        "Detected NaN/Inf training loss at global_step=%s (consecutive=%s)",
+                        self.state.global_step,
+                        self._nan_loss_steps,
+                    )
                     tr_loss += tr_loss / (1 + self.state.global_step - self._globalstep_last_logged)
+                    if self._nan_loss_steps >= 3:
+                        raise FloatingPointError(
+                            f"NaN/Inf training loss repeated {self._nan_loss_steps} consecutive steps; aborting to avoid silent failure."
+                        )
                 else:
+                    self._nan_loss_steps = 0
                     tr_loss += tr_loss_step
 
                 self.current_flos += float(self.floating_point_ops(inputs))

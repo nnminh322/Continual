@@ -378,6 +378,7 @@ class LlamaAttention(nn.Module):
 
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+        attn_weights = torch.nan_to_num(attn_weights, nan=0.0, posinf=0.0, neginf=0.0)
         attn_output = torch.matmul(attn_weights, value_states)
 
         if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
@@ -515,6 +516,7 @@ class LlamaAttention_NCL(nn.Module):
 
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+        attn_weights = torch.nan_to_num(attn_weights, nan=0.0, posinf=0.0, neginf=0.0)
         attn_output = torch.matmul(attn_weights, value_states)
 
         if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
@@ -853,24 +855,32 @@ class LlamaModel(LlamaPreTrainedModel):
         else:
             attn_temperature = math.sqrt(2*self.model_dim)
 
-        x=x/x.norm(dim=-1,keepdim=True)
-        prompt_key = prompt_key/prompt_key.norm(dim=-1,keepdim=True)
+        x = x / x.norm(dim=-1, keepdim=True).clamp_min(1e-4)
+        prompt_key = prompt_key / prompt_key.norm(dim=-1, keepdim=True).clamp_min(1e-4)
 
         # attn_scores = prompt_key.bmm(
         #     x.transpose(1, 2))
 
         attn_scores = (x*prompt_key).sum(dim=-1, keepdim=True)
+        attn_scores = torch.nan_to_num(attn_scores, nan=0.0, posinf=0.0, neginf=0.0)
         # attn_scores = torch.nn.functional.cosine_similarity(
         #     x,
         #     prompt_key, dim=-1
         # ).unsqueeze(2)
         # weights = torch.nn.functional.sigmoid(attn_scores*4)
         weights = torch.abs(torch.nn.functional.sigmoid(attn_scores*4)*2-1)
+        weights = torch.nan_to_num(weights, nan=0.0, posinf=1.0, neginf=0.0)
         # if not return_logits:
         if not return_logits:
             return weights
         else:
             return attn_scores  # shape (B, L, 1)
+
+    def _masked_mean_embeddings(self, input_ids, inputs_embeds):
+        pad_id = self.config.pad_token_id if self.config.pad_token_id is not None else 1
+        non_pad_mask = (input_ids != pad_id).unsqueeze(-1).to(inputs_embeds.dtype)
+        denom = non_pad_mask.sum(dim=1, keepdim=True).clamp_min(1.0)
+        return (non_pad_mask * inputs_embeds).sum(dim=1, keepdim=True) / denom
 
     @add_start_docstrings_to_model_forward(LLAMA_INPUTS_DOCSTRING)
     def forward(
@@ -953,7 +963,7 @@ class LlamaModel(LlamaPreTrainedModel):
 
                 # avg_inputs_embeds = inputs_embeds_for_query.max(dim=1, keepdim=True).values
                 # avg_inputs_embeds = inputs_embeds_for_query.mean(dim=1, keepdim=True)
-                avg_inputs_embeds = ((input_ids_wo_label!=1).long().unsqueeze(-1)*inputs_embeds_for_query).mean(dim=1, keepdim=True)
+                avg_inputs_embeds = self._masked_mean_embeddings(input_ids_wo_label, inputs_embeds_for_query)
                 medium = self.trans_input[0](avg_inputs_embeds)
                 x = self.trans_input[2](self.trans_input[1](medium))
 
@@ -971,7 +981,7 @@ class LlamaModel(LlamaPreTrainedModel):
 
                 # avg_inputs_embeds = inputs_embeds_for_query.max(dim=1, keepdim=True).values
                 # avg_inputs_embeds = inputs_embeds_for_query.mean(dim=1, keepdim=True)
-                avg_inputs_embeds = ((input_ids_wo_label!=1).long().unsqueeze(-1)*inputs_embeds_for_query).mean(dim=1, keepdim=True)
+                avg_inputs_embeds = self._masked_mean_embeddings(input_ids_wo_label, inputs_embeds_for_query)
                 medium = self.trans_input[0](avg_inputs_embeds)
                 x = self.trans_input[2](self.trans_input[1](medium))
 

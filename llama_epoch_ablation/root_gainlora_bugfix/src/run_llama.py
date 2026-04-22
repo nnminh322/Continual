@@ -536,6 +536,33 @@ def main():
     model.persent = training_args.persent
     model.resize_token_embeddings(len(tokenizer))
 
+    # FIX: from_pretrained may construct custom modules under no_init_weights,
+    # leaving LoRA/trans_input parameters zero or uninitialized on the LLaMA path.
+    _n_reinit = 0
+    for _module in model.modules():
+        if hasattr(_module, 'lora_A') and hasattr(_module, 'lora_B') and hasattr(_module, 'reset_parameters'):
+            _module.reset_parameters()
+            # Keep LoRA-B exactly zero at initialization by design.
+            nn.init.zeros_(_module.lora_B)
+            _n_reinit += 1
+    print(f"[FIX] Re-initialized lora_A/lora_B in {_n_reinit} LLaMA LoRA layers")
+
+    if hasattr(model, 'model') and hasattr(model.model, 'trans_input'):
+        _n_linear = 0
+        for _layer in model.model.trans_input:
+            if isinstance(_layer, nn.Linear):
+                nn.init.kaiming_uniform_(_layer.weight, a=math.sqrt(5))
+                if _layer.bias is not None:
+                    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(_layer.weight)
+                    bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+                    nn.init.uniform_(_layer.bias, -bound, bound)
+                _n_linear += 1
+        print(f"[FIX] Re-initialized {_n_linear} LLaMA trans_input Linear layers")
+
+    if hasattr(model, 'model') and hasattr(model.model, 'prompt_key'):
+        nn.init.uniform_(model.model.prompt_key.data, -1, 1)
+        print("[FIX] Re-initialized LLaMA prompt_key with uniform(-1, 1)")
+
     if 'llama' in model_args.model_name_or_path.lower():
         if getattr(model, "generation_config", None) is None:
             model.generation_config = GenerationConfig.from_model_config(model.config)
