@@ -72,7 +72,7 @@ CMD=(
     --gradient_accumulation_steps 16
     --learning_rate 1e-4
     --attn_lr 0.0
-    --num_train_epochs 100
+    --num_train_epochs 30
     --bf16
     --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config"
     --run_name "$RUN_NAME"
