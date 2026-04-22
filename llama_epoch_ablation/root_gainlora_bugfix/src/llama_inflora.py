@@ -976,6 +976,43 @@ class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
     def get_decoder(self):
         return self.model
 
+    def generate(
+        self,
+        input_ids: torch.LongTensor = None,
+        input_ids_wo_label: Optional[torch.LongTensor] = None,
+        generation_config=None,
+        logits_processor=None,
+        stopping_criteria=None,
+        prefix_allowed_tokens_fn=None,
+        synced_gpus=None,
+        assistant_model=None,
+        streamer=None,
+        negative_prompt_ids=None,
+        negative_prompt_attention_mask=None,
+        **kwargs,
+    ):
+        # Transformers 5 generation defaults to DynamicCache, but this copied
+        # legacy LLaMA path only supports tuple-style KV caches.
+        if generation_config is not None:
+            generation_config.use_cache = False
+            kwargs.pop("use_cache", None)
+        else:
+            kwargs["use_cache"] = False
+        return super().generate(
+            input_ids=input_ids,
+            input_ids_wo_label=input_ids_wo_label,
+            generation_config=generation_config,
+            logits_processor=logits_processor,
+            stopping_criteria=stopping_criteria,
+            prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+            synced_gpus=synced_gpus,
+            assistant_model=assistant_model,
+            streamer=streamer,
+            negative_prompt_ids=negative_prompt_ids,
+            negative_prompt_attention_mask=negative_prompt_attention_mask,
+            **kwargs,
+        )
+
     def memory_replay(self, input_ids, replay_labels):
         kl_loss = None
         if replay_labels is not None:
