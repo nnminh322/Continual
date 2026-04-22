@@ -737,6 +737,16 @@ def main():
     def compute_rouge_metrics(dataset, preds, save_prefix=None):
         decoded_preds = skip_instructions(model, preds, tokenizer)
         references = [e["Instance"]["label"] for e in dataset]
+        empty_pred_count = sum(1 for pred in decoded_preds if len(pred.strip()) == 0)
+        if empty_pred_count > 0:
+            logger.warning(
+                "Empty decoded predictions: %s/%s (prefix=%s)",
+                empty_pred_count,
+                len(decoded_preds),
+                save_prefix,
+            )
+            if empty_pred_count == len(decoded_preds):
+                logger.warning("All decoded predictions are empty; generation likely stopped at EOS immediately.")
         result = compute_metrics(predictions=decoded_preds, references=references)
         result_per_task = compute_grouped_metrics(predictions=decoded_preds, references=references,
                                                   groups=dataset["Task"])

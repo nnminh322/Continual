@@ -229,9 +229,9 @@ def skip_instructions(model, predictions_ids, tokenizer, ignore_idx=-100):
                 splits = pred.split(ANSWER_PREFIX)
                 final_predictions.append(splits[-1].strip())
             else:
-                # Some decoder runs return generated tokens without echoing the prompt prefix.
-                # Falling back to raw decoded text avoids forcing empty predictions and zero metrics.
-                final_predictions.append(pred.strip())
+                # Be tolerant to minor format drift like "output :" or uppercase variants.
+                fallback_splits = re.split(r"(?i)\\boutput\\s*:\\s*", pred)
+                final_predictions.append(fallback_splits[-1].strip())
     else:
         final_predictions = predictions
 
@@ -1302,6 +1302,10 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
 
         if generated_tokens.shape[-1] < max_length:
             generated_tokens = self._pad_tensors_to_max_len(generated_tokens, max_length)
+
+        # Decoder-only metrics should score only newly generated continuation, not the echoed prompt.
+        if check_model(self.model.config._name_or_path, SUPPORTED_DECODER_MODELS):
+            generated_tokens = generated_tokens[:, source_len:]
 
         with torch.no_grad():
             if has_loss_labels:
