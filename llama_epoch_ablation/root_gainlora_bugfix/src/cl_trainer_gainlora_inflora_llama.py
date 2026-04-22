@@ -244,6 +244,22 @@ def create_memory_replay_generators(task, task_list, replay_data_dict, split='tr
         tasks_to_generators[prev_task] = iter(replay_data_dict[prev_task])
     return tasks_to_generators
 
+
+class _NoOpLRScheduler:
+    """Fallback scheduler for DeepSpeed paths that return `None`."""
+
+    def step(self):
+        return None
+
+    def state_dict(self):
+        return {}
+
+    def load_state_dict(self, state_dict):
+        return None
+
+    def get_last_lr(self):
+        return []
+
 class DenserEvalCallback(TrainerCallback):
 
     def on_step_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
@@ -1334,6 +1350,8 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
 
         if self.is_deepspeed_enabled:
             self.optimizer, self.lr_scheduler = deepspeed_init(self, num_training_steps=max_steps)
+            if self.lr_scheduler is None:
+                self.lr_scheduler = _NoOpLRScheduler()
 
         if not delay_optimizer_creation and not self.is_deepspeed_enabled:
             self.create_optimizer_and_scheduler(num_training_steps=max_steps)
