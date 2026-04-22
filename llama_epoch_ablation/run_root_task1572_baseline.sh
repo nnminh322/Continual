@@ -69,14 +69,14 @@ CMD=(
     --output_dir "$OUT_DIR"
     --per_device_train_batch_size 1
     --per_device_eval_batch_size 1
-    --gradient_accumulation_steps 16
-    --learning_rate 1e-4
+    --gradient_accumulation_steps 32
+    --learning_rate 5e-05
     --attn_lr 0.0
-    --num_train_epochs 30
+    --num_train_epochs 50
     --bf16
     --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config"
     --run_name "$RUN_NAME"
-    --max_source_length 768
+    --max_source_length 1024
     --max_target_length 50
     --generation_max_length 50
     --add_task_name False
@@ -84,14 +84,16 @@ CMD=(
     --overwrite_output_dir
     --overwrite_cache
     --lr_scheduler_type constant
-    --warmup_steps 50
+    --warmup_steps 0
     --logging_strategy steps
     --logging_steps 10
     --metric_for_best_model eval_rougeL
     --eval_strategy steps
-    --save_strategy no
-    --lora_r 16
-    --lora_alpha 16
+    --save_strategy steps
+    --save_total_limit 1
+    --load_best_model_at_end
+    --lora_r 4
+    --lora_alpha 32
     --lora_dropout 0.0
     --data_replay_freq -1
     --replay_after_n_epoch 0
