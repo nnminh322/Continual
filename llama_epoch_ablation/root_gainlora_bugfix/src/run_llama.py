@@ -760,6 +760,11 @@ def main():
         # DEBUG: print first few predictions vs references
         logger.warning("=== DEBUG PREDICTIONS (prefix=%s) ===", save_prefix)
         for i in range(min(3, len(decoded_preds))):
+            # Print raw token IDs to diagnose mode collapse (e.g. all token 29889 = '.')
+            raw_ids = preds[i].tolist() if hasattr(preds[i], 'tolist') else list(preds[i])
+            logger.warning("  [%d] RAW IDS: %s", i, raw_ids[:20])
+            raw_text = tokenizer.decode(raw_ids, skip_special_tokens=False)
+            logger.warning("  [%d] RAW TEXT (no skip): %r", i, raw_text[:200])
             logger.warning("  [%d] PRED : %r", i, decoded_preds[i][:200])
             logger.warning("  [%d] REF  : %r", i, references[i][:200])
         logger.warning("=== END DEBUG ===")

@@ -82,14 +82,14 @@ CMD=(
     --overwrite_output_dir
     --overwrite_cache
     --lr_scheduler_type constant
-    --warmup_steps 0
+    --warmup_steps 100
     --logging_strategy steps
     --logging_steps 10
     --metric_for_best_model eval_rougeL
     --eval_strategy steps
     --save_strategy no
     --lora_r 4
-    --lora_alpha 32
+    --lora_alpha 8
     --lora_dropout 0.0
     --data_replay_freq -1
     --replay_after_n_epoch 0
