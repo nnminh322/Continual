@@ -991,7 +991,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         # Do this before wrapping.
         eval_dataset = dataloader.dataset
 
-        if args.past_index >= 0:
+        if getattr(args, "past_index", -1) >= 0:
             self._past = None
 
         # Initialize containers
@@ -1052,7 +1052,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 # Set back to None to begin a new accumulation
                 losses_host, preds_host, labels_host = None, None, None
 
-        if args.past_index and hasattr(self, "_past"):
+        if getattr(args, "past_index", None) and hasattr(self, "_past"):
             # Clean the state at the end of the evaluation loop
             delattr(self, "_past")
 
@@ -1500,7 +1500,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 epoch_iterator = train_dataloader
 
             # Reset the past mems state at the beginning of each epoch if necessary.
-            if args.past_index >= 0:
+            if getattr(args, "past_index", -1) >= 0:
                 self._past = None
 
             steps_in_epoch = (
@@ -1754,7 +1754,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
             if self.control.should_training_stop:
                 break
 
-        if args.past_index and hasattr(self, "_past"):
+        if getattr(args, "past_index", None) and hasattr(self, "_past"):
             # Clean the state at the end of training
             delattr(self, "_past")
 
