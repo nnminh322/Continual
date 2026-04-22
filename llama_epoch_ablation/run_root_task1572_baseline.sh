@@ -67,10 +67,10 @@ CMD=(
     --output_dir "$OUT_DIR"
     --per_device_train_batch_size 1
     --per_device_eval_batch_size 1
-    --gradient_accumulation_steps 4
-    --learning_rate 5e-05
+    --gradient_accumulation_steps 16
+    --learning_rate 3e-4
     --attn_lr 0.0
-    --num_train_epochs 10
+    --num_train_epochs 100
     --bf16
     --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config"
     --run_name "$RUN_NAME"
