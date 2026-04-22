@@ -14,6 +14,7 @@ DEEPSPEED_BIN="${DEEPSPEED_BIN:-deepspeed}"
 MODEL_PATH="meta-llama/Llama-2-7b-hf"
 GPU_IDS="0"
 MASTER_PORT="49500"
+NUM_TRAIN_EPOCHS="${NUM_TRAIN_EPOCHS:-5}"
 RUN_NAME="root_task1572_gainlora_inflora_bugfix"
 OUT_DIR="$SCRIPT_DIR/logs_and_outputs/$RUN_NAME/outputs/1-task1572_samsum_summary"
 LOG_FILE="$LOG_DIR/${RUN_NAME}_$(date +%Y%m%d_%H%M%S).log"
@@ -41,6 +42,7 @@ while [[ $# -gt 0 ]]; do
         --model_path)  MODEL_PATH="$2"; shift 2 ;;
         --gpu_ids)     GPU_IDS="$2"; shift 2 ;;
         --master_port) MASTER_PORT="$2"; shift 2 ;;
+        --num_train_epochs) NUM_TRAIN_EPOCHS="$2"; shift 2 ;;
         *)
             echo "Unknown argument: $1" >&2
             exit 1
@@ -66,7 +68,7 @@ CMD=(
     --per_device_eval_batch_size 8
     --gradient_accumulation_steps 16
     --learning_rate 5e-05
-    --num_train_epochs 50
+    --num_train_epochs "$NUM_TRAIN_EPOCHS"
     --bf16
     --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config"
     --run_name "$RUN_NAME"
@@ -111,6 +113,7 @@ chmod +x "$OUT_DIR/launch_command.sh"
     echo "[ROOT-T1572] model_path=$MODEL_PATH"
     echo "[ROOT-T1572] gpu_ids=$GPU_IDS"
     echo "[ROOT-T1572] master_port=$MASTER_PORT"
+    echo "[ROOT-T1572] num_train_epochs=$NUM_TRAIN_EPOCHS"
     echo "[ROOT-T1572] deepspeed_launcher=$DEEPSPEED_LAUNCHER"
     echo "[ROOT-T1572] output_dir=$OUT_DIR"
     printf '[ROOT-T1572] command='
