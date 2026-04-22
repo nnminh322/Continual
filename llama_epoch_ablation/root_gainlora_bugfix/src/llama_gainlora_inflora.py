@@ -987,7 +987,10 @@ class LlamaModel(LlamaPreTrainedModel):
                 if self.get_trans_feature:
                     self.get_matrix3(avg_inputs_embeds, medium, x)
 
-                key_attention_weights = self.cal_attention(prompt_key.repeat(batch_size, 1, 1), x)
+                # For task 1 (single adapter, no previous tasks), routing weight must be 1.
+                # cal_attention returns ~0 when prompt_key and x are randomly initialized
+                # (cosine_sim≈0 → |sigmoid(0)*2-1|=0) and grad of |x| at x=0 is 0 → stuck forever.
+                key_attention_weights = torch.ones(batch_size, 1, 1, device=prompt_key.device, dtype=prompt_key.dtype)
 
                 if self.is_inference:
                     self.all_attn_weights.append(key_attention_weights.squeeze(2).mean(dim=0).detach().to(torch.float).cpu().numpy())
