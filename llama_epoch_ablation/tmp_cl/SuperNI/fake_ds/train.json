@@ -1,0 +1,7 @@
+{
+  "Definition": "A simple test dataset",
+  "Instances": [
+    {"input": "Hello world", "output": "Hi there"}
+  ],
+  "Positive Examples": []
+}

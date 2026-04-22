@@ -48,7 +48,7 @@ from transformers import (
 from transformers.trainer_utils import get_last_checkpoint
 
 from cl_collator import DataCollator
-from cl_dataset import CLInstructions, gen_cache_path
+from cl_dataset import CLInstructions, gen_cache_path, CLConfig
 from assets import task_config, lora_state_dict_A, lora_state_dict_B, lora_state_dict_s
 
 from cl_trainer_gainlora_inflora_llama import DenserEvalCallback, skip_instructions
@@ -430,14 +430,34 @@ def main():
     cur_task = data_args.task_config_dir.split('/')[-1]
     cur_task_id = task_order.index(cur_task)
 
-    raw_datasets = load_dataset(
-        os.path.join(CURRENT_DIR, "cl_dataset.py"),
-        data_dir=os.path.abspath(data_args.data_dir) if data_args.data_dir else None,
-        task_config_dir=os.path.abspath(data_args.task_config_dir) if data_args.task_config_dir else None,
-        max_num_instances_per_task=data_args.max_num_instances_per_task,
-        max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
-        num_examples=data_args.num_examples,
-    )
+    # The datasets library no longer supports loading local dataset scripts directly.
+    # Use the CLInstructions generator to build Dataset objects for each split instead.
+    task_configs = CLConfig.parse_task_config(os.path.abspath(data_args.task_config_dir)
+                                              if data_args.task_config_dir else None)
+    if task_configs is None:
+        raise ValueError('Please provide a valid task_config_dir for CL dataset configs')
+
+    builder = CLInstructions()
+
+    def _build_split(inst_task_config, max_instances, subset_name):
+        instances = []
+        for _key, sample in builder._generate_examples(
+                path=os.path.abspath(data_args.data_dir) if data_args.data_dir else None,
+                task_config=inst_task_config,
+                max_num_instances_per_task=max_instances,
+                subset=subset_name):
+            instances.append(sample)
+        return instances
+
+    train_list = _build_split(task_configs['train'], data_args.max_num_instances_per_task, 'train')
+    valid_list = _build_split(task_configs['dev'], data_args.max_num_instances_per_eval_task, 'dev')
+    test_list = _build_split(task_configs['test'], None, 'test')
+
+    raw_datasets = datasets.DatasetDict({
+        'train': datasets.Dataset.from_list(train_list),
+        'validation': datasets.Dataset.from_list(valid_list),
+        'test': datasets.Dataset.from_list(test_list),
+    })
     raw_datasets.cleanup_cache_files()
     print(raw_datasets)
 
