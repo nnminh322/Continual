@@ -18,6 +18,9 @@ RUN_NAME="root_task1572_gainlora_inflora_bugfix"
 OUT_DIR="$SCRIPT_DIR/logs_and_outputs/$RUN_NAME/outputs/1-task1572_samsum_summary"
 LOG_FILE="$LOG_DIR/${RUN_NAME}_$(date +%Y%m%d_%H%M%S).log"
 
+# reduce GPU memory pressure for quick local test (override for full runs)
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 resolve_deepspeed_launcher() {
     if command -v "$DEEPSPEED_BIN" >/dev/null 2>&1; then
         printf '%s\n' "$DEEPSPEED_BIN"
@@ -62,18 +65,18 @@ CMD=(
     --task_order "task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification"
     --task_config_dir "$ROOT_BASE/configs/gen_script_superni_order1_llama_configs/task1572_samsum_summary"
     --output_dir "$OUT_DIR"
-    --per_device_train_batch_size 2
-    --per_device_eval_batch_size 8
-    --gradient_accumulation_steps 16
+    --per_device_train_batch_size 1
+    --per_device_eval_batch_size 1
+    --gradient_accumulation_steps 1
     --learning_rate 5e-05
     --attn_lr 0.0
-    --num_train_epochs 10
+    --num_train_epochs 1
     --bf16
     --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config"
     --run_name "$RUN_NAME"
-    --max_source_length 1024
-    --max_target_length 50
-    --generation_max_length 50
+    --max_source_length 512
+    --max_target_length 20
+    --generation_max_length 20
     --add_task_name False
     --add_dataset_name False
     --overwrite_output_dir
@@ -95,7 +98,7 @@ CMD=(
     --kl_ratio 1
     --attn_temperature 1
     --trans_hidden_dim 50
-    --chunk 4
+    --chunk 1
     --model_name gainlora_inflora
     --threshold 0.995
     --transthreshold 0.995
