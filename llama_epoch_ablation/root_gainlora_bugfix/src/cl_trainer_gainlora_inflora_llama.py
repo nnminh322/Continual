@@ -305,6 +305,9 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         self.replay_label_dict = replay_label_dict
         self.task_order = task_order
         self.cur_task_id = cur_task_id
+        # _cur_task is set by get_reg_matrix()/get_repsentation() via load_previous_reg_matrix().
+        # Initialize to 0 so training_loop code is safe when SKIP_GPM=1 skips get_reg_matrix().
+        self._cur_task = 0
 
         if self.args.data_replay_freq != -1:
             seed = self.args.data_seed if self.args.data_seed is not None else self.args.seed
