@@ -1332,12 +1332,6 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
 
         if self.is_deepspeed_enabled:
             self.optimizer, self.lr_scheduler = deepspeed_init(self, num_training_steps=max_steps)
-            if self.lr_scheduler is None:
-                if IS_SAGEMAKER_MP_POST_1_10 and smp.state.cfg.fp16:
-                    scheduler_optimizer = self.optimizer.optimizer
-                else:
-                    scheduler_optimizer = self.optimizer
-                self.create_scheduler(num_training_steps=max_steps, optimizer=scheduler_optimizer)
 
         if not delay_optimizer_creation and not self.is_deepspeed_enabled:
             self.create_optimizer_and_scheduler(num_training_steps=max_steps)
@@ -1673,7 +1667,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                         self.optimizer.step()
                         optimizer_was_run = not self.accelerator.optimizer_step_was_skipped
 
-                    if optimizer_was_run and self.lr_scheduler is not None:
+                    if optimizer_was_run and callable(getattr(self.lr_scheduler, "step", None)):
                         # Delay optimizer scheduling until metrics are generated
                         if not isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                             self.lr_scheduler.step()
