@@ -260,6 +260,15 @@ class _NoOpLRScheduler:
     def get_last_lr(self):
         return []
 
+
+class _StatefulCallbackDict(dict):
+    """Dict with default empty callback states for HF checkpoint compatibility."""
+
+    def __missing__(self, key):
+        value = {}
+        self[key] = value
+        return value
+
 class DenserEvalCallback(TrainerCallback):
 
     def on_step_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
@@ -771,6 +780,33 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
             super()._save(output_dir=output_dir, state_dict=state_dict)
         finally:
             self.args.save_safetensors = old
+
+    def _ensure_stateful_callbacks_compat(self):
+        stateful_callbacks = getattr(self.state, "stateful_callbacks", None)
+        if isinstance(stateful_callbacks, _StatefulCallbackDict):
+            compat_callbacks = stateful_callbacks
+        elif isinstance(stateful_callbacks, dict):
+            compat_callbacks = _StatefulCallbackDict(stateful_callbacks)
+        else:
+            compat_callbacks = _StatefulCallbackDict()
+
+        if "TrainerControl" not in compat_callbacks:
+            control_state = self.control.state() if hasattr(self.control, "state") else {}
+            compat_callbacks["TrainerControl"] = control_state if isinstance(control_state, dict) else {}
+
+        self.state.stateful_callbacks = compat_callbacks
+
+    def _save_checkpoint(self, model, trial, *args, **kwargs):
+        self._ensure_stateful_callbacks_compat()
+        try:
+            return super()._save_checkpoint(model, trial, *args, **kwargs)
+        except KeyError as exc:
+            if len(exc.args) == 1 and isinstance(exc.args[0], str):
+                missing_key = exc.args[0]
+                self._ensure_stateful_callbacks_compat()
+                self.state.stateful_callbacks[missing_key] = {}
+                return super()._save_checkpoint(model, trial, *args, **kwargs)
+            raise
 
     def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
         """
