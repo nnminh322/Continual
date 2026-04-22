@@ -67,7 +67,7 @@ CMD=(
     --output_dir "$OUT_DIR"
     --per_device_train_batch_size 1
     --per_device_eval_batch_size 1
-    --gradient_accumulation_steps 32
+    --gradient_accumulation_steps 4
     --learning_rate 5e-05
     --attn_lr 0.0
     --num_train_epochs 10
