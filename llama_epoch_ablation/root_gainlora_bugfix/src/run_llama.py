@@ -849,7 +849,12 @@ def main():
             callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
         )
         if training_args.do_train:
-            trainer.get_reg_matrix()
+            # The GPM SVD step can be very slow for large activation matrices.
+            # Allow skipping it via environment variable `SKIP_GPM=1` for quick tests.
+            if os.environ.get("SKIP_GPM", "0") == "1":
+                logger.info("SKIP_GPM=1 -> skipping trainer.get_reg_matrix() (GPM SVD)")
+            else:
+                trainer.get_reg_matrix()
     elif training_args.model_name == 'inflora':
         if 'llama-3' in model_args.model_name_or_path.lower():
             from cl_trainer_inflora_llama3 import InfLoRATrainer
