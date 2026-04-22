@@ -430,15 +430,14 @@ def main():
     cur_task = data_args.task_config_dir.split('/')[-1]
     cur_task_id = task_order.index(cur_task)
 
-    raw_datasets_builder = CLInstructions(
+    raw_datasets = load_dataset(
+        os.path.join(CURRENT_DIR, "cl_dataset.py"),
         data_dir=os.path.abspath(data_args.data_dir) if data_args.data_dir else None,
         task_config_dir=os.path.abspath(data_args.task_config_dir) if data_args.task_config_dir else None,
         max_num_instances_per_task=data_args.max_num_instances_per_task,
         max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
         num_examples=data_args.num_examples,
     )
-    raw_datasets_builder.download_and_prepare()
-    raw_datasets = raw_datasets_builder.as_dataset()
     raw_datasets.cleanup_cache_files()
     print(raw_datasets)
 

@@ -49,6 +49,7 @@ def build_task_command(task_idx: int, task_name: str, task_order_str: str) -> st
         '   --per_device_eval_batch_size 8',
         f'   --gradient_accumulation_steps {grad_accum}',
         '   --learning_rate 5e-05',
+        '   --attn_lr 0.0',
         '   --num_train_epochs 50',
         '   --bf16',
         '   --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config"',
@@ -74,11 +75,9 @@ def build_task_command(task_idx: int, task_name: str, task_order_str: str) -> st
         '   --lora_dropout 0.0',
         '   --data_replay_freq -1',
         '   --replay_after_n_epoch 0',
-        '   --kl_ratio 0.5',
+        '   --kl_ratio 1',
         '   --attn_temperature 1',
-        '   --mlp_hidden_dim 100',
-        '   --trans_hidden_dim 100',
-        '   --attn_lr 0',
+        '   --trans_hidden_dim 50',
         '   --chunk 4',
         '   --model_name gainlora_inflora',
         '   --threshold 0.995',
@@ -86,6 +85,7 @@ def build_task_command(task_idx: int, task_name: str, task_order_str: str) -> st
     ]
 
     if task_idx > 0:
+        cmd_parts.append('   --add_instruction_replay')
         prev_saved_dirs = [
             f'$BASE_OUT/outputs/{prev_idx + 1}-{TASK_ORDER_1[prev_idx]}/saved_weights'
             for prev_idx in range(task_idx)
@@ -101,7 +101,7 @@ def build_task_command(task_idx: int, task_name: str, task_order_str: str) -> st
 
     command = " \\\n".join(cmd_parts)
     cleanup = f'rm -rf "{output_dir}"/checkpoint*'
-    return f"{command}\n\n{cleanup}\n"
+    return f"{command}\n\n{cleanup}\n\nsleep 5\n"
 
 
 def build_script() -> str:

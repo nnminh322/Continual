@@ -66,7 +66,8 @@ CMD=(
     --per_device_eval_batch_size 8
     --gradient_accumulation_steps 16
     --learning_rate 5e-05
-    --num_train_epochs 5
+    --attn_lr 0.0
+    --num_train_epochs 10
     --bf16
     --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config"
     --run_name "$RUN_NAME"
@@ -91,11 +92,9 @@ CMD=(
     --lora_dropout 0.0
     --data_replay_freq -1
     --replay_after_n_epoch 0
-    --kl_ratio 0.5
+    --kl_ratio 1
     --attn_temperature 1
-    --mlp_hidden_dim 100
-    --trans_hidden_dim 100
-    --attn_lr 0
+    --trans_hidden_dim 50
     --chunk 4
     --model_name gainlora_inflora
     --threshold 0.995

@@ -61,6 +61,7 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --per_device_eval_batch_size 8 \
    --gradient_accumulation_steps 16 \
    --learning_rate 5e-05 \
+   --attn_lr 0.0 \
    --num_train_epochs 50 \
    --bf16 \
    --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config" \
@@ -86,17 +87,17 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
+   --kl_ratio 1 \
    --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
-   --trans_hidden_dim 100 \
-   --attn_lr 0 \
+   --trans_hidden_dim 50 \
    --chunk 4 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
    --transthreshold 0.995
 
 rm -rf "$BASE_OUT/outputs/1-task1572_samsum_summary"/checkpoint*
+
+sleep 5
 
 ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$ROOT_BASE/src/run_llama.py" \
    --do_train \
@@ -111,6 +112,7 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --per_device_eval_batch_size 8 \
    --gradient_accumulation_steps 2 \
    --learning_rate 5e-05 \
+   --attn_lr 0.0 \
    --num_train_epochs 50 \
    --bf16 \
    --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config" \
@@ -136,20 +138,21 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
+   --kl_ratio 1 \
    --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
-   --trans_hidden_dim 100 \
-   --attn_lr 0 \
+   --trans_hidden_dim 50 \
    --chunk 4 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
    --transthreshold 0.995 \
+   --add_instruction_replay \
    --previous_lora_path "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights" \
    --previous_prompt_key_path "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights/prompts_keys_till_now.pt" \
    --load_checkpoint_from "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights/trans_input.pt"
 
 rm -rf "$BASE_OUT/outputs/2-task363_sst2_polarity_classification"/checkpoint*
+
+sleep 5
 
 ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$ROOT_BASE/src/run_llama.py" \
    --do_train \
@@ -164,6 +167,7 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --per_device_eval_batch_size 8 \
    --gradient_accumulation_steps 32 \
    --learning_rate 5e-05 \
+   --attn_lr 0.0 \
    --num_train_epochs 50 \
    --bf16 \
    --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config" \
@@ -189,20 +193,21 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
+   --kl_ratio 1 \
    --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
-   --trans_hidden_dim 100 \
-   --attn_lr 0 \
+   --trans_hidden_dim 50 \
    --chunk 4 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
    --transthreshold 0.995 \
+   --add_instruction_replay \
    --previous_lora_path "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights" \
    --previous_prompt_key_path "$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights/prompts_keys_till_now.pt" \
    --load_checkpoint_from "$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights/trans_input.pt"
 
 rm -rf "$BASE_OUT/outputs/3-task1290_xsum_summarization"/checkpoint*
+
+sleep 5
 
 ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$ROOT_BASE/src/run_llama.py" \
    --do_train \
@@ -217,6 +222,7 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --per_device_eval_batch_size 8 \
    --gradient_accumulation_steps 8 \
    --learning_rate 5e-05 \
+   --attn_lr 0.0 \
    --num_train_epochs 50 \
    --bf16 \
    --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config" \
@@ -242,20 +248,21 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
+   --kl_ratio 1 \
    --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
-   --trans_hidden_dim 100 \
-   --attn_lr 0 \
+   --trans_hidden_dim 50 \
    --chunk 4 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
    --transthreshold 0.995 \
+   --add_instruction_replay \
    --previous_lora_path "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights" \
    --previous_prompt_key_path "$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights/prompts_keys_till_now.pt" \
    --load_checkpoint_from "$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights/trans_input.pt"
 
 rm -rf "$BASE_OUT/outputs/4-task181_outcome_extraction"/checkpoint*
+
+sleep 5
 
 ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$ROOT_BASE/src/run_llama.py" \
    --do_train \
@@ -270,6 +277,7 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --per_device_eval_batch_size 8 \
    --gradient_accumulation_steps 32 \
    --learning_rate 5e-05 \
+   --attn_lr 0.0 \
    --num_train_epochs 50 \
    --bf16 \
    --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config" \
@@ -295,20 +303,21 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
+   --kl_ratio 1 \
    --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
-   --trans_hidden_dim 100 \
-   --attn_lr 0 \
+   --trans_hidden_dim 50 \
    --chunk 4 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
    --transthreshold 0.995 \
+   --add_instruction_replay \
    --previous_lora_path "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights" \
    --previous_prompt_key_path "$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights/prompts_keys_till_now.pt" \
    --load_checkpoint_from "$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights/trans_input.pt"
 
 rm -rf "$BASE_OUT/outputs/5-task002_quoref_answer_generation"/checkpoint*
+
+sleep 5
 
 ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$ROOT_BASE/src/run_llama.py" \
    --do_train \
@@ -323,6 +332,7 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --per_device_eval_batch_size 8 \
    --gradient_accumulation_steps 2 \
    --learning_rate 5e-05 \
+   --attn_lr 0.0 \
    --num_train_epochs 50 \
    --bf16 \
    --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config" \
@@ -348,20 +358,21 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
+   --kl_ratio 1 \
    --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
-   --trans_hidden_dim 100 \
-   --attn_lr 0 \
+   --trans_hidden_dim 50 \
    --chunk 4 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
    --transthreshold 0.995 \
+   --add_instruction_replay \
    --previous_lora_path "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights" \
    --previous_prompt_key_path "$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights/prompts_keys_till_now.pt" \
    --load_checkpoint_from "$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights/trans_input.pt"
 
 rm -rf "$BASE_OUT/outputs/6-task1510_evalution_relation_extraction"/checkpoint*
+
+sleep 5
 
 ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$ROOT_BASE/src/run_llama.py" \
    --do_train \
@@ -376,6 +387,7 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --per_device_eval_batch_size 8 \
    --gradient_accumulation_steps 2 \
    --learning_rate 5e-05 \
+   --attn_lr 0.0 \
    --num_train_epochs 50 \
    --bf16 \
    --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config" \
@@ -401,20 +413,21 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
+   --kl_ratio 1 \
    --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
-   --trans_hidden_dim 100 \
-   --attn_lr 0 \
+   --trans_hidden_dim 50 \
    --chunk 4 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
    --transthreshold 0.995 \
+   --add_instruction_replay \
    --previous_lora_path "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights" \
    --previous_prompt_key_path "$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights/prompts_keys_till_now.pt" \
    --load_checkpoint_from "$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights/trans_input.pt"
 
 rm -rf "$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation"/checkpoint*
+
+sleep 5
 
 ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$ROOT_BASE/src/run_llama.py" \
    --do_train \
@@ -429,6 +442,7 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --per_device_eval_batch_size 8 \
    --gradient_accumulation_steps 16 \
    --learning_rate 5e-05 \
+   --attn_lr 0.0 \
    --num_train_epochs 50 \
    --bf16 \
    --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config" \
@@ -454,20 +468,21 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
+   --kl_ratio 1 \
    --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
-   --trans_hidden_dim 100 \
-   --attn_lr 0 \
+   --trans_hidden_dim 50 \
    --chunk 4 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
    --transthreshold 0.995 \
+   --add_instruction_replay \
    --previous_lora_path "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights" \
    --previous_prompt_key_path "$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights/prompts_keys_till_now.pt" \
    --load_checkpoint_from "$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights/trans_input.pt"
 
 rm -rf "$BASE_OUT/outputs/8-task1729_personachat_generate_next"/checkpoint*
+
+sleep 5
 
 ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$ROOT_BASE/src/run_llama.py" \
    --do_train \
@@ -482,6 +497,7 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --per_device_eval_batch_size 8 \
    --gradient_accumulation_steps 4 \
    --learning_rate 5e-05 \
+   --attn_lr 0.0 \
    --num_train_epochs 50 \
    --bf16 \
    --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config" \
@@ -507,20 +523,21 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
+   --kl_ratio 1 \
    --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
-   --trans_hidden_dim 100 \
-   --attn_lr 0 \
+   --trans_hidden_dim 50 \
    --chunk 4 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
    --transthreshold 0.995 \
+   --add_instruction_replay \
    --previous_lora_path "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights" \
    --previous_prompt_key_path "$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights/prompts_keys_till_now.pt" \
    --load_checkpoint_from "$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights/trans_input.pt"
 
 rm -rf "$BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation"/checkpoint*
+
+sleep 5
 
 ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$ROOT_BASE/src/run_llama.py" \
    --do_train \
@@ -535,6 +552,7 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --per_device_eval_batch_size 8 \
    --gradient_accumulation_steps 16 \
    --learning_rate 5e-05 \
+   --attn_lr 0.0 \
    --num_train_epochs 50 \
    --bf16 \
    --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config" \
@@ -560,20 +578,21 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
+   --kl_ratio 1 \
    --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
-   --trans_hidden_dim 100 \
-   --attn_lr 0 \
+   --trans_hidden_dim 50 \
    --chunk 4 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
    --transthreshold 0.995 \
+   --add_instruction_replay \
    --previous_lora_path "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights" \
    --previous_prompt_key_path "$BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights/prompts_keys_till_now.pt" \
    --load_checkpoint_from "$BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights/trans_input.pt"
 
 rm -rf "$BASE_OUT/outputs/10-task1590_diplomacy_text_generation"/checkpoint*
+
+sleep 5
 
 ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$ROOT_BASE/src/run_llama.py" \
    --do_train \
@@ -588,6 +607,7 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --per_device_eval_batch_size 8 \
    --gradient_accumulation_steps 8 \
    --learning_rate 5e-05 \
+   --attn_lr 0.0 \
    --num_train_epochs 50 \
    --bf16 \
    --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config" \
@@ -613,20 +633,21 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
+   --kl_ratio 1 \
    --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
-   --trans_hidden_dim 100 \
-   --attn_lr 0 \
+   --trans_hidden_dim 50 \
    --chunk 4 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
    --transthreshold 0.995 \
+   --add_instruction_replay \
    --previous_lora_path "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/10-task1590_diplomacy_text_generation/saved_weights" \
    --previous_prompt_key_path "$BASE_OUT/outputs/10-task1590_diplomacy_text_generation/saved_weights/prompts_keys_till_now.pt" \
    --load_checkpoint_from "$BASE_OUT/outputs/10-task1590_diplomacy_text_generation/saved_weights/trans_input.pt"
 
 rm -rf "$BASE_OUT/outputs/11-task748_glucose_reverse_cause_event_detection"/checkpoint*
+
+sleep 5
 
 ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$ROOT_BASE/src/run_llama.py" \
    --do_train \
@@ -641,6 +662,7 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --per_device_eval_batch_size 8 \
    --gradient_accumulation_steps 32 \
    --learning_rate 5e-05 \
+   --attn_lr 0.0 \
    --num_train_epochs 50 \
    --bf16 \
    --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config" \
@@ -666,20 +688,21 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
+   --kl_ratio 1 \
    --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
-   --trans_hidden_dim 100 \
-   --attn_lr 0 \
+   --trans_hidden_dim 50 \
    --chunk 4 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
    --transthreshold 0.995 \
+   --add_instruction_replay \
    --previous_lora_path "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/10-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/11-task748_glucose_reverse_cause_event_detection/saved_weights" \
    --previous_prompt_key_path "$BASE_OUT/outputs/11-task748_glucose_reverse_cause_event_detection/saved_weights/prompts_keys_till_now.pt" \
    --load_checkpoint_from "$BASE_OUT/outputs/11-task748_glucose_reverse_cause_event_detection/saved_weights/trans_input.pt"
 
 rm -rf "$BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization"/checkpoint*
+
+sleep 5
 
 ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$ROOT_BASE/src/run_llama.py" \
    --do_train \
@@ -694,6 +717,7 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --per_device_eval_batch_size 8 \
    --gradient_accumulation_steps 4 \
    --learning_rate 5e-05 \
+   --attn_lr 0.0 \
    --num_train_epochs 50 \
    --bf16 \
    --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config" \
@@ -719,20 +743,21 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
+   --kl_ratio 1 \
    --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
-   --trans_hidden_dim 100 \
-   --attn_lr 0 \
+   --trans_hidden_dim 50 \
    --chunk 4 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
    --transthreshold 0.995 \
+   --add_instruction_replay \
    --previous_lora_path "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/10-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/11-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights" \
    --previous_prompt_key_path "$BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights/prompts_keys_till_now.pt" \
    --load_checkpoint_from "$BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights/trans_input.pt"
 
 rm -rf "$BASE_OUT/outputs/13-task591_sciq_answer_generation"/checkpoint*
+
+sleep 5
 
 ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$ROOT_BASE/src/run_llama.py" \
    --do_train \
@@ -747,6 +772,7 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --per_device_eval_batch_size 8 \
    --gradient_accumulation_steps 4 \
    --learning_rate 5e-05 \
+   --attn_lr 0.0 \
    --num_train_epochs 50 \
    --bf16 \
    --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config" \
@@ -772,20 +798,21 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
+   --kl_ratio 1 \
    --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
-   --trans_hidden_dim 100 \
-   --attn_lr 0 \
+   --trans_hidden_dim 50 \
    --chunk 4 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
    --transthreshold 0.995 \
+   --add_instruction_replay \
    --previous_lora_path "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/10-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/11-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights,$BASE_OUT/outputs/13-task591_sciq_answer_generation/saved_weights" \
    --previous_prompt_key_path "$BASE_OUT/outputs/13-task591_sciq_answer_generation/saved_weights/prompts_keys_till_now.pt" \
    --load_checkpoint_from "$BASE_OUT/outputs/13-task591_sciq_answer_generation/saved_weights/trans_input.pt"
 
 rm -rf "$BASE_OUT/outputs/14-task1687_sentiment140_classification"/checkpoint*
+
+sleep 5
 
 ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$ROOT_BASE/src/run_llama.py" \
    --do_train \
@@ -800,6 +827,7 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --per_device_eval_batch_size 8 \
    --gradient_accumulation_steps 8 \
    --learning_rate 5e-05 \
+   --attn_lr 0.0 \
    --num_train_epochs 50 \
    --bf16 \
    --deepspeed "$ROOT_BASE/configs/ds_configs/stage2.config" \
@@ -825,19 +853,20 @@ ${DEEPSPEED_BIN} --include localhost:${GPU_IDS} --master_port ${MASTER_PORT} "$R
    --lora_dropout 0.0 \
    --data_replay_freq -1 \
    --replay_after_n_epoch 0 \
-   --kl_ratio 0.5 \
+   --kl_ratio 1 \
    --attn_temperature 1 \
-   --mlp_hidden_dim 100 \
-   --trans_hidden_dim 100 \
-   --attn_lr 0 \
+   --trans_hidden_dim 50 \
    --chunk 4 \
    --model_name gainlora_inflora \
    --threshold 0.995 \
    --transthreshold 0.995 \
+   --add_instruction_replay \
    --previous_lora_path "$BASE_OUT/outputs/1-task1572_samsum_summary/saved_weights,$BASE_OUT/outputs/2-task363_sst2_polarity_classification/saved_weights,$BASE_OUT/outputs/3-task1290_xsum_summarization/saved_weights,$BASE_OUT/outputs/4-task181_outcome_extraction/saved_weights,$BASE_OUT/outputs/5-task002_quoref_answer_generation/saved_weights,$BASE_OUT/outputs/6-task1510_evalution_relation_extraction/saved_weights,$BASE_OUT/outputs/7-task639_multi_woz_user_utterance_generation/saved_weights,$BASE_OUT/outputs/8-task1729_personachat_generate_next/saved_weights,$BASE_OUT/outputs/9-task073_commonsenseqa_answer_generation/saved_weights,$BASE_OUT/outputs/10-task1590_diplomacy_text_generation/saved_weights,$BASE_OUT/outputs/11-task748_glucose_reverse_cause_event_detection/saved_weights,$BASE_OUT/outputs/12-task511_reddit_tifu_long_text_summarization/saved_weights,$BASE_OUT/outputs/13-task591_sciq_answer_generation/saved_weights,$BASE_OUT/outputs/14-task1687_sentiment140_classification/saved_weights" \
    --previous_prompt_key_path "$BASE_OUT/outputs/14-task1687_sentiment140_classification/saved_weights/prompts_keys_till_now.pt" \
    --load_checkpoint_from "$BASE_OUT/outputs/14-task1687_sentiment140_classification/saved_weights/trans_input.pt"
 
 rm -rf "$BASE_OUT/outputs/15-task875_emotion_classification"/checkpoint*
+
+sleep 5
 
 "$PYTHON_BIN" "$ROOT_BASE/score.py" "$RUN_NAME" "$RUN_NAME" "$WORKSPACE_DIR/llama_epoch_ablation/logs_and_outputs"

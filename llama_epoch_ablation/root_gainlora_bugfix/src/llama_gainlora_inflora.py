@@ -878,9 +878,8 @@ class LlamaModel(LlamaPreTrainedModel):
 
     def _masked_mean_embeddings(self, input_ids, inputs_embeds):
         pad_id = self.config.pad_token_id if self.config.pad_token_id is not None else 1
-        non_pad_mask = (input_ids != pad_id).unsqueeze(-1).to(inputs_embeds.dtype)
-        denom = non_pad_mask.sum(dim=1, keepdim=True).clamp_min(1.0)
-        return (non_pad_mask * inputs_embeds).sum(dim=1, keepdim=True) / denom
+        non_pad_mask = (input_ids != pad_id).long().unsqueeze(-1).to(inputs_embeds.dtype)
+        return (non_pad_mask * inputs_embeds).mean(dim=1, keepdim=True)
 
     @add_start_docstrings_to_model_forward(LLAMA_INPUTS_DOCSTRING)
     def forward(
