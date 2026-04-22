@@ -1242,7 +1242,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                     "do_sample": False,
                     "remove_invalid_values": True,
                     "renormalize_logits": True,
-                    "repetition_penalty": 1.5,
+                    "repetition_penalty": 1.0,
                     "eos_token_id": 2,
                     "pad_token_id": 1,
                 }

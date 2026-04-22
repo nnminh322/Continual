@@ -68,7 +68,7 @@ CMD=(
     --per_device_train_batch_size 1
     --per_device_eval_batch_size 1
     --gradient_accumulation_steps 16
-    --learning_rate 3e-4
+    --learning_rate 1e-4
     --attn_lr 0.0
     --num_train_epochs 100
     --bf16
@@ -82,14 +82,14 @@ CMD=(
     --overwrite_output_dir
     --overwrite_cache
     --lr_scheduler_type constant
-    --warmup_steps 100
+    --warmup_steps 50
     --logging_strategy steps
     --logging_steps 10
     --metric_for_best_model eval_rougeL
     --eval_strategy steps
     --save_strategy no
-    --lora_r 4
-    --lora_alpha 8
+    --lora_r 16
+    --lora_alpha 16
     --lora_dropout 0.0
     --data_replay_freq -1
     --replay_after_n_epoch 0
@@ -97,6 +97,7 @@ CMD=(
     --attn_temperature 1
     --trans_hidden_dim 50
     --chunk 4
+    --run_single True
     --model_name gainlora_inflora
     --threshold 0.995
     --transthreshold 0.995
