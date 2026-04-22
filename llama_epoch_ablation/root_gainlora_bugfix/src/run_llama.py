@@ -962,7 +962,11 @@ def main():
         all_metrics.update(metrics)
 
         if training_args.model_name in ['inflora', 'gainlora_inflora', 'gainlora_olora']:
-            trainer.get_repsentation()
+            # Allow skipping expensive GPM representation/SVD step after training
+            if os.environ.get("SKIP_GPM", "0") == "1":
+                logger.info("SKIP_GPM=1 -> skipping trainer.get_repsentation() (post-train GPM SVD)")
+            else:
+                trainer.get_repsentation()
 
     # Evaluation
     results = {}
