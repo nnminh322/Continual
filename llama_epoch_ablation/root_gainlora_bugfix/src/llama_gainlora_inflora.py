@@ -788,7 +788,8 @@ class LlamaModel(LlamaPreTrainedModel):
             self.matrix_trans_1[index] = torch.zeros(self.step_trans, self.step_trans, device=target_device, dtype=torch.float32)
             self.matrix_trans_3[index] = torch.zeros(self.step_trans, self.step_trans, device=target_device, dtype=torch.float32)
             self.n_trans_matrix[index] = 0
-        self.matrix_trans_2 = torch.zeros(self.step_trans, self.step_trans, device=target_device, dtype=torch.float32)
+        trans_hidden_dim = self.prompt_config["trans_hidden_dim"]
+        self.matrix_trans_2 = torch.zeros(trans_hidden_dim, trans_hidden_dim, device=target_device, dtype=torch.float32)
 
     def get_matrix3(self, x, medium, x_final):
         for index in range(self.index_trans):
@@ -803,10 +804,12 @@ class LlamaModel(LlamaPreTrainedModel):
                 self.matrix_trans_3[index] = (self.matrix_trans_3[index]*self.n_trans_matrix[index] + torch.bmm(x_final[:,:,index*self.step_trans:(index+1)*self.step_trans].detach().permute(0, 2, 1), x_final[:,:,index*self.step_trans:(index+1)*self.step_trans].detach()).sum(dim=0).float())/(self.n_trans_matrix[index] + x_final.shape[0]*x_final.shape[1])
             self.n_trans_matrix[index] += x.shape[0]*x.shape[1]
 
-        if self.matrix_trans_2 is None:
-            self.matrix_trans_2 = torch.bmm(medium.detach().permute(0, 2, 1), medium.detach()).sum(dim=0).float()/(medium.shape[0]*medium.shape[1])
+        medium_cov = torch.bmm(medium.detach().permute(0, 2, 1), medium.detach()).sum(dim=0).float()
+        medium_count = medium.shape[0] * medium.shape[1]
+        if self.matrix_trans_2 is None or self.matrix_trans_2.shape != medium_cov.shape:
+            self.matrix_trans_2 = medium_cov / medium_count
         else:
-            self.matrix_trans_2 = (self.matrix_trans_2*self.n_trans_matrix[index] + torch.bmm(medium.detach().permute(0, 2, 1), medium.detach()).sum(dim=0).float())/(self.n_trans_matrix[index] + medium.shape[0]*medium.shape[1])
+            self.matrix_trans_2 = (self.matrix_trans_2*self.n_trans_matrix[index] + medium_cov)/(self.n_trans_matrix[index] + medium_count)
 
         return
 
