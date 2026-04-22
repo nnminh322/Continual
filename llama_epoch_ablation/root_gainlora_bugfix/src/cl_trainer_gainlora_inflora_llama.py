@@ -1333,7 +1333,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         if self.is_deepspeed_enabled:
             self.optimizer, self.lr_scheduler = deepspeed_init(self, num_training_steps=max_steps)
 
-        if not delay_optimizer_creation:
+        if not delay_optimizer_creation and not self.is_deepspeed_enabled:
             self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
         self.state = TrainerState()
@@ -1353,7 +1353,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         # Fairscale Sharded DDP, FSDP-XLA, SageMaker MP/DP, DataParallel, IPEX
         use_accelerator_prepare = True if model is self.model else False
 
-        if delay_optimizer_creation:
+        if delay_optimizer_creation and not self.is_deepspeed_enabled:
             self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
         # prepare using `accelerator` prepare
