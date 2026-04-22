@@ -757,6 +757,12 @@ def main():
         decoded_preds = skip_instructions(model, preds, tokenizer)
         references = [e["Instance"]["label"] for e in dataset]
         empty_pred_count = sum(1 for pred in decoded_preds if len(pred.strip()) == 0)
+        # DEBUG: print first few predictions vs references
+        logger.warning("=== DEBUG PREDICTIONS (prefix=%s) ===", save_prefix)
+        for i in range(min(3, len(decoded_preds))):
+            logger.warning("  [%d] PRED : %r", i, decoded_preds[i][:200])
+            logger.warning("  [%d] REF  : %r", i, references[i][:200])
+        logger.warning("=== END DEBUG ===")
         if empty_pred_count > 0:
             logger.warning(
                 "Empty decoded predictions: %s/%s (prefix=%s)",
