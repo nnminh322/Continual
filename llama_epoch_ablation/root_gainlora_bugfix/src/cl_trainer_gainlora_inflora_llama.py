@@ -495,6 +495,11 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
     def get_repsentation(self):
         # if self.args.lamda_1 <= 1e-6:
         #     return
+        if os.environ.get("GAINLORA_SKIP_REPRESENTATION", "0") == "1":
+            if (not dist.is_available()) or (not dist.is_initialized()) or dist.get_rank() == 0:
+                print("Skipping get representation due to GAINLORA_SKIP_REPRESENTATION=1")
+            return
+
         if not _cupy_available:
             raise ImportError(
                 "CuPy is required for GainLoRA-InfLoRA SVD computation in get_repsentation(). "
@@ -522,6 +527,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
         #         break
 
         print('begin get representation')
+        max_rep_steps = int(os.environ.get("GAINLORA_REP_MAX_STEPS", "1000"))
         with torch.no_grad():
             for step, inputs in enumerate(train_dataloader):
                 inputs = self._prepare_inputs(inputs)
@@ -531,7 +537,8 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                     labels = None
                 # del inputs['task_ids']
                 outputs = self.model(**inputs)
-                if step > 1000: break
+                if step > max_rep_steps:
+                    break
         print('end get representation')
 
 
@@ -611,6 +618,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
             print ('Threshold: ', threshold, transthreshold)
             if len(self.feature_list) == 0:
                 for i in range(len(mat_list)):
+                    print(f"[GPM] SVD feature layer {i+1}/{len(mat_list)}")
                     activation = mat_list[i]
                     feature = {}
                     for index in activation.keys():
@@ -626,6 +634,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
 
                 for i in range(3):
                     if i == 1: continue
+                    print(f"[GPM] SVD trans group {i} init")
                     activation_trans = mat_trans_list[i]
                     feature_trans = {}
                     for index in activation_trans.keys():
@@ -640,6 +649,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                     self.feature_trans_list.append(feature_trans)
 
                 activation_trans = mat_trans_list[1]
+                print("[GPM] SVD trans group 1 init")
                 U,S,Vh = cp.linalg.svd(fromDlpack(to_dlpack(activation_trans)), full_matrices=False)
                 U = from_dlpack(U.toDlpack())
                 S = from_dlpack(S.toDlpack())
@@ -651,6 +661,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 self.feature_trans_list = self.feature_trans_list[:1] + [feature_trans] + self.feature_trans_list[1:]
             else:
                 for i in range(len(mat_list)):
+                    print(f"[GPM] Update feature layer {i+1}/{len(mat_list)}")
                     activation = mat_list[i]
                     feature = {}
                     for index in activation.keys():
@@ -689,6 +700,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                 # ipdb.set_trace()
                 for i in range(3):
                     if i == 1: continue
+                    print(f"[GPM] Update trans group {i}")
                     # ipdb.set_trace()
                     activation_trans = mat_trans_list[i]
                     feature_trans = {}
@@ -723,6 +735,7 @@ class GainLoRA_InfLoRA_Trainer(Seq2SeqTrainer):
                             self.feature_trans_list[i][index]=from_dlpack(Ui.toDlpack())
 
                 activation_trans = mat_trans_list[1]
+                print("[GPM] Update trans group 1")
                 feature_trans = {}
                 U1,S1,Vh1=cp.linalg.svd(fromDlpack(to_dlpack(activation_trans)), full_matrices=False)
                 # S1 = from_dlpack(S1.toDlpack())
