@@ -20,6 +20,8 @@ LOG_FILE="$LOG_DIR/${RUN_NAME}_$(date +%Y%m%d_%H%M%S).log"
 
 # reduce GPU memory pressure for quick local test (override for full runs)
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# skip GPM SVD (not needed for task 1 — no previous features — but guard all code paths)
+export SKIP_GPM=1
 
 resolve_deepspeed_launcher() {
     if command -v "$DEEPSPEED_BIN" >/dev/null 2>&1; then
@@ -97,7 +99,6 @@ CMD=(
     --attn_temperature 1
     --trans_hidden_dim 50
     --chunk 4
-    --run_single True
     --model_name gainlora_inflora
     --threshold 0.995
     --transthreshold 0.995

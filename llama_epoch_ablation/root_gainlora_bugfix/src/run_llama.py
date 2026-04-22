@@ -632,7 +632,13 @@ def main():
                 param.requires_grad = True
         elif training_args.model_name in ['inflora', 'gainlora_inflora']:
             param.requires_grad = False
-            if ("lora_B" in name and "previous_lora_weights" not in name) or ("trans_input" in name and "previous_trans_input" not in name) or "prompt_key" in name:
+            # For the first task (no previous tasks) train full LoRA (both A and B).
+            # From task 2 onward, freeze lora_A (inflora design) to prevent interference.
+            _first_task = (cur_task_id == 0)
+            if ("lora_B" in name and "previous_lora_weights" not in name) or \
+               (_first_task and "lora_A" in name and "previous_lora_weights" not in name) or \
+               ("trans_input" in name and "previous_trans_input" not in name) or \
+               "prompt_key" in name:
                 param.requires_grad = True
 
     total_params, params = 0, 0
@@ -914,7 +920,10 @@ def main():
             callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None
         )
         if training_args.do_train:
-            trainer.get_reg_matrix()
+            if os.environ.get("SKIP_GPM", "0") == "1":
+                logger.info("SKIP_GPM=1 -> skipping trainer.get_reg_matrix() (GPM SVD) for gainlora_inflora")
+            else:
+                trainer.get_reg_matrix()
     else:
         raise NotImplementedError
 
@@ -947,17 +956,20 @@ def main():
                 previous_trans_input = deepcopy(trainer.model.model.previous_trans_input.state_dict())
                 torch.save(previous_trans_input, os.path.join(save_path, 'previous_trans_input.pt'))
 
-            torch.save(trainer.model.model.trans_input.state_dict(), os.path.join(save_path, 'trans_input.pt'))
+            if hasattr(trainer.model.model, 'trans_input'):
+                torch.save(trainer.model.model.trans_input.state_dict(), os.path.join(save_path, 'trans_input.pt'))
 
 
             if prompt_config["previous_prompt_key_path"] is not None:
                 torch.save(lora_state_dict_A(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_A.pt'))
                 torch.save(lora_state_dict_B(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_B.pt'))
-                torch.save(torch.cat([trainer.model.model.prompt_key, trainer.model.model.previous_prompts_keys], dim=0).data, os.path.join(save_path, 'prompts_keys_till_now.pt'))
+                if hasattr(trainer.model.model, 'prompt_key') and hasattr(trainer.model.model, 'previous_prompts_keys'):
+                    torch.save(torch.cat([trainer.model.model.prompt_key, trainer.model.model.previous_prompts_keys], dim=0).data, os.path.join(save_path, 'prompts_keys_till_now.pt'))
             else:
                 torch.save(lora_state_dict_A(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_A.pt'))
                 torch.save(lora_state_dict_B(model, task_name=cur_task), os.path.join(save_path, 'lora_weights_B.pt'))
-                torch.save(trainer.model.model.prompt_key.data, os.path.join(save_path, 'prompts_keys_till_now.pt'))
+                if hasattr(trainer.model.model, 'prompt_key'):
+                    torch.save(trainer.model.model.prompt_key.data, os.path.join(save_path, 'prompts_keys_till_now.pt'))
             tokenizer.save_pretrained(save_path)
 
         metrics = train_result.metrics
