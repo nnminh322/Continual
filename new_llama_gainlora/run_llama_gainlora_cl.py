@@ -35,6 +35,7 @@ import json
 import math
 import os
 import re
+import time
 import sys
 from collections import Counter
 from pathlib import Path
@@ -66,6 +67,10 @@ from llama_gainlora import LlamaForCausalLM                    # noqa: E402
 from frozen_extractor import FrozenLlamaExtractor              # noqa: E402
 from sgwi_srt_trainer import SRTSGWITrainer                    # noqa: E402
 from cl_dataset import CLConfig, CLInstructions                # noqa: E402
+from compute_metrics import (                                  # noqa: E402
+    compute_grouped_metrics as legacy_compute_grouped_metrics,
+    compute_metrics as legacy_compute_metrics,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -398,9 +403,10 @@ def generate_predictions_cl(
     tokenizer,
     samples: list[dict],
     max_source_length: int,
+    max_target_length: int,
     max_new_tokens: int,
     batch_size: int,
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str], list[int], float, float, int]:
     """
     Run generation with the CL model.
     Passes input_ids_wo_label = source prompt to enable SRT inference routing.
@@ -409,6 +415,8 @@ def generate_predictions_cl(
     model.model.is_inference = True  # enable routing stat collection
 
     device = next(model.parameters()).device
+    pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+    collator = CLCausalTaskCollator(tokenizer, max_source_length, max_target_length)
 
     gen_cfg = copy.deepcopy(model.generation_config)
     gen_cfg.max_length        = None
@@ -424,33 +432,43 @@ def generate_predictions_cl(
 
     predictions: list[str] = []
     references:  list[str] = []
+    generated_lengths: list[int] = []
+    total_loss = 0.0
+    total_examples = 0
+    total_steps = 0
+    start_time = time.perf_counter()
 
     for start in range(0, len(samples), batch_size):
         batch_samples = samples[start : start + batch_size]
-        prompts = [prepare_prompt(s) for s in batch_samples]
-        refs    = [s["Instance"]["label"] for s in batch_samples]
-
-        encoded = tokenizer(
-            prompts,
-            padding=True,
-            truncation=True,
-            max_length=max_source_length,
-            return_tensors="pt",
-        )
-        encoded = {k: v.to(device) for k, v in encoded.items()}
-        input_length = encoded["input_ids"].shape[1]
+        batch = collator(batch_samples)
+        batch = {k: v.to(device) for k, v in batch.items()}
+        refs = [s["Instance"]["label"] for s in batch_samples]
+        input_length = batch["input_ids_wo_label"].shape[1]
         gen_cfg.max_new_tokens = max_new_tokens
 
         with torch.no_grad():
-            generated = model.generate(
-                input_ids            = encoded["input_ids"],
-                input_ids_wo_label   = encoded["input_ids"],  # source for SRT routing
-                attention_mask       = encoded["attention_mask"],
-                generation_config    = gen_cfg,
+            outputs = model(
+                input_ids=batch["input_ids"],
+                attention_mask=batch["attention_mask"],
+                labels=batch["labels"],
+                input_ids_wo_label=batch["input_ids_wo_label"],
             )
+            batch_loss = float(outputs.loss.detach().float().item()) if outputs.loss is not None else 0.0
+            generated = model.generate(
+                input_ids          = batch["input_ids_wo_label"],
+                input_ids_wo_label = batch["input_ids_wo_label"],  # source for SRT routing
+                attention_mask     = (batch["input_ids_wo_label"] != pad_id).long(),
+                generation_config  = gen_cfg,
+            )
+
+        batch_size_actual = batch["input_ids"].shape[0]
+        total_loss += batch_loss * batch_size_actual
+        total_examples += batch_size_actual
+        total_steps += 1
 
         for generated_ids, reference in zip(generated, refs):
             completion_ids = generated_ids[input_length:]
+            generated_lengths.append(int((completion_ids != pad_id).sum().item()))
             prediction = tokenizer.decode(
                 completion_ids,
                 skip_special_tokens=True,
@@ -460,7 +478,9 @@ def generate_predictions_cl(
             references.append(reference.strip())
 
     model.model.is_inference = False
-    return predictions, references
+    runtime = time.perf_counter() - start_time
+    avg_loss = total_loss / max(total_examples, 1)
+    return predictions, references, generated_lengths, avg_loss, runtime, total_steps
 
 
 def evaluate_split_cl(
@@ -468,18 +488,17 @@ def evaluate_split_cl(
     tokenizer,
     samples,
     max_source_length,
+    max_target_length,
     max_new_tokens,
     batch_size,
     split_name,
     group_names: list[str] | None = None,
     display_name: str | None = None,
 ) -> dict:
-    predictions, references = generate_predictions_cl(
-        model, tokenizer, samples, max_source_length, max_new_tokens, batch_size
+    predictions, references, generated_lengths, _, _, _ = generate_predictions_cl(
+        model, tokenizer, samples, max_source_length, max_target_length, max_new_tokens, batch_size
     )
-    rouge_l = sum(rouge_l_f1(p, r) for p, r in zip(predictions, references)) / max(len(references), 1)
-    rouge_1 = sum(rouge_1_f1(p, r) for p, r in zip(predictions, references)) / max(len(references), 1)
-    exact   = sum(exact_match(p, r) for p, r in zip(predictions, references)) / max(len(references), 1)
+    legacy_metrics = legacy_compute_metrics(predictions, references)
     empty   = sum(1 for p in predictions if not p.strip())
 
     print(f"=== {display_name or split_name.upper()} ===")
@@ -489,9 +508,10 @@ def evaluate_split_cl(
     print(f"Empty predictions: {empty}/{len(predictions)}")
 
     metrics = {
-        f"{split_name}_rougeL":            rouge_l,
-        f"{split_name}_rouge1":            rouge_1,
-        f"{split_name}_exact_match":       exact,
+        f"{split_name}_rougeL":            legacy_metrics["eval_rougeL"],
+        f"{split_name}_rouge1":            legacy_metrics["rouge1"],
+        f"{split_name}_exact_match":       legacy_metrics["exact_match"],
+        f"{split_name}_gen_len":           round(float(np.mean(generated_lengths)) if generated_lengths else 0.0, 4),
         f"{split_name}_empty_predictions": empty,
         f"{split_name}_samples":           len(references),
         f"{split_name}_predictions":       predictions,
@@ -503,12 +523,14 @@ def evaluate_split_cl(
             raise ValueError(
                 "group_names length must match samples length for continual evaluation"
             )
-        metrics[f"{split_name}_rougeL_for_CL"] = rouge_l
-        metrics[f"{split_name}_rouge1_for_CL"] = rouge_1
-        metrics[f"{split_name}_exact_match_for_CL"] = exact
-        grouped: dict[str, list[tuple[str, str]]] = {}
-        for prediction, reference, group_name in zip(predictions, references, group_names):
-            grouped.setdefault(group_name, []).append((prediction, reference))
+        grouped = legacy_compute_grouped_metrics(predictions, references, group_names)
+        group_counts = Counter(group_names)
+        metrics.update(
+            {
+                f"{split_name}_{metric}": value
+                for metric, value in grouped.items()
+            }
+        )
 
         print("  [CL] Per-task scores:")
         ordered_groups = []
@@ -516,30 +538,71 @@ def evaluate_split_cl(
             if group_name not in ordered_groups:
                 ordered_groups.append(group_name)
         for group_name in ordered_groups:
-            group_predictions, group_references = zip(*grouped[group_name])
-            group_prefix = f"{split_name}_"
-            group_metrics = {
-                f"{group_prefix}rougeL_for_{group_name}": sum(
-                    rouge_l_f1(p, r) for p, r in zip(group_predictions, group_references)
-                ) / max(len(group_references), 1),
-                f"{group_prefix}rouge1_for_{group_name}": sum(
-                    rouge_1_f1(p, r) for p, r in zip(group_predictions, group_references)
-                ) / max(len(group_references), 1),
-                f"{group_prefix}exact_match_for_{group_name}": sum(
-                    exact_match(p, r) for p, r in zip(group_predictions, group_references)
-                ) / max(len(group_references), 1),
-                f"{group_prefix}empty_predictions_for_{group_name}": sum(
-                    1 for p in group_predictions if not p.strip()
-                ),
-                f"{group_prefix}samples_for_{group_name}": len(group_references),
-            }
-            metrics.update(group_metrics)
             print(
                 f"    {group_name}: "
-                f"rougeL={group_metrics[f'{group_prefix}rougeL_for_{group_name}']:.4f}, "
-                f"exact={group_metrics[f'{group_prefix}exact_match_for_{group_name}']:.4f}, "
-                f"n={group_metrics[f'{group_prefix}samples_for_{group_name}']}"
+                f"rougeL={metrics[f'{split_name}_eval_rougeL_for_{group_name}']:.4f}, "
+                f"exact={metrics[f'{split_name}_exact_match_for_{group_name}']:.4f}, "
+                f"n={group_counts[group_name]}"
             )
+
+    return metrics
+
+
+def evaluate_continual_split_cl_legacy(
+    model,
+    tokenizer,
+    samples,
+    max_source_length,
+    max_target_length,
+    max_new_tokens,
+    batch_size,
+    seen_task_names: list[str],
+    epoch: float | None = None,
+    global_step: int | None = None,
+) -> dict:
+    """Match the old `predict_*` metric naming and grouping exactly."""
+    predictions, references, generated_lengths, avg_loss, runtime, total_steps = generate_predictions_cl(
+        model, tokenizer, samples, max_source_length, max_target_length, max_new_tokens, batch_size
+    )
+    empty = sum(1 for p in predictions if not p.strip())
+
+    print("=== CONTINUAL EVAL ===")
+    for idx in range(min(3, len(predictions))):
+        print(f"  [{idx}] PRED: {predictions[idx]!r}")
+        print(f"  [{idx}] REF : {references[idx]!r}")
+    print(f"Empty predictions: {empty}/{len(predictions)}")
+
+    metrics = legacy_compute_metrics(predictions, references)
+    metrics = {f"predict_{key}": value for key, value in metrics.items()}
+    metrics["predict_gen_len"] = round(float(np.mean(generated_lengths)) if generated_lengths else 0.0, 4)
+    metrics["predict_loss"] = float(avg_loss)
+    metrics["predict_runtime"] = float(runtime)
+    metrics["predict_samples"] = len(references)
+    metrics["predict_samples_per_second"] = round(len(references) / max(runtime, 1e-9), 3)
+    metrics["predict_steps_per_second"] = round(total_steps / max(runtime, 1e-9), 3)
+    metrics["predict_empty_predictions"] = empty
+    if epoch is not None:
+        metrics["epoch"] = float(epoch)
+    if global_step is not None:
+        metrics["predict_global_step"] = int(global_step)
+
+    task_groups = [sample["Task"] for sample in samples]
+    dataset_groups = [sample["Dataset"] for sample in samples]
+    dataset_counts = Counter(dataset_groups)
+    metrics.update({f"predict_{key}": value for key, value in legacy_compute_grouped_metrics(predictions, references, task_groups).items()})
+    metrics.update({f"predict_{key}": value for key, value in legacy_compute_grouped_metrics(predictions, references, dataset_groups).items()})
+
+    print("  [CL] Per-task scores:")
+    for task_name in seen_task_names:
+        rouge_key = f"predict_eval_rougeL_for_{task_name}"
+        if rouge_key not in metrics:
+            continue
+        print(
+            f"    {task_name}: "
+            f"rougeL={metrics[rouge_key]:.4f}, "
+            f"exact={metrics[f'predict_exact_match_for_{task_name}']:.4f}, "
+            f"n={dataset_counts[task_name]}"
+        )
 
     return metrics
 
@@ -915,33 +978,33 @@ def main() -> None:
 
     dev_metrics  = evaluate_split_cl(
         model, tokenizer, dev_samples,
-        args.max_source_length, args.max_new_tokens,
+        args.max_source_length, args.max_target_length, args.max_new_tokens,
         args.per_device_eval_batch_size, "dev",
     )
     test_metrics = evaluate_split_cl(
         model, tokenizer, test_samples,
-        args.max_source_length, args.max_new_tokens,
+        args.max_source_length, args.max_target_length, args.max_new_tokens,
         args.per_device_eval_batch_size, "test",
     )
 
     # Continual_eval: rerun all seen tasks with the current SRT router active.
-    continual_metrics = {}
     seen_task_names = task_order[: cur_task_id + 1]
     continual_samples = build_continual_eval_samples(
         args.data_dir,
         args.task_config_dir.parent,
         seen_task_names,
     )
-    continual_metrics = evaluate_split_cl(
+    continual_metrics = evaluate_continual_split_cl_legacy(
         model,
         tokenizer,
         continual_samples,
         args.max_source_length,
+        args.max_target_length,
         args.max_new_tokens,
         args.per_device_eval_batch_size,
-        "continual_eval",
-        group_names=[sample["Dataset"] for sample in continual_samples],
-        display_name="CONTINUAL EVAL",
+        seen_task_names,
+        epoch=float(getattr(trainer.state, "epoch", 0.0) or 0.0),
+        global_step=int(getattr(trainer.state, "global_step", 0) or 0),
     )
 
     # ── Save final metrics ─────────────────────────────────────────────────
@@ -962,6 +1025,27 @@ def main() -> None:
     with open(metrics_path, "w") as f:
         json.dump(final_metrics, f, indent=2)
 
+    all_results_path = args.output_dir / "all_results.json"
+    all_results = {
+        k: v
+        for k, v in continual_metrics.items()
+        if not k.endswith("_predictions")
+        and not k.endswith("_references")
+        and k != "predict_empty_predictions"
+    }
+    all_results.update(
+        {
+            "train_loss": float(train_metrics.get("train_loss", float("nan"))),
+            "train_runtime": float(train_metrics.get("train_runtime", float("nan"))),
+            "train_samples": int(train_metrics.get("train_samples", len(train_dataset))),
+            "train_samples_per_second": float(train_metrics.get("train_samples_per_second", float("nan"))),
+            "train_steps_per_second": float(train_metrics.get("train_steps_per_second", float("nan"))),
+            "total_flos": float(train_metrics.get("total_flos", float("nan"))),
+        }
+    )
+    with open(all_results_path, "w") as f:
+        json.dump(all_results, f, indent=2)
+
     continual_metrics_path = args.output_dir / "continual_metrics.json"
     with open(continual_metrics_path, "w") as f:
         json.dump(
@@ -981,6 +1065,7 @@ def main() -> None:
         else:
             print(f"  {k}: {v}")
     print(f"\nMetrics saved → {metrics_path}")
+    print(f"All results saved → {all_results_path}")
     print(f"Continual metrics saved → {continual_metrics_path}")
 
 
