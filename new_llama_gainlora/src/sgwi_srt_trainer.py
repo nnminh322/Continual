@@ -35,6 +35,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 from transformers import Trainer
 
 
@@ -178,7 +179,14 @@ class SRTSGWITrainer(Trainer):
         predictions: List[str] = []
         references:  List[str] = []
 
-        for start in range(0, len(self.dev_samples), self.eval_batch_size):
+        n_batches = math.ceil(len(self.dev_samples) / self.eval_batch_size)
+        step = self.state.global_step
+        for start in tqdm(
+            range(0, len(self.dev_samples), self.eval_batch_size),
+            total=n_batches,
+            desc=f"Eval @ step {step}",
+            leave=False,
+        ):
             batch = self.dev_samples[start : start + self.eval_batch_size]
             prompts = [
                 s["Instance"]["instruction"].format(s["Instance"]["sentence"])

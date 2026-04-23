@@ -44,6 +44,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from datasets import Dataset
+from tqdm.auto import tqdm
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
@@ -410,10 +411,13 @@ def generate_predictions_cl(
     max_target_length: int,
     max_new_tokens: int,
     batch_size: int,
-) -> tuple[list[str], list[str], list[int], float, float, int]:
+    desc: str = "Generating",
+) -> tuple[list[str], list[str], list[int], float, int]:
     """
     Run generation with the CL model.
     Passes input_ids_wo_label = source prompt to enable SRT inference routing.
+
+    Returns: (predictions, references, generated_lengths, runtime_seconds, total_steps)
     """
     model.eval()
     model.model.is_inference = True  # enable routing stat collection
@@ -433,31 +437,23 @@ def generate_predictions_cl(
     gen_cfg.pad_token_id      = tokenizer.pad_token_id
     gen_cfg.eos_token_id      = tokenizer.eos_token_id
     gen_cfg.bos_token_id      = tokenizer.bos_token_id
+    gen_cfg.max_new_tokens    = max_new_tokens
 
     predictions: list[str] = []
     references:  list[str] = []
     generated_lengths: list[int] = []
-    total_loss = 0.0
-    total_examples = 0
     total_steps = 0
     start_time = time.perf_counter()
 
-    for start in range(0, len(samples), batch_size):
+    n_batches = math.ceil(len(samples) / batch_size)
+    for start in tqdm(range(0, len(samples), batch_size), total=n_batches, desc=desc):
         batch_samples = samples[start : start + batch_size]
         batch = collator(batch_samples)
         batch = {k: v.to(device) for k, v in batch.items()}
         refs = [s["Instance"]["label"] for s in batch_samples]
         input_length = batch["input_ids_wo_label"].shape[1]
-        gen_cfg.max_new_tokens = max_new_tokens
 
         with torch.no_grad():
-            outputs = model(
-                input_ids=batch["input_ids"],
-                attention_mask=batch["attention_mask"],
-                labels=batch["labels"],
-                input_ids_wo_label=batch["input_ids_wo_label"],
-            )
-            batch_loss = float(outputs.loss.detach().float().item()) if outputs.loss is not None else 0.0
             generated = model.generate(
                 input_ids          = batch["input_ids_wo_label"],
                 input_ids_wo_label = batch["input_ids_wo_label"],  # source for SRT routing
@@ -465,9 +461,6 @@ def generate_predictions_cl(
                 generation_config  = gen_cfg,
             )
 
-        batch_size_actual = batch["input_ids"].shape[0]
-        total_loss += batch_loss * batch_size_actual
-        total_examples += batch_size_actual
         total_steps += 1
 
         for generated_ids, reference in zip(generated, refs):
@@ -483,8 +476,7 @@ def generate_predictions_cl(
 
     model.model.is_inference = False
     runtime = time.perf_counter() - start_time
-    avg_loss = total_loss / max(total_examples, 1)
-    return predictions, references, generated_lengths, avg_loss, runtime, total_steps
+    return predictions, references, generated_lengths, runtime, total_steps
 
 
 def evaluate_split_cl(
@@ -499,8 +491,9 @@ def evaluate_split_cl(
     group_names: list[str] | None = None,
     display_name: str | None = None,
 ) -> dict:
-    predictions, references, generated_lengths, _, _, _ = generate_predictions_cl(
-        model, tokenizer, samples, max_source_length, max_target_length, max_new_tokens, batch_size
+    predictions, references, generated_lengths, _, _ = generate_predictions_cl(
+        model, tokenizer, samples, max_source_length, max_target_length, max_new_tokens, batch_size,
+        desc=display_name or f"Eval {split_name}",
     )
     legacy_metrics = legacy_compute_metrics(predictions, references)
 
@@ -544,14 +537,14 @@ def evaluate_continual_split_cl_legacy(
     global_step: int | None = None,
 ) -> dict:
     """Match the old `predict_*` metric naming and grouping exactly."""
-    predictions, references, generated_lengths, avg_loss, runtime, total_steps = generate_predictions_cl(
-        model, tokenizer, samples, max_source_length, max_target_length, max_new_tokens, batch_size
+    predictions, references, generated_lengths, runtime, total_steps = generate_predictions_cl(
+        model, tokenizer, samples, max_source_length, max_target_length, max_new_tokens, batch_size,
+        desc="Continual predict",
     )
 
     metrics = legacy_compute_metrics(predictions, references)
     metrics = {f"predict_{key}": value for key, value in metrics.items()}
     metrics["predict_gen_len"] = round(float(np.mean(generated_lengths)) if generated_lengths else 0.0, 4)
-    metrics["predict_loss"] = float(avg_loss)
     metrics["predict_runtime"] = float(runtime)
     metrics["predict_samples"] = len(references)
     metrics["predict_samples_per_second"] = round(len(references) / max(runtime, 1e-9), 3)
@@ -893,8 +886,8 @@ def main() -> None:
     train_metrics = train_result.metrics
     train_metrics["train_samples"] = len(train_dataset)
     trainer.log_metrics("train", train_metrics)
-    trainer.save_metrics("train", train_metrics)
-    trainer.save_state()
+    # NOTE: skip trainer.save_metrics() / trainer.save_state() to save disk —
+    # everything we need ends up in all_results.json at end of task.
 
     # ── Restore best checkpoint (mirrors load_best_model_at_end=True in T5) ───
     best_rougeL = trainer.restore_best_model()
@@ -905,7 +898,6 @@ def main() -> None:
 
     torch.save(lora_state_dict_A(model), str(save_path / "lora_weights_A.pt"))
     torch.save(lora_state_dict_B(model), str(save_path / "lora_weights_B.pt"))
-    tokenizer.save_pretrained(str(save_path))
     print(f"[SAVE] LoRA weights → {save_path}")
 
     # ── Post-training: SRT signature ───────────────────────────────────────

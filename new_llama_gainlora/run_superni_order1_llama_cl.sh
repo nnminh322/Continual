@@ -9,6 +9,10 @@
 #
 # Each task is run sequentially, accumulating previous LoRA paths and
 # SRT signatures from the previous task's saved_weights/.
+#
+# Directory layout (score.py compatible, 1-indexed):
+#   logs_and_outputs/{RUN_NAME}/outputs/1-task1572.../all_results.json
+#   logs_and_outputs/{RUN_NAME}/outputs/task_order.txt
 # =============================================================================
 
 set -euo pipefail
@@ -20,29 +24,31 @@ CONTINUAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 DATA_DIR="${CONTINUAL_DIR}/root_gainlora/CL_Benchmark"
-# Use local canonical configs to avoid depending on llama_epoch_ablation
 CONFIG_BASE="${CONTINUAL_DIR}/new_gainlora/configs/gen_script_superni_order1_llama_configs"
 DS_CONFIG="${CONTINUAL_DIR}/new_gainlora/configs/ds_configs/stage2.config"
 LOG_DIR="${SCRIPT_DIR}/logs_and_outputs"
+RUN_NAME=${RUN_NAME:-"superni_order1_llama_srt"}
 
 # DeepSpeed settings
 NUM_GPUS=${NUM_GPUS:-1}
 
-# Training hyperparameters (match T5 GainLoRA standard)
+# Training hyperparameters
 LORA_R=${LORA_R:-4}
 LORA_ALPHA=${LORA_ALPHA:-32}
 LORA_DROPOUT=${LORA_DROPOUT:-0.0}
 PER_DEVICE_TRAIN_BATCH_SIZE=${PER_DEVICE_TRAIN_BATCH_SIZE:-1}
+PER_DEVICE_EVAL_BATCH_SIZE=${PER_DEVICE_EVAL_BATCH_SIZE:-2}   # 32GB VRAM safe
 GRADIENT_ACCUMULATION_STEPS=${GRADIENT_ACCUMULATION_STEPS:-32}
 LEARNING_RATE=${LEARNING_RATE:-5e-5}
-NUM_TRAIN_EPOCHS=${NUM_TRAIN_EPOCHS:-15}   # T5 gold: 100 epochs; set e.g. 10 for quick runs
+NUM_TRAIN_EPOCHS=${NUM_TRAIN_EPOCHS:-15}
 MAX_SOURCE_LENGTH=${MAX_SOURCE_LENGTH:-1024}
 MAX_TARGET_LENGTH=${MAX_TARGET_LENGTH:-50}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-50}
-MAX_TRAIN_SAMPLES=${MAX_TRAIN_SAMPLES:-}     # default: no cap (T5 gold); set e.g. 500 for quick runs
+MAX_TRAIN_SAMPLES=${MAX_TRAIN_SAMPLES:-}     # default: no cap; set e.g. 500 for quick runs
 SRT_METRIC_MODE=${SRT_METRIC_MODE:-"hard"}
+SRT_MAX_EMB_SAMPLES=${SRT_MAX_EMB_SAMPLES:-200}  # 32GB VRAM safe (reduced from 500)
 
-# Parse extra flags (e.g. --sgwi)
+# Parse extra flags (e.g. --no_sgwi)
 EXTRA_FLAGS="$*"
 
 # ── Task order (15 tasks, SuperNI Order 1) ─────────────────────────────────────
@@ -71,11 +77,14 @@ echo "=================================================="
 echo "LLaMA GainLoRA Continual Learning — SuperNI Order 1"
 echo "MODEL:     ${MODEL_NAME_OR_PATH}"
 echo "TASKS:     ${NUM_TASKS}"
+echo "RUN_NAME:  ${RUN_NAME}"
 echo "LOG_DIR:   ${LOG_DIR}"
 echo "EXTRA:     ${EXTRA_FLAGS}"
 echo "=================================================="
 
-mkdir -p "${LOG_DIR}"
+# Output root (score.py compatible): logs_and_outputs/{RUN_NAME}/outputs/
+OUTPUTS_DIR="${LOG_DIR}/${RUN_NAME}/outputs"
+mkdir -p "${OUTPUTS_DIR}"
 
 # ── Sequential task loop ───────────────────────────────────────────────────────
 PREVIOUS_LORA_PATHS=""   # accumulated comma-sep list (oldest→newest)
@@ -84,11 +93,12 @@ PREV_SRT_PATH=""         # srt_signatures.npz dir from last task
 for ((TASK_ID=0; TASK_ID<NUM_TASKS; TASK_ID++)); do
     TASK_NAME="${TASK_ORDER[$TASK_ID]}"
     TASK_CONFIG_DIR="${CONFIG_BASE}/${TASK_NAME}"
-    OUTPUT_DIR="${LOG_DIR}/${TASK_ID}-${TASK_NAME}"
+    TASK_NUM=$((TASK_ID + 1))  # 1-indexed for score.py compatibility
+    OUTPUT_DIR="${OUTPUTS_DIR}/${TASK_NUM}-${TASK_NAME}"
 
     echo ""
     echo "──────────────────────────────────────────────────"
-    echo "TASK ${TASK_ID}/${NUM_TASKS}: ${TASK_NAME}"
+    echo "TASK ${TASK_NUM}/${NUM_TASKS}: ${TASK_NAME}"
     echo "OUTPUT:  ${OUTPUT_DIR}"
     echo "PREV LORA: ${PREVIOUS_LORA_PATHS:-<none>}"
     echo "SRT PATH:  ${PREV_SRT_PATH:-<none>}"
@@ -122,6 +132,7 @@ for ((TASK_ID=0; TASK_ID<NUM_TASKS; TASK_ID++)); do
         --lora_alpha             ${LORA_ALPHA} \
         --lora_dropout           ${LORA_DROPOUT} \
         --per_device_train_batch_size ${PER_DEVICE_TRAIN_BATCH_SIZE} \
+        --per_device_eval_batch_size  ${PER_DEVICE_EVAL_BATCH_SIZE} \
         --gradient_accumulation_steps ${GRADIENT_ACCUMULATION_STEPS} \
         --learning_rate          ${LEARNING_RATE} \
         --num_train_epochs       ${NUM_TRAIN_EPOCHS} \
@@ -129,6 +140,7 @@ for ((TASK_ID=0; TASK_ID<NUM_TASKS; TASK_ID++)); do
         --max_target_length      ${MAX_TARGET_LENGTH} \
         --max_new_tokens         ${MAX_NEW_TOKENS} \
         --srt_metric_mode        ${SRT_METRIC_MODE} \
+        --srt_max_emb_samples    ${SRT_MAX_EMB_SAMPLES} \
         --use_srt_router \
         --bf16 \
         --deepspeed              "${DS_CONFIG}" \
@@ -150,7 +162,7 @@ for ((TASK_ID=0; TASK_ID<NUM_TASKS; TASK_ID++)); do
     fi
     PREV_SRT_PATH="${CUR_SAVED}"
 
-    echo "[Done] Task ${TASK_ID}: saved → ${CUR_SAVED}"
+    echo "[Done] Task ${TASK_NUM}: saved → ${CUR_SAVED}"
 done
 
 echo ""
@@ -158,46 +170,9 @@ echo "=================================================="
 echo "ALL ${NUM_TASKS} TASKS COMPLETE"
 echo "=================================================="
 
-# ── Aggregate final metrics ────────────────────────────────────────────────────
-RESULTS_FILE="${LOG_DIR}/all_results.json"
-echo "Aggregating results → ${RESULTS_FILE}"
-
-python3 - << 'PYEOF'
-import json
-import glob
-import os
-import sys
-
-log_dir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "logs_and_outputs"
-)
-
-results = []
-metrics_paths = sorted(glob.glob(os.path.join(log_dir, "*", "all_results.json")))
-if not metrics_paths:
-    metrics_paths = sorted(glob.glob(os.path.join(log_dir, "*", "final_metrics.json")))
-
-for metrics_path in metrics_paths:
-    with open(metrics_path) as f:
-        m = json.load(f)
-    results.append(m)
-
-print(f"Found {len(results)} task results.")
-avg_dev_rougeL = 0.0
-avg_test_rougeL = 0.0
-avg_predict_eval_rougeL_for_CL = 0.0
-if results:
-    avg_dev_rougeL  = sum(m.get("dev_rougeL",  0) for m in results) / len(results)
-    avg_test_rougeL = sum(m.get("test_rougeL", 0) for m in results) / len(results)
-    avg_predict_eval_rougeL_for_CL = sum(m.get("predict_eval_rougeL_for_CL", 0) for m in results) / len(results)
-    print(f"Avg dev_rougeL:  {avg_dev_rougeL:.4f}")
-    print(f"Avg test_rougeL: {avg_test_rougeL:.4f}")
-    print(f"Avg predict_eval_rougeL_for_CL: {avg_predict_eval_rougeL_for_CL:.4f}")
-
-with open(os.path.join(log_dir, "all_results.json"), "w") as f:
-    json.dump({"tasks": results, "avg_dev_rougeL": avg_dev_rougeL,
-               "avg_test_rougeL": avg_test_rougeL,
-               "avg_predict_eval_rougeL_for_CL": avg_predict_eval_rougeL_for_CL}, f, indent=2)
-PYEOF "${LOG_DIR}"
+# ── Score (uses same score.py as T5) ──────────────────────────────────────────
+echo "Computing CL metrics via score.py ..."
+python "${CONTINUAL_DIR}/new_gainlora/score.py" "${RUN_NAME}" "${RUN_NAME}" "${LOG_DIR}" || \
+    echo "[WARN] score.py failed — check that all tasks produced all_results.json"
 
 echo "Done."

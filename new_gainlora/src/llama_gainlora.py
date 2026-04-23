@@ -35,6 +35,11 @@ from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutpu
 from transformers.modeling_utils import PreTrainedModel
 from transformers.generation import GenerationMixin
 from transformers.utils import add_start_docstrings, add_start_docstrings_to_model_forward, logging, replace_return_docstrings
+
+try:
+    from transformers.cache_utils import DynamicCache
+except ImportError:
+    DynamicCache = None
 from transformers.models.llama.configuration_llama import LlamaConfig
 
 
@@ -773,6 +778,16 @@ class LlamaModel(LlamaPreTrainedModel):
         seq_length_with_past = seq_length
         past_key_values_length = 0
 
+        # Convert DynamicCache (Transformers 5.x) to legacy tuple-of-tuples
+        if DynamicCache is not None and isinstance(past_key_values, DynamicCache):
+            if len(past_key_values.key_cache) > 0:
+                past_key_values = tuple(
+                    (past_key_values.key_cache[i], past_key_values.value_cache[i])
+                    for i in range(len(past_key_values.key_cache))
+                )
+            else:
+                past_key_values = None
+
         if past_key_values is not None:
             past_key_values_length = past_key_values[0][0].shape[2]
             seq_length_with_past = seq_length_with_past + past_key_values_length
@@ -904,7 +919,7 @@ class LlamaModel(LlamaPreTrainedModel):
             hidden_states = layer_outputs[0]
 
             if use_cache:
-                next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
+                next_decoder_cache += (layer_outputs[2],)
 
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
@@ -975,14 +990,6 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         **kwargs,
     ):
         """Pass input_ids_wo_label through to enable SRT routing in decoder layers."""
-        # This custom LLaMA path still uses legacy tuple-style KV handling.
-        # Transformers 5 generation defaults to DynamicCache, which is not
-        # compatible with llama_gainlora.py. Force cache-free generation.
-        if generation_config is not None:
-            generation_config.use_cache = False
-            kwargs.pop("use_cache", None)
-        else:
-            kwargs["use_cache"] = False
         return super().generate(
             input_ids=input_ids,
             input_ids_wo_label=input_ids_wo_label,
