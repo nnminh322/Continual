@@ -255,6 +255,65 @@ def lora_state_dict_B(model: nn.Module) -> dict:
     }
 
 
+def _is_expected_custom_missing_key(name: str) -> bool:
+    return (
+        name.endswith("rotary_emb.inv_freq")
+        or ".lora_q.lora_" in name
+        or ".lora_v.lora_" in name
+        or "prompt_key" in name
+        or "trans_input" in name
+        or "previous_lora_weights" in name
+        or "previous_prompts_keys" in name
+        or "previous_trans_input" in name
+    )
+
+
+def load_custom_llama_from_hf_checkpoint(
+    model_name_or_path: str,
+    config,
+    prompt_config: dict,
+    token,
+    dtype: torch.dtype,
+) -> tuple[LlamaForCausalLM, nn.Module]:
+    """
+    Load the HF checkpoint through the official AutoModel path, then copy the
+    shared backbone weights into the custom GainLoRA model.
+
+    This avoids silent weight drift observed when instantiating the custom
+    class via from_pretrained() under Transformers 5.x.
+    """
+    hf_base_model = AutoModelForCausalLM.from_pretrained(
+        model_name_or_path,
+        token=token,
+        dtype=dtype,
+        low_cpu_mem_usage=True,
+        use_safetensors=True,
+    )
+
+    custom_config = copy.deepcopy(config)
+    custom_config._attn_implementation = "eager"
+    model = LlamaForCausalLM(custom_config, prompt_config)
+    model = model.to(dtype=dtype)
+
+    incompatible = model.load_state_dict(hf_base_model.state_dict(), strict=False)
+    unexpected_missing = [
+        name for name in incompatible.missing_keys
+        if not _is_expected_custom_missing_key(name)
+    ]
+    if unexpected_missing or incompatible.unexpected_keys:
+        raise RuntimeError(
+            "Custom LLaMA weight load mismatch. "
+            f"unexpected_missing={unexpected_missing}, "
+            f"unexpected_keys={incompatible.unexpected_keys}"
+        )
+
+    print(
+        "[LOAD] HF checkpoint copied into custom LLaMA "
+        f"(allowed_missing={len(incompatible.missing_keys)})"
+    )
+    return model, hf_base_model
+
+
 def load_previous_lora(
     model: LlamaForCausalLM,
     previous_lora_path: str,
@@ -363,6 +422,7 @@ def generate_predictions_cl(
         )
         encoded = {k: v.to(device) for k, v in encoded.items()}
         input_length = encoded["input_ids"].shape[1]
+        gen_cfg.max_new_tokens = max_new_tokens
 
         with torch.no_grad():
             generated = model.generate(
@@ -370,7 +430,6 @@ def generate_predictions_cl(
                 input_ids_wo_label   = encoded["input_ids"],  # source for SRT routing
                 attention_mask       = encoded["attention_mask"],
                 generation_config    = gen_cfg,
-                max_new_tokens       = max_new_tokens,
             )
 
         for generated_ids, reference in zip(generated, refs):
@@ -573,19 +632,17 @@ def main() -> None:
     }
 
     # ── Load model ─────────────────────────────────────────────────────────
-    model = LlamaForCausalLM.from_pretrained(
-        args.model_name_or_path,
-        prompt_config,
-        config          = config,
-        token           = token,
-        torch_dtype     = dtype,
-        low_cpu_mem_usage = True,
-        use_safetensors = True,
+    model, hf_base_model = load_custom_llama_from_hf_checkpoint(
+        model_name_or_path = args.model_name_or_path,
+        config             = config,
+        prompt_config      = prompt_config,
+        token              = token,
+        dtype              = dtype,
     )
+    model.config.pad_token_id = tokenizer.pad_token_id
     model.config.use_cache = False
-    model.resize_token_embeddings(len(tokenizer))
 
-    # ── FIX: re-init lora_A/B after no_init_weights from_pretrained ────────
+    # ── FIX: ensure task-local params start from clean init ────────────────
     _n_reinit = 0
     for module in model.modules():
         if (
@@ -623,24 +680,9 @@ def main() -> None:
             f"[FIX] n_slots: dummy previous_prompts_keys shape=({n_prev}, {config.hidden_size})"
         )
 
-    # ── Attach frozen backbone for SRT embedding extraction ────────────────
-    if args.use_srt_router:
-        print(f"[SRT] Loading frozen backbone from {args.model_name_or_path} …")
-        frozen_backbone = AutoModelForCausalLM.from_pretrained(
-            args.model_name_or_path,
-            token           = token,
-            torch_dtype     = dtype,
-            low_cpu_mem_usage = True,
-            use_safetensors = True,
-        )
-        frozen_backbone.resize_token_embeddings(len(tokenizer))
-        frozen_decoder = (
-            frozen_backbone.model
-            if hasattr(frozen_backbone, "model")
-            else frozen_backbone
-        )
-        model.model.encoder_frozen = FrozenLlamaExtractor(frozen_decoder)
-        print("[SRT] Frozen backbone attached.")
+    # The frozen SRT backbone is loaded lazily after training. Task 0 should
+    # train as a plain single-task LoRA run without carrying an extra 7B model.
+    del hf_base_model
 
     # ── Load previous LoRA adapters ────────────────────────────────────────
     if prev_lora_path:
@@ -771,6 +813,24 @@ def main() -> None:
     print(f"[SAVE] LoRA weights → {save_path}")
 
     # ── Post-training: SRT signature ───────────────────────────────────────
+    if args.use_srt_router and getattr(model.model, "encoder_frozen", None) is None:
+        print(f"[SRT] Loading frozen backbone from {args.model_name_or_path} …")
+        frozen_backbone = AutoModelForCausalLM.from_pretrained(
+            args.model_name_or_path,
+            token=token,
+            dtype=dtype,
+            low_cpu_mem_usage=True,
+            use_safetensors=True,
+        )
+        frozen_decoder = (
+            frozen_backbone.model
+            if hasattr(frozen_backbone, "model")
+            else frozen_backbone
+        )
+        model.model.encoder_frozen = FrozenLlamaExtractor(frozen_decoder)
+        del frozen_backbone
+        print("[SRT] Frozen backbone attached.")
+
     trainer.on_task_end(cur_task)
     trainer.save_srt_signatures(str(save_path))
 

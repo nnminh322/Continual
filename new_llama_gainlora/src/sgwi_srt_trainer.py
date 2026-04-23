@@ -206,6 +206,7 @@ class SRTSGWITrainer(Trainer):
             gen_cfg.pad_token_id = pad_id
             gen_cfg.eos_token_id = self.tokenizer.eos_token_id
             gen_cfg.bos_token_id = self.tokenizer.bos_token_id
+            gen_cfg.max_new_tokens = self.max_new_tokens
 
             with torch.no_grad():
                 generated = model.generate(
@@ -213,7 +214,6 @@ class SRTSGWITrainer(Trainer):
                     input_ids_wo_label = encoded["input_ids"],
                     attention_mask     = encoded["attention_mask"],
                     generation_config  = gen_cfg,
-                    max_new_tokens     = self.max_new_tokens,
                 )
 
             for gen_ids, ref in zip(generated, refs):
