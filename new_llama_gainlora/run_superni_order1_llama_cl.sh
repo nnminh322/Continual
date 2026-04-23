@@ -179,15 +179,21 @@ for metrics_path in sorted(glob.glob(os.path.join(log_dir, "*", "final_metrics.j
     results.append(m)
 
 print(f"Found {len(results)} task results.")
+avg_dev_rougeL = 0.0
+avg_test_rougeL = 0.0
+avg_continual_eval_rougeL = 0.0
 if results:
     avg_dev_rougeL  = sum(m.get("dev_rougeL",  0) for m in results) / len(results)
     avg_test_rougeL = sum(m.get("test_rougeL", 0) for m in results) / len(results)
+    avg_continual_eval_rougeL = sum(m.get("continual_eval_rougeL", 0) for m in results) / len(results)
     print(f"Avg dev_rougeL:  {avg_dev_rougeL:.4f}")
     print(f"Avg test_rougeL: {avg_test_rougeL:.4f}")
+    print(f"Avg continual_eval_rougeL: {avg_continual_eval_rougeL:.4f}")
 
 with open(os.path.join(log_dir, "all_results.json"), "w") as f:
     json.dump({"tasks": results, "avg_dev_rougeL": avg_dev_rougeL,
-               "avg_test_rougeL": avg_test_rougeL}, f, indent=2)
+               "avg_test_rougeL": avg_test_rougeL,
+               "avg_continual_eval_rougeL": avg_continual_eval_rougeL}, f, indent=2)
 PYEOF "${LOG_DIR}"
 
 echo "Done."

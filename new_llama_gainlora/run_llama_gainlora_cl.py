@@ -137,27 +137,44 @@ def build_splits(
     max_train_samples: int | None,
     max_eval_samples: int | None,
 ):
+    train_samples = build_split_samples(data_dir, task_config_dir, "train", max_train_samples)
+    dev_samples   = build_split_samples(data_dir, task_config_dir, "dev",   max_eval_samples)
+    test_samples  = build_split_samples(data_dir, task_config_dir, "test",  None)
+    return train_samples, dev_samples, test_samples
+
+
+def build_split_samples(
+    data_dir: Path,
+    task_config_dir: Path,
+    split_name: str,
+    max_num_instances: int | None,
+) -> list[dict]:
     task_configs = CLConfig.parse_task_config(str(task_config_dir))
     if task_configs is None:
         raise ValueError(f"Invalid task_config_dir: {task_config_dir}")
 
     builder = CLInstructions()
+    samples = []
+    for _, sample in builder._generate_examples(
+        path=str(data_dir),
+        task_config=task_configs[split_name],
+        max_num_instances_per_task=max_num_instances,
+        subset=split_name,
+    ):
+        samples.append(sample)
+    return samples
 
-    def _collect(split_name: str, max_num_instances: int | None):
-        samples = []
-        for _, sample in builder._generate_examples(
-            path=str(data_dir),
-            task_config=task_configs[split_name],
-            max_num_instances_per_task=max_num_instances,
-            subset=split_name,
-        ):
-            samples.append(sample)
-        return samples
 
-    train_samples = _collect("train", max_train_samples)
-    dev_samples   = _collect("dev",   max_eval_samples)
-    test_samples  = _collect("test",  None)
-    return train_samples, dev_samples, test_samples
+def build_continual_eval_samples(
+    data_dir: Path,
+    task_config_base_dir: Path,
+    task_names: list[str],
+) -> list[dict]:
+    samples: list[dict] = []
+    for task_name in task_names:
+        task_config_dir = task_config_base_dir / task_name
+        samples.extend(build_split_samples(data_dir, task_config_dir, "test", None))
+    return samples
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -447,7 +464,15 @@ def generate_predictions_cl(
 
 
 def evaluate_split_cl(
-    model, tokenizer, samples, max_source_length, max_new_tokens, batch_size, split_name
+    model,
+    tokenizer,
+    samples,
+    max_source_length,
+    max_new_tokens,
+    batch_size,
+    split_name,
+    group_names: list[str] | None = None,
+    display_name: str | None = None,
 ) -> dict:
     predictions, references = generate_predictions_cl(
         model, tokenizer, samples, max_source_length, max_new_tokens, batch_size
@@ -457,13 +482,13 @@ def evaluate_split_cl(
     exact   = sum(exact_match(p, r) for p, r in zip(predictions, references)) / max(len(references), 1)
     empty   = sum(1 for p in predictions if not p.strip())
 
-    print(f"=== {split_name.upper()} ===")
+    print(f"=== {display_name or split_name.upper()} ===")
     for idx in range(min(3, len(predictions))):
         print(f"  [{idx}] PRED: {predictions[idx]!r}")
         print(f"  [{idx}] REF : {references[idx]!r}")
     print(f"Empty predictions: {empty}/{len(predictions)}")
 
-    return {
+    metrics = {
         f"{split_name}_rougeL":            rouge_l,
         f"{split_name}_rouge1":            rouge_1,
         f"{split_name}_exact_match":       exact,
@@ -472,6 +497,51 @@ def evaluate_split_cl(
         f"{split_name}_predictions":       predictions,
         f"{split_name}_references":        references,
     }
+
+    if group_names is not None:
+        if len(group_names) != len(references):
+            raise ValueError(
+                "group_names length must match samples length for continual evaluation"
+            )
+        metrics[f"{split_name}_rougeL_for_CL"] = rouge_l
+        metrics[f"{split_name}_rouge1_for_CL"] = rouge_1
+        metrics[f"{split_name}_exact_match_for_CL"] = exact
+        grouped: dict[str, list[tuple[str, str]]] = {}
+        for prediction, reference, group_name in zip(predictions, references, group_names):
+            grouped.setdefault(group_name, []).append((prediction, reference))
+
+        print("  [CL] Per-task scores:")
+        ordered_groups = []
+        for group_name in group_names:
+            if group_name not in ordered_groups:
+                ordered_groups.append(group_name)
+        for group_name in ordered_groups:
+            group_predictions, group_references = zip(*grouped[group_name])
+            group_prefix = f"{split_name}_"
+            group_metrics = {
+                f"{group_prefix}rougeL_for_{group_name}": sum(
+                    rouge_l_f1(p, r) for p, r in zip(group_predictions, group_references)
+                ) / max(len(group_references), 1),
+                f"{group_prefix}rouge1_for_{group_name}": sum(
+                    rouge_1_f1(p, r) for p, r in zip(group_predictions, group_references)
+                ) / max(len(group_references), 1),
+                f"{group_prefix}exact_match_for_{group_name}": sum(
+                    exact_match(p, r) for p, r in zip(group_predictions, group_references)
+                ) / max(len(group_references), 1),
+                f"{group_prefix}empty_predictions_for_{group_name}": sum(
+                    1 for p in group_predictions if not p.strip()
+                ),
+                f"{group_prefix}samples_for_{group_name}": len(group_references),
+            }
+            metrics.update(group_metrics)
+            print(
+                f"    {group_name}: "
+                f"rougeL={group_metrics[f'{group_prefix}rougeL_for_{group_name}']:.4f}, "
+                f"exact={group_metrics[f'{group_prefix}exact_match_for_{group_name}']:.4f}, "
+                f"n={group_metrics[f'{group_prefix}samples_for_{group_name}']}"
+            )
+
+    return metrics
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -854,6 +924,26 @@ def main() -> None:
         args.per_device_eval_batch_size, "test",
     )
 
+    # Continual_eval: rerun all seen tasks with the current SRT router active.
+    continual_metrics = {}
+    seen_task_names = task_order[: cur_task_id + 1]
+    continual_samples = build_continual_eval_samples(
+        args.data_dir,
+        args.task_config_dir.parent,
+        seen_task_names,
+    )
+    continual_metrics = evaluate_split_cl(
+        model,
+        tokenizer,
+        continual_samples,
+        args.max_source_length,
+        args.max_new_tokens,
+        args.per_device_eval_batch_size,
+        "continual_eval",
+        group_names=[sample["Dataset"] for sample in continual_samples],
+        display_name="CONTINUAL EVAL",
+    )
+
     # ── Save final metrics ─────────────────────────────────────────────────
     final_metrics = {
         "run_name":         run_name,
@@ -863,7 +953,7 @@ def main() -> None:
         "best_eval_rougeL": float(best_rougeL),   # from best in-training checkpoint
         **{
             k: v
-            for k, v in {**dev_metrics, **test_metrics}.items()
+            for k, v in {**dev_metrics, **test_metrics, **continual_metrics}.items()
             if not k.endswith("_predictions") and not k.endswith("_references")
         },
     }
@@ -872,6 +962,18 @@ def main() -> None:
     with open(metrics_path, "w") as f:
         json.dump(final_metrics, f, indent=2)
 
+    continual_metrics_path = args.output_dir / "continual_metrics.json"
+    with open(continual_metrics_path, "w") as f:
+        json.dump(
+            {
+                k: v
+                for k, v in continual_metrics.items()
+                if not k.endswith("_predictions") and not k.endswith("_references")
+            },
+            f,
+            indent=2,
+        )
+
     print("\n=== FINAL METRICS ===")
     for k, v in final_metrics.items():
         if isinstance(v, float):
@@ -879,6 +981,7 @@ def main() -> None:
         else:
             print(f"  {k}: {v}")
     print(f"\nMetrics saved → {metrics_path}")
+    print(f"Continual metrics saved → {continual_metrics_path}")
 
 
 if __name__ == "__main__":
