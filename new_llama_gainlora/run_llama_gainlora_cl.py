@@ -546,7 +546,7 @@ def main() -> None:
     )
     print(f"Train/dev/test: {len(train_samples)}/{len(dev_samples)}/{len(test_samples)}")
     train_dataset = Dataset.from_list(train_samples)
-    # Dummy eval_dataset: keeps Trainer happy when evaluation_strategy='steps';
+    # Dummy eval_dataset: keeps Trainer happy when eval_strategy='steps';
     # actual generation-based eval happens inside SRTSGWITrainer.evaluate() override.
     eval_dataset  = Dataset.from_list(dev_samples)
     collator = CLCausalTaskCollator(
@@ -701,7 +701,7 @@ def main() -> None:
         logging_steps               = args.logging_steps,
         logging_strategy            = "steps",
         # Eval every 5 epochs (mirrors T5 gold: eval_steps = 5 * step_per_epoch)
-        evaluation_strategy         = "steps",
+        eval_strategy               = "steps",
         eval_steps                  = eval_steps,
         # No checkpoint saves (avoid writing 7B files); best model tracked in-memory
         save_strategy               = "no",
