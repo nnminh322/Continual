@@ -499,20 +499,12 @@ def evaluate_split_cl(
         model, tokenizer, samples, max_source_length, max_target_length, max_new_tokens, batch_size
     )
     legacy_metrics = legacy_compute_metrics(predictions, references)
-    empty   = sum(1 for p in predictions if not p.strip())
-
-    print(f"=== {display_name or split_name.upper()} ===")
-    for idx in range(min(3, len(predictions))):
-        print(f"  [{idx}] PRED: {predictions[idx]!r}")
-        print(f"  [{idx}] REF : {references[idx]!r}")
-    print(f"Empty predictions: {empty}/{len(predictions)}")
 
     metrics = {
         f"{split_name}_rougeL":            legacy_metrics["eval_rougeL"],
         f"{split_name}_rouge1":            legacy_metrics["rouge1"],
         f"{split_name}_exact_match":       legacy_metrics["exact_match"],
         f"{split_name}_gen_len":           round(float(np.mean(generated_lengths)) if generated_lengths else 0.0, 4),
-        f"{split_name}_empty_predictions": empty,
         f"{split_name}_samples":           len(references),
         f"{split_name}_predictions":       predictions,
         f"{split_name}_references":        references,
@@ -531,19 +523,6 @@ def evaluate_split_cl(
                 for metric, value in grouped.items()
             }
         )
-
-        print("  [CL] Per-task scores:")
-        ordered_groups = []
-        for group_name in group_names:
-            if group_name not in ordered_groups:
-                ordered_groups.append(group_name)
-        for group_name in ordered_groups:
-            print(
-                f"    {group_name}: "
-                f"rougeL={metrics[f'{split_name}_eval_rougeL_for_{group_name}']:.4f}, "
-                f"exact={metrics[f'{split_name}_exact_match_for_{group_name}']:.4f}, "
-                f"n={group_counts[group_name]}"
-            )
 
     return metrics
 
@@ -564,13 +543,6 @@ def evaluate_continual_split_cl_legacy(
     predictions, references, generated_lengths, avg_loss, runtime, total_steps = generate_predictions_cl(
         model, tokenizer, samples, max_source_length, max_target_length, max_new_tokens, batch_size
     )
-    empty = sum(1 for p in predictions if not p.strip())
-
-    print("=== CONTINUAL EVAL ===")
-    for idx in range(min(3, len(predictions))):
-        print(f"  [{idx}] PRED: {predictions[idx]!r}")
-        print(f"  [{idx}] REF : {references[idx]!r}")
-    print(f"Empty predictions: {empty}/{len(predictions)}")
 
     metrics = legacy_compute_metrics(predictions, references)
     metrics = {f"predict_{key}": value for key, value in metrics.items()}
@@ -580,7 +552,6 @@ def evaluate_continual_split_cl_legacy(
     metrics["predict_samples"] = len(references)
     metrics["predict_samples_per_second"] = round(len(references) / max(runtime, 1e-9), 3)
     metrics["predict_steps_per_second"] = round(total_steps / max(runtime, 1e-9), 3)
-    metrics["predict_empty_predictions"] = empty
     if epoch is not None:
         metrics["epoch"] = float(epoch)
     if global_step is not None:
@@ -591,18 +562,6 @@ def evaluate_continual_split_cl_legacy(
     dataset_counts = Counter(dataset_groups)
     metrics.update({f"predict_{key}": value for key, value in legacy_compute_grouped_metrics(predictions, references, task_groups).items()})
     metrics.update({f"predict_{key}": value for key, value in legacy_compute_grouped_metrics(predictions, references, dataset_groups).items()})
-
-    print("  [CL] Per-task scores:")
-    for task_name in seen_task_names:
-        rouge_key = f"predict_eval_rougeL_for_{task_name}"
-        if rouge_key not in metrics:
-            continue
-        print(
-            f"    {task_name}: "
-            f"rougeL={metrics[rouge_key]:.4f}, "
-            f"exact={metrics[f'predict_exact_match_for_{task_name}']:.4f}, "
-            f"n={dataset_counts[task_name]}"
-        )
 
     return metrics
 
@@ -976,16 +935,8 @@ def main() -> None:
     # ── Evaluation ─────────────────────────────────────────────────────────
     model.config.use_cache = True
 
-    dev_metrics  = evaluate_split_cl(
-        model, tokenizer, dev_samples,
-        args.max_source_length, args.max_target_length, args.max_new_tokens,
-        args.per_device_eval_batch_size, "dev",
-    )
-    test_metrics = evaluate_split_cl(
-        model, tokenizer, test_samples,
-        args.max_source_length, args.max_target_length, args.max_new_tokens,
-        args.per_device_eval_batch_size, "test",
-    )
+    print("*** Prediction ***")
+    logger.info("*** Prediction ***")
 
     # Continual_eval: rerun all seen tasks with the current SRT router active.
     seen_task_names = task_order[: cur_task_id + 1]
@@ -1007,66 +958,40 @@ def main() -> None:
         global_step=int(getattr(trainer.state, "global_step", 0) or 0),
     )
 
-    # ── Save final metrics ─────────────────────────────────────────────────
-    final_metrics = {
-        "run_name":         run_name,
-        "task_id":          cur_task_id,
-        "task":             cur_task,
-        "train_loss":       float(train_metrics.get("train_loss", float("nan"))),
-        "best_eval_rougeL": float(best_rougeL),   # from best in-training checkpoint
-        **{
-            k: v
-            for k, v in {**dev_metrics, **test_metrics, **continual_metrics}.items()
-            if not k.endswith("_predictions") and not k.endswith("_references")
-        },
-    }
+    if not prompt_config["run_single"]:
+        save_path = args.output_dir / "saved_weights"
+        attention_weights = getattr(getattr(trainer.model, "encoder", None), "all_attn_weights", None)
+        if attention_weights is not None:
+            with open(os.path.join(save_path, "attention_weights.pkl"), 'wb') as f:
+                all_2d = [x for x in attention_weights if getattr(x, "ndim", 0) == 2]
+                if all_2d:
+                    attn_w = np.array(np.concatenate(all_2d)).mean(axis=0)
+                    print(f"{'*'*20} Saving Attention Weights {'*'*20}")
+                    print(attn_w)
+                    pickle.dump(attn_w, f)
+                else:
+                    print(f"{'*'*20} No valid 2D Attention Weights — saving empty dict {'*'*20}")
+                    pickle.dump({}, f)
 
-    metrics_path = args.output_dir / "final_metrics.json"
-    with open(metrics_path, "w") as f:
-        json.dump(final_metrics, f, indent=2)
+    trainer.log(continual_metrics)
+    trainer.log_metrics("predict", continual_metrics)
 
     all_results_path = args.output_dir / "all_results.json"
     all_results = {
         k: v
         for k, v in continual_metrics.items()
-        if not k.endswith("_predictions")
-        and not k.endswith("_references")
-        and k != "predict_empty_predictions"
+        if not k.endswith("_predictions") and not k.endswith("_references")
     }
-    all_results.update(
-        {
-            "train_loss": float(train_metrics.get("train_loss", float("nan"))),
-            "train_runtime": float(train_metrics.get("train_runtime", float("nan"))),
-            "train_samples": int(train_metrics.get("train_samples", len(train_dataset))),
-            "train_samples_per_second": float(train_metrics.get("train_samples_per_second", float("nan"))),
-            "train_steps_per_second": float(train_metrics.get("train_steps_per_second", float("nan"))),
-            "total_flos": float(train_metrics.get("total_flos", float("nan"))),
-        }
-    )
+    if train_metrics:
+        for key, value in train_metrics.items():
+            if key.startswith("train_") or key == "total_flos":
+                all_results[key] = value
     with open(all_results_path, "w") as f:
         json.dump(all_results, f, indent=2)
 
-    continual_metrics_path = args.output_dir / "continual_metrics.json"
-    with open(continual_metrics_path, "w") as f:
-        json.dump(
-            {
-                k: v
-                for k, v in continual_metrics.items()
-                if not k.endswith("_predictions") and not k.endswith("_references")
-            },
-            f,
-            indent=2,
-        )
-
-    print("\n=== FINAL METRICS ===")
-    for k, v in final_metrics.items():
-        if isinstance(v, float):
-            print(f"  {k}: {v:.4f}")
-        else:
-            print(f"  {k}: {v}")
-    print(f"\nMetrics saved → {metrics_path}")
-    print(f"All results saved → {all_results_path}")
-    print(f"Continual metrics saved → {continual_metrics_path}")
+    outputs_dir = args.output_dir.parent
+    with open(os.path.join(outputs_dir, "task_order.txt"), 'w') as f:
+        f.write(args.task_order)
 
 
 if __name__ == "__main__":
