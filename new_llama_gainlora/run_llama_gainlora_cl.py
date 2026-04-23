@@ -72,6 +72,10 @@ from compute_metrics import (                                  # noqa: E402
     compute_metrics as legacy_compute_metrics,
 )
 
+import logging
+import pickle
+logger = logging.getLogger(__name__)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Metrics (same as simple baseline)
