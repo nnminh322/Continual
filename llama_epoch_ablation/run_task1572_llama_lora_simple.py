@@ -17,11 +17,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingA
 
 
 ROOT_DIR = Path(__file__).resolve().parent
-SRC_DIR = ROOT_DIR / "root_gainlora_bugfix" / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
-from cl_dataset import CLConfig, CLInstructions  # noqa: E402
+from root_gainlora_bugfix.src.cl_dataset import CLConfig, CLInstructions  # noqa: E402
 
 
 def normalize_text(text: str) -> str:
@@ -101,6 +100,7 @@ def build_splits(data_dir: Path, task_config_dir: Path, max_train_samples: int |
             samples.append(sample)
         return samples
 
+    train_samples = _collect("train", max_train_samples)
     dev_samples = _collect("dev", max_eval_samples)
     test_samples = _collect("test", None)
     return train_samples, dev_samples, test_samples
