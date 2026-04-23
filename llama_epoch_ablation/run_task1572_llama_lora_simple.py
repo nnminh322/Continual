@@ -280,6 +280,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gradient_checkpointing", action="store_true")
     parser.add_argument("--bf16", action="store_true", default=True)
     parser.add_argument("--use_auth_token", action="store_true")
+    parser.add_argument(
+        "--local_rank",
+        "--local-rank",
+        dest="local_rank",
+        type=int,
+        default=-1,
+        help="Local rank for distributed training (injected by launchers).",
+    )
     return parser.parse_args()
 
 
