@@ -828,8 +828,14 @@ def main() -> None:
             else frozen_backbone
         )
         model.model.encoder_frozen = FrozenLlamaExtractor(frozen_decoder)
+        # Ensure frozen extractor is on same device as model parameters (handles DeepSpeed/GPU)
+        try:
+            device = next(model.parameters()).device
+        except StopIteration:
+            device = torch.device("cpu")
+        model.model.encoder_frozen.to(device)
         del frozen_backbone
-        print("[SRT] Frozen backbone attached.")
+        print(f"[SRT] Frozen backbone attached (moved to {device}).")
 
     trainer.on_task_end(cur_task)
     trainer.save_srt_signatures(str(save_path))
