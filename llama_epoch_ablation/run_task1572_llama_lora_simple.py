@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import re
@@ -164,6 +165,17 @@ def prepare_prompt(sample: dict) -> str:
 def generate_predictions(model, tokenizer, samples: list[dict], max_source_length: int, max_new_tokens: int, batch_size: int):
     model.eval()
     device = next(model.parameters()).device
+    generation_config = copy.deepcopy(model.generation_config)
+    generation_config.max_length = None
+    generation_config.temperature = None
+    generation_config.top_p = None
+    generation_config.top_k = None
+    generation_config.do_sample = False
+    generation_config.num_beams = 1
+    generation_config.repetition_penalty = 1.0
+    generation_config.pad_token_id = tokenizer.pad_token_id
+    generation_config.eos_token_id = tokenizer.eos_token_id
+    generation_config.bos_token_id = tokenizer.bos_token_id
 
     predictions: list[str] = []
     references: list[str] = []
@@ -187,12 +199,8 @@ def generate_predictions(model, tokenizer, samples: list[dict], max_source_lengt
             generated = model.generate(
                 input_ids=encoded["input_ids"],
                 attention_mask=encoded["attention_mask"],
+                generation_config=generation_config,
                 max_new_tokens=max_new_tokens,
-                num_beams=1,
-                do_sample=False,
-                repetition_penalty=1.0,
-                eos_token_id=tokenizer.eos_token_id,
-                pad_token_id=tokenizer.pad_token_id,
                 use_cache=True,
             )
 
