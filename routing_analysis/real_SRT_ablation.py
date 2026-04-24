@@ -655,11 +655,6 @@ class PSRRouter:
 # --- [A/B TEST ROUTERS] Optimized for CPU/Numpy to avoid torch.linalg hangs ---
 
 class BuggyFitOnceWhitenedRouter:
-    """
-    [A/B Test - Bản Lỗi] Mô phỏng chính xác code hiện tại:
-    Fit ZCA DUY NHẤT ở Task 1. Dùng ZCA cũ rích này để biến đổi cho mọi Task sau.
-    Không lưu Raw Centroid, không Re-whiten.
-    """
     def __init__(self, device='cpu'):
         self.signatures = []
         self.mu_g = None
@@ -682,7 +677,6 @@ class BuggyFitOnceWhitenedRouter:
                 self.W_zca = evec @ torch.diag(1.0 / torch.sqrt(ev)) @ evec.T
                 self.zca_fitted = True
             
-            # Extract raw centroid and project using the STALE ZCA
             mu_raw = X.mean(0)
             self.signatures.append((mu_raw - self.mu_g) @ self.W_zca)
         else:
@@ -717,11 +711,6 @@ class BuggyFitOnceWhitenedRouter:
             return dists.argmin(axis=1)
 
 class IncrementalWhitenedRouter:
-    """
-    [A/B Test - Bản Đúng] Mô phỏng kịch bản chuẩn:
-    Lưu Raw Centroid. Re-fit ZCA sau mỗi Task.
-    Re-whiten toàn bộ Signatures cũ bằng ZCA mới nhất.
-    """
     def __init__(self, device='cpu'):
         self.raw_centroids = []
         self.seen_embs = []
@@ -736,14 +725,10 @@ class IncrementalWhitenedRouter:
             dev = torch.device(self.device)
             X = torch.tensor(embs, dtype=torch.float32, device=dev) if isinstance(embs, np.ndarray) else embs.to(dev)
             
-            # 1. Lưu Raw Centroid
             self.raw_centroids.append(X.mean(0))
-            
-            # 2. Cập nhật dữ liệu để tính ZCA (Pool)
             self.seen_embs.append(X)
             all_embs = torch.cat(self.seen_embs, dim=0)
             
-            # 3. Tính hệ quy chiếu mới (New ZCA)
             self.mu_g = all_embs.mean(0)
             all_embs_c = all_embs - self.mu_g
             cov = (all_embs_c.T @ all_embs_c) / max(all_embs.shape[0] - 1, 1)
@@ -751,7 +736,6 @@ class IncrementalWhitenedRouter:
             ev = torch.clamp(ev, min=1e-8)
             self.W_zca = evec @ torch.diag(1.0 / torch.sqrt(ev)) @ evec.T
             
-            # 4. RE-WHITEN toàn bộ Signatures
             self.signatures = [(mu_r - self.mu_g) @ self.W_zca for mu_r in self.raw_centroids]
         else:
             self.raw_centroids.append(embs.mean(0))
@@ -786,10 +770,6 @@ class IncrementalWhitenedRouter:
             return dists.argmin(axis=1)
 
 class ShrinkageWhitenedRouter:
-    """
-    [A/B Test - Cải Tiến] Re-whiten toàn bộ Signatures.
-    Áp dụng Ledoit-Wolf Shrinkage để bảo vệ ma trận hiệp phương sai khỏi suy biến ở các task đầu.
-    """
     def __init__(self, shrink_factor=0.1, device='cpu'):
         self.raw_centroids = []
         self.seen_embs = []
@@ -867,10 +847,6 @@ class ShrinkageWhitenedRouter:
 # ═══════════════════════════════════════════════════════════════════════
 
 def run_incremental_comparison(train_embs, test_embs, tasks, args):
-    """Run all routing methods incrementally, task by task.
-
-    Returns dict: method → list of {step, n_tasks, accuracy, per_task}.
-    """
     d = next(iter(train_embs.values())).shape[1]
 
     # Initialize routers
@@ -908,7 +884,8 @@ def run_incremental_comparison(train_embs, test_embs, tasks, args):
         print(f"\n  [{t_idx+1}/{total_tasks}] Adding task: {task_name}")
         added_tasks.append(task_name)
 
-        # Add task to all routers
+        # Add task to all routers. 
+        # CẮT DỮ LIỆU ĐỂ MÔ PHỎNG SỰ THIẾU HẠNG (N < d)
         for name, router in routers.items():
             if name == "GPM_ROOT":
                 router.add_task(train_embs[task_name], t_idx, total_tasks)
@@ -921,41 +898,33 @@ def run_incremental_comparison(train_embs, test_embs, tasks, args):
         if not seen_tasks:
             continue
 
-        # Evaluate on all seen tasks so far
         for name, router in routers.items():
             per_task_acc = []
             for true_task in seen_tasks:
                 embs_test = test_embs[true_task]
                 
-                # Model dự đoán ra một mảng index (0, 1, 2, ..., t_idx)
                 preds = router.route(embs_test)
-                
-                # Ground truth CHÍNH LÀ index của true_task trong mảng added_tasks
                 true_idx = added_tasks.index(true_task)
                 
-                # Tính accuracy cho TỪNG TASK: Số lượng mẫu dự đoán trúng / Tổng số mẫu của task đó
                 correct = int((preds == true_idx).sum())
                 total = embs_test.shape[0]
                 acc = correct / max(total, 1)
                 
                 per_task_acc.append(acc)
 
-            # MACRO AVERAGE: Tính trung bình các acc của từng task
             macro_acc = sum(per_task_acc) / len(per_task_acc) if per_task_acc else 0.0
             
-            # Format row output
             row_str = " | ".join([f"{a*100:5.1f}%" for a in per_task_acc])
             
             all_results[name].append({
                 "step": t_idx + 1,
                 "n_tasks": len(seen_tasks),
                 "accuracy": macro_acc,
-                "per_task": {t: a for t, a in zip(seen_tasks, per_task_acc)}, # Lưu dạng dict cho script của anh
+                "per_task": {t: a for t, a in zip(seen_tasks, per_task_acc)},
             })
             print(f"    {name:25s}  macro_acc={macro_acc*100:6.2f}%   Row: [{row_str}]")
 
     return all_results
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Main
@@ -973,7 +942,6 @@ def main():
     parser.add_argument("--whiten", action="store_true",
                         help="Apply global ZCA whitening")
 
-    # GPM (ROOT) parameters
     gpm = parser.add_argument_group("GPM/ROOT routing parameters")
     gpm.add_argument("--mlp_hidden_dim", type=int, default=None,
                      help="trans_input MLP hidden dim (auto: T5=100, Llama=50)")
@@ -995,34 +963,28 @@ def main():
     gpm.add_argument("--force", action="store_true",
                      help="Force re-run even if output already exists")
 
-    # RLS parameters
     rls = parser.add_argument_group("RLS routing parameters")
     rls.add_argument("--rls_expansion", type=int, default=2048,
                      help="Random feature expansion dim (SpecRoute default: 2048)")
     rls.add_argument("--rls_lambda", type=float, default=0.1,
                      help="Ridge regularization (SpecRoute default: 0.1)")
 
-    # Thêm tùy chọn task_order
     parser.add_argument("--task_order", type=str, default=None,
-                        help="Comma-separated list of tasks to define the specific order for processing. If not provided, the default benchmark order will be used.")
-
+                        help="Comma-separated list of tasks to define the specific order for processing.")
 
     args = parser.parse_args()
     args.device = _resolve_device(args.device)
 
-    # ── Auto-detect backbone type from directory name ──
     backbone = Path(args.emb_dir).name
     if args.backbone_type == 'auto':
         args.backbone_type = 'llama' if 'llama' in backbone.lower() else 't5'
     is_llama = (args.backbone_type == 'llama')
 
-    # ── Auto-set ROOT defaults based on backbone ──
     if args.mlp_hidden_dim is None:
         args.mlp_hidden_dim = 50 if is_llama else 100
     if args.chunk is None:
         args.chunk = 4 if is_llama else 1
 
-    # Ưu tiên lấy tasks từ --task_order nếu có, nếu không lấy theo BENCHMARKS mặc định
     if args.task_order:
         tasks = [t.strip() for t in args.task_order.split(",") if t.strip()]
     else:
@@ -1033,8 +995,6 @@ def main():
     if args.task_order:
         tag += "_custom_order"
 
-
-    # ── Skip if already done ──
     out_path = out_dir / f"learned_routing_{tag}.json"
     if out_path.exists() and not args.force:
         print(f"[SKIP] Phase F: {out_path} already exists. Use --force to re-run.")
@@ -1055,12 +1015,12 @@ def main():
     if not found:
         print("ERROR: No tasks found."); sys.exit(1)
     
-    # Sắp xếp lại found theo đúng thứ tự của tasks (do sorted(set(...)) đã làm xáo trộn order ban đầu)
     ordered_found = [t for t in tasks if t in found]
 
     print(f"Tasks found: {len(ordered_found)}/{len(tasks)}")
 
-    train_embs = OrderedDict((t, train_embs[t]) for t in ordered_found)
+    # ÉP ĐIỀU KIỆN THIẾU HẠNG (N=200, d=4096)
+    train_embs = OrderedDict((t, train_embs[t][:200]) for t in ordered_found)
     test_embs = OrderedDict((t, test_embs[t]) for t in ordered_found)
 
     if args.whiten:
@@ -1068,14 +1028,12 @@ def main():
         mu_g, W = compute_whitening(train_embs, device=args.device)
         train_embs = apply_whitening(train_embs, mu_g, W, device=args.device)
         test_embs = apply_whitening(test_embs, mu_g, W, device=args.device)
-        # Convert back to float32
         train_embs = OrderedDict((t, e.astype(np.float32)) for t, e in train_embs.items())
         test_embs = OrderedDict((t, e.astype(np.float32)) for t, e in test_embs.items())
         print("Applied ZCA whitening\n")
 
     results = run_incremental_comparison(train_embs, test_embs, ordered_found, args)
 
-    # ── Summary table ──
     print(f"\n{'='*70}")
     print(f"  Final Routing Accuracy (all {len(ordered_found)} tasks)")
     print(f"{'='*70}")
@@ -1088,7 +1046,6 @@ def main():
             final_accs[name] = final["accuracy"]
             print(f"  {name:25s}  {final['accuracy']*100:>8.2f}%")
 
-    # ── Save ──
     report = {
         "backbone": backbone, "benchmark": args.benchmark,
         "tasks": ordered_found, "d_model": next(iter(train_embs.values())).shape[1],
@@ -1108,7 +1065,6 @@ def main():
     with open(out_path, "w") as f:
         json.dump(report, f, indent=2, default=str)
     print(f"\n✓ Saved {out_path}")
-
 
 if __name__ == "__main__":
     main()
