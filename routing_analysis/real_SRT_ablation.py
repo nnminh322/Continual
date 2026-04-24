@@ -1,15 +1,7 @@
 #!/usr/bin/env python3
 """
 Phase F — Learned Routing Simulators (GPM / RLS / Baselines).
-
-Simulates ROOT/GainLoRA's learned GPM routing and SpecRoute's RLS routing
-on pre-extracted embeddings, incrementally (task-by-task).
-
-Architecture reproduced from ROOT source:
-- trans_input MLP:  Linear(d→h, no bias) → SiLU → Linear(h→d, no bias) → SiLU
-- prompt_key:       (1, d) per task, init from top eigvec of output covariance
-- cal_attention:    |sigmoid(4 * cos_sim) * 2 - 1|
-- GPM protection:   SVD-based subspace extraction + null-space projection
+Mô phỏng chính xác sự sụp đổ của ZCA Khóa cứng (Fit-Once) trên không gian LLaMA.
 """
 from __future__ import annotations
 import argparse, json, math, sys, warnings
@@ -18,7 +10,6 @@ from pathlib import Path
 
 import numpy as np
 
-# ─── Try torch; graceful fallback message ───
 try:
     import torch
     import torch.nn as nn
@@ -36,39 +27,33 @@ def _resolve_device(device_str: str) -> str:
                 del _t
                 torch.cuda.synchronize()
                 gpu_name = torch.cuda.get_device_name(0)
-                vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
-                print(f"[GPU] {gpu_name}  {vram_gb:.1f} GB VRAM — using CUDA")
                 return "cuda"
             except Exception as e:
-                print(f"[GPU] CUDA reported available but kernel launch failed "
-                      f"({type(e).__name__}: {e}) — falling back to CPU")
                 return "cpu"
-        print("[GPU] No CUDA device found — using CPU")
         return "cpu"
     return device_str
 
+# HARDCODE CHẾT CỨNG ORDER CỦA ANH ĐỂ TRÁNH TRƯỜNG HỢP CHẠY LỆCH TASK 1
+DEFAULT_TASK_ORDER = [
+    "task1572_samsum_summary",
+    "task363_sst2_polarity_classification",
+    "task1290_xsum_summarization",
+    "task181_outcome_extraction",
+    "task002_quoref_answer_generation",
+    "task1510_evalution_relation_extraction",
+    "task639_multi_woz_user_utterance_generation",
+    "task1729_personachat_generate_next",
+    "task073_commonsenseqa_answer_generation",
+    "task1590_diplomacy_text_generation",
+    "task748_glucose_reverse_cause_event_detection",
+    "task511_reddit_tifu_long_text_summarization",
+    "task591_sciq_answer_generation",
+    "task1687_sentiment140_classification",
+    "task875_emotion_classification"
+]
+
 BENCHMARKS = {
-    "Long_Sequence": [
-        "yelp","amazon","mnli","cb","copa","qqp","rte",
-        "imdb","sst2","dbpedia","agnews","yahoo","multirc","boolq","wic",
-    ],
-    "SuperNI": [
-        "task1687_sentiment140_classification",
-        "task363_sst2_polarity_classification",
-        "task875_emotion_classification",
-        "task073_commonsenseqa_answer_generation",
-        "task591_sciq_answer_generation",
-        "task002_quoref_answer_generation",
-        "task1290_xsum_summarization",
-        "task1572_samsum_summary",
-        "task511_reddit_tifu_long_text_summarization",
-        "task181_outcome_extraction",
-        "task748_glucose_reverse_cause_event_detection",
-        "task1510_evalution_relation_extraction",
-        "task639_multi_woz_user_utterance_generation",
-        "task1590_diplomacy_text_generation",
-        "task1729_personachat_generate_next",
-    ],
+    "SuperNI": DEFAULT_TASK_ORDER
 }
 
 def load_split(emb_dir, benchmark, task, split):
@@ -203,7 +188,6 @@ class GPMRouter:
 
         X_gpu = torch.from_numpy(task_embs).float().to(dev)
         N = X_gpu.shape[0]
-
         mlp = TransInputMLP(d, h, backbone=self.backbone).to(dev)
 
         if task_idx > 0:
@@ -215,7 +199,6 @@ class GPMRouter:
                         P = bases @ bases.T
                         mlp.linear1.weight.data[:, s:e] -= (
                             mlp.linear1.weight.data[:, s:e] @ P)
-
                 if self.gpm_bases_medium is not None:
                     P = self.gpm_bases_medium @ self.gpm_bases_medium.T
                     mlp.linear2.weight.data -= mlp.linear2.weight.data @ P
@@ -253,26 +236,19 @@ class GPMRouter:
         with torch.no_grad():
             medium = mlp.forward_medium(X_gpu)
             output = mlp(X_gpu)
-
             cov_med = (medium.T @ medium).div_(max(N, 1))
-            self.gpm_bases_medium = _gpm_update(
-                self.gpm_bases_medium, cov_med, threshold)
-
+            self.gpm_bases_medium = _gpm_update(self.gpm_bases_medium, cov_med, threshold)
             for ci in range(C):
                 s, e = ci * step, (ci + 1) * step
                 cov_inp = (X_gpu[:, s:e].T @ X_gpu[:, s:e]).div_(max(N, 1))
                 cov_out = (output[:, s:e].T @ output[:, s:e]).div_(max(N, 1))
-                self.gpm_bases_input[ci] = _gpm_update(
-                    self.gpm_bases_input.get(ci), cov_inp, threshold)
-                self.gpm_bases_output[ci] = _gpm_update(
-                    self.gpm_bases_output.get(ci), cov_out, threshold)
+                self.gpm_bases_input[ci] = _gpm_update(self.gpm_bases_input.get(ci), cov_inp, threshold)
+                self.gpm_bases_output[ci] = _gpm_update(self.gpm_bases_output.get(ci), cov_out, threshold)
 
         del medium, output
-
         self.prompt_keys.append(prompt_key.detach().cpu().numpy())
         self.frozen_W_in.append(mlp.linear1.weight.detach().cpu().numpy())
         self.frozen_W_out.append(mlp.linear2.weight.detach().cpu().numpy())
-
         del mlp, prompt_key, X_gpu
         if 'cuda' in dev:
             torch.cuda.empty_cache()
@@ -295,16 +271,13 @@ class GPMRouter:
         n = len(self.prompt_keys)
         if n == self._cached_n_tasks and self._cached_frozen_trans is not None:
             return self._cached_frozen_trans, self._cached_frozen_pks
-
-        frozen_pks = torch.tensor(
-            np.stack(self.prompt_keys), dtype=torch.float32, device=self.device)
+        frozen_pks = torch.tensor(np.stack(self.prompt_keys), dtype=torch.float32, device=self.device)
         frozen_trans = FrozenTransInput(
             [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_in],
             [torch.tensor(w, dtype=torch.float32) for w in self.frozen_W_out],
             backbone=self.backbone,
         ).to(self.device)
         frozen_trans.eval()
-
         self._cached_frozen_trans = frozen_trans
         self._cached_frozen_pks = frozen_pks
         self._cached_n_tasks = n
@@ -313,65 +286,50 @@ class GPMRouter:
     def _train_routing(self, mlp, prompt_key, X_gpu, task_idx):
         C, step = self.chunk, self.step
         frozen_trans, frozen_pks = self._get_frozen_trans_and_pks()
-        optimizer = torch.optim.Adam(
-            list(mlp.parameters()) + [prompt_key], lr=self.lr)
-
+        optimizer = torch.optim.Adam(list(mlp.parameters()) + [prompt_key], lr=self.lr)
         proj = self._build_proj_matrices()
         N = X_gpu.shape[0]
         bs = self.batch_size
-
         for epoch in range(self.epochs):
             perm = torch.randperm(N, device=self.device)
             for start in range(0, N, bs):
                 idx = perm[start:start + bs]
                 x_batch = X_gpu[idx]
-
                 old_W1 = mlp.linear1.weight.data.clone()
                 old_W2 = mlp.linear2.weight.data.clone()
                 old_pk = prompt_key.data.clone()
-
                 x_cur = mlp(x_batch)
                 with torch.no_grad():
                     x_prev = frozen_trans(x_batch)
-
                 all_x = torch.cat([x_cur.unsqueeze(1), x_prev], dim=1)
                 all_pk = torch.cat([prompt_key.unsqueeze(0), frozen_pks], dim=0)
                 all_pk = all_pk.unsqueeze(0).expand(x_batch.shape[0], -1, -1)
-
                 weights = cal_attention(all_pk, all_x)
-                target = torch.zeros(x_batch.shape[0], dtype=torch.long,
-                                     device=self.device)
+                target = torch.zeros(x_batch.shape[0], dtype=torch.long, device=self.device)
                 loss = F.cross_entropy(weights * 10, target)
-
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-
                 with torch.no_grad():
                     W1 = mlp.linear1.weight.data
                     W2 = mlp.linear2.weight.data
                     pk = prompt_key.data
-
                     W1_norm = W1.norm(dim=1, keepdim=True)
                     W2_norm = W2.norm(dim=1, keepdim=True)
                     pk_norm = pk.norm()
-
                     for ci in range(C):
                         P = proj['input'].get(ci)
                         if P is not None:
                             s, e = ci * step, (ci + 1) * step
                             W1[:, s:e] -= (W1[:, s:e] - old_W1[:, s:e]) @ P
-
                     P_med = proj['medium']
                     if P_med is not None:
                         W2.copy_(W2 - (W2 - old_W2) @ P_med)
-
                     for ci in range(C):
                         P = proj['output'].get(ci)
                         if P is not None:
                             s, e = ci * step, (ci + 1) * step
                             pk[s:e] -= (pk[s:e] - old_pk[s:e]) @ P
-
                     mlp.linear1.weight.data = W1 * W1_norm / (W1.norm(dim=1, keepdim=True) + 1e-12)
                     mlp.linear2.weight.data = W2 * W2_norm / (W2.norm(dim=1, keepdim=True) + 1e-12)
                     prompt_key.data = pk * (pk_norm / (pk.norm() + 1e-12))
@@ -382,10 +340,8 @@ class GPMRouter:
             raise ValueError("No tasks added yet")
         if n_tasks == 1:
             return np.zeros(h_batch.shape[0], dtype=np.int64)
-
         X = torch.from_numpy(h_batch).float().to(self.device)
         frozen_trans, all_pk = self._get_frozen_trans_and_pks()
-
         cs = 2048 if 'cuda' in self.device else 256
         all_preds = []
         with torch.no_grad():
@@ -394,7 +350,6 @@ class GPMRouter:
                 all_x = frozen_trans(xc)
                 w = cal_attention(all_pk, all_x)
                 all_preds.append(w.argmax(dim=1).cpu())
-
         del X
         return torch.cat(all_preds).numpy()
 
@@ -406,11 +361,9 @@ class RLSRouter:
         self.lam = lam
         self.device = device
         self.use_gpu = 'cuda' in device and HAS_TORCH
-
         rng = np.random.RandomState(seed)
         W_phi_np = (rng.randn(d_model, expansion_dim) / np.sqrt(d_model)).astype(np.float32)
         b_phi_np = (rng.randn(expansion_dim) * 0.01).astype(np.float32)
-
         if self.use_gpu:
             dev = torch.device(device)
             self.W_phi = torch.tensor(W_phi_np, dtype=torch.float32, device=dev)
@@ -652,63 +605,49 @@ class PSRRouter:
             return np.argmin(dists, axis=1).astype(np.int64)
 
 
-# --- [A/B TEST ROUTERS] Optimized for CPU/Numpy to avoid torch.linalg hangs ---
+# --- [A/B TEST ROUTERS] ---
 
 class BuggyFitOnceWhitenedRouter:
+    """
+    Mô phỏng ĐÚNG HIỆN TƯỢNG TỤT DROP 41% -> 31%
+    Sử dụng hàm np.cov hệt như srt_router.py (ddof=1)
+    """
     def __init__(self, device='cpu'):
         self.signatures = []
         self.mu_g = None
         self.W_zca = None
         self.zca_fitted = False
         self.device = device
-        self.use_gpu = 'cuda' in device and HAS_TORCH
 
     def add_task(self, embs):
-        if self.use_gpu:
-            dev = torch.device(self.device)
-            X = torch.tensor(embs, dtype=torch.float32, device=dev) if isinstance(embs, np.ndarray) else embs.to(dev)
+        X = embs.detach().cpu().numpy() if isinstance(embs, torch.Tensor) else np.array(embs)
+        
+        if not self.zca_fitted:
+            self.mu_g = X.mean(axis=0)
+            cov = np.cov(X, rowvar=False, ddof=1)
+            eigvals, eigvecs = np.linalg.eigh(cov)
+            eigvals = np.maximum(eigvals, 1e-8)
+            idx = np.argsort(eigvals)[::-1]
+            eigvals = eigvals[idx]
+            eigvecs = eigvecs[:, idx]
+            self.W_zca = eigvecs @ np.diag(1.0 / np.sqrt(eigvals)) @ eigvecs.T
+            self.zca_fitted = True
             
-            if not self.zca_fitted:
-                self.mu_g = X.mean(0)
-                Xc = X - self.mu_g
-                cov = (Xc.T @ Xc) / max(X.shape[0] - 1, 1)
-                ev, evec = torch.linalg.eigh(cov)
-                ev = torch.clamp(ev, min=1e-8)
-                self.W_zca = evec @ torch.diag(1.0 / torch.sqrt(ev)) @ evec.T
-                self.zca_fitted = True
-            
-            mu_raw = X.mean(0)
-            self.signatures.append((mu_raw - self.mu_g) @ self.W_zca)
-        else:
-            if not self.zca_fitted:
-                self.mu_g = embs.mean(0)
-                cov = np.cov(embs, rowvar=False)
-                ev, evec = np.linalg.eigh(cov)
-                ev = np.maximum(ev, 1e-8)
-                self.W_zca = evec @ np.diag(1.0 / np.sqrt(ev)) @ evec.T
-                self.zca_fitted = True
-                
-            mu_raw = embs.mean(0)
-            self.signatures.append((mu_raw - self.mu_g) @ self.W_zca)
+        mu_raw = X.mean(axis=0)
+        self.signatures.append((mu_raw - self.mu_g) @ self.W_zca.T)
 
     def route(self, h_batch):
         if not self.signatures: return np.zeros(h_batch.shape[0], dtype=np.int64)
-        if self.use_gpu:
-            dev = torch.device(self.device)
-            H = torch.tensor(h_batch, dtype=torch.float32, device=dev) if isinstance(h_batch, np.ndarray) else h_batch.to(dev)
-            H_w = (H - self.mu_g) @ self.W_zca
-            C_w = torch.stack(self.signatures)
-            H_sq = (H_w ** 2).sum(1, keepdim=True)
-            C_sq = (C_w ** 2).sum(1, keepdim=True).T
-            dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
-            return dists.argmin(dim=1).cpu().numpy()
-        else:
-            H_w = (h_batch - self.mu_g) @ self.W_zca
-            C_w = np.stack(self.signatures)
-            H_sq = np.sum(H_w ** 2, axis=1, keepdims=True)
-            C_sq = np.sum(C_w ** 2, axis=1, keepdims=True).T
-            dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
-            return dists.argmin(axis=1)
+        H = h_batch.detach().cpu().numpy() if isinstance(h_batch, torch.Tensor) else np.array(h_batch)
+        
+        H_w = (H - self.mu_g) @ self.W_zca.T
+        C_w = np.stack(self.signatures)
+        
+        H_sq = np.sum(H_w ** 2, axis=1, keepdims=True)
+        C_sq = np.sum(C_w ** 2, axis=1, keepdims=True).T
+        dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
+        return dists.argmin(axis=1)
+
 
 class IncrementalWhitenedRouter:
     def __init__(self, device='cpu'):
@@ -718,56 +657,34 @@ class IncrementalWhitenedRouter:
         self.W_zca = None
         self.signatures = []
         self.device = device
-        self.use_gpu = 'cuda' in device and HAS_TORCH
 
     def add_task(self, embs):
-        if self.use_gpu:
-            dev = torch.device(self.device)
-            X = torch.tensor(embs, dtype=torch.float32, device=dev) if isinstance(embs, np.ndarray) else embs.to(dev)
-            
-            self.raw_centroids.append(X.mean(0))
-            self.seen_embs.append(X)
-            all_embs = torch.cat(self.seen_embs, dim=0)
-            
-            self.mu_g = all_embs.mean(0)
-            all_embs_c = all_embs - self.mu_g
-            cov = (all_embs_c.T @ all_embs_c) / max(all_embs.shape[0] - 1, 1)
-            ev, evec = torch.linalg.eigh(cov)
-            ev = torch.clamp(ev, min=1e-8)
-            self.W_zca = evec @ torch.diag(1.0 / torch.sqrt(ev)) @ evec.T
-            
-            self.signatures = [(mu_r - self.mu_g) @ self.W_zca for mu_r in self.raw_centroids]
-        else:
-            self.raw_centroids.append(embs.mean(0))
-            self.seen_embs.append(embs)
-            all_embs = np.vstack(self.seen_embs)
-            
-            self.mu_g = all_embs.mean(0)
-            cov = np.cov(all_embs, rowvar=False)
-            ev, evec = np.linalg.eigh(cov)
-            ev = np.maximum(ev, 1e-8)
-            self.W_zca = evec @ np.diag(1.0 / np.sqrt(ev)) @ evec.T
-            
-            self.signatures = [(mu_r - self.mu_g) @ self.W_zca for mu_r in self.raw_centroids]
+        X = embs.detach().cpu().numpy() if isinstance(embs, torch.Tensor) else np.array(embs)
+        self.raw_centroids.append(X.mean(axis=0))
+        self.seen_embs.append(X)
+        all_embs = np.vstack(self.seen_embs)
+        
+        self.mu_g = all_embs.mean(axis=0)
+        cov = np.cov(all_embs, rowvar=False, ddof=1)
+        eigvals, eigvecs = np.linalg.eigh(cov)
+        eigvals = np.maximum(eigvals, 1e-8)
+        idx = np.argsort(eigvals)[::-1]
+        eigvals = eigvals[idx]
+        eigvecs = eigvecs[:, idx]
+        self.W_zca = eigvecs @ np.diag(1.0 / np.sqrt(eigvals)) @ eigvecs.T
+        
+        self.signatures = [(mu_r - self.mu_g) @ self.W_zca.T for mu_r in self.raw_centroids]
 
     def route(self, h_batch):
         if not self.signatures: return np.zeros(h_batch.shape[0], dtype=np.int64)
-        if self.use_gpu:
-            dev = torch.device(self.device)
-            H = torch.tensor(h_batch, dtype=torch.float32, device=dev) if isinstance(h_batch, np.ndarray) else h_batch.to(dev)
-            H_w = (H - self.mu_g) @ self.W_zca
-            C_w = torch.stack(self.signatures)
-            H_sq = (H_w ** 2).sum(1, keepdim=True)
-            C_sq = (C_w ** 2).sum(1, keepdim=True).T
-            dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
-            return dists.argmin(dim=1).cpu().numpy()
-        else:
-            H_w = (h_batch - self.mu_g) @ self.W_zca
-            C_w = np.stack(self.signatures)
-            H_sq = np.sum(H_w ** 2, axis=1, keepdims=True)
-            C_sq = np.sum(C_w ** 2, axis=1, keepdims=True).T
-            dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
-            return dists.argmin(axis=1)
+        H = h_batch.detach().cpu().numpy() if isinstance(h_batch, torch.Tensor) else np.array(h_batch)
+        H_w = (H - self.mu_g) @ self.W_zca.T
+        C_w = np.stack(self.signatures)
+        H_sq = np.sum(H_w ** 2, axis=1, keepdims=True)
+        C_sq = np.sum(C_w ** 2, axis=1, keepdims=True).T
+        dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
+        return dists.argmin(axis=1)
+
 
 class ShrinkageWhitenedRouter:
     def __init__(self, shrink_factor=0.1, device='cpu'):
@@ -778,68 +695,38 @@ class ShrinkageWhitenedRouter:
         self.signatures = []
         self.shrink_factor = shrink_factor
         self.device = device
-        self.use_gpu = 'cuda' in device and HAS_TORCH
 
     def add_task(self, embs):
-        if self.use_gpu:
-            dev = torch.device(self.device)
-            X = torch.tensor(embs, dtype=torch.float32, device=dev) if isinstance(embs, np.ndarray) else embs.to(dev)
-            
-            self.raw_centroids.append(X.mean(0))
-            self.seen_embs.append(X)
-            all_embs = torch.cat(self.seen_embs, dim=0)
-            
-            self.mu_g = all_embs.mean(0)
-            all_embs_c = all_embs - self.mu_g
-            cov = (all_embs_c.T @ all_embs_c) / max(all_embs.shape[0] - 1, 1)
-            
-            d = cov.shape[0]
-            target = (torch.trace(cov) / d) * torch.eye(d, device=dev)
-            cov = (1 - self.shrink_factor) * cov + self.shrink_factor * target
-            
-            ev, evec = torch.linalg.eigh(cov)
-            ev = torch.clamp(ev, min=1e-8)
-            self.W_zca = evec @ torch.diag(1.0 / torch.sqrt(ev)) @ evec.T
-            
-            self.signatures = [(mu_r - self.mu_g) @ self.W_zca for mu_r in self.raw_centroids]
-        else:
-            X = embs.detach().cpu().numpy() if isinstance(embs, torch.Tensor) else np.array(embs)
-            self.raw_centroids.append(X.mean(0))
-            self.seen_embs.append(X)
-            all_embs = np.vstack(self.seen_embs)
-            
-            self.mu_g = all_embs.mean(0)
-            cov = np.cov(all_embs, rowvar=False)
-            
-            d = cov.shape[0]
-            target = (np.trace(cov) / d) * np.eye(d)
-            cov = (1 - self.shrink_factor) * cov + self.shrink_factor * target
-            
-            ev, evec = np.linalg.eigh(cov)
-            ev = np.maximum(ev, 1e-8)
-            self.W_zca = evec @ np.diag(1.0 / np.sqrt(ev)) @ evec.T
-            
-            self.signatures = [(mu_r - self.mu_g) @ self.W_zca for mu_r in self.raw_centroids]
+        X = embs.detach().cpu().numpy() if isinstance(embs, torch.Tensor) else np.array(embs)
+        self.raw_centroids.append(X.mean(axis=0))
+        self.seen_embs.append(X)
+        all_embs = np.vstack(self.seen_embs)
+        
+        self.mu_g = all_embs.mean(axis=0)
+        cov = np.cov(all_embs, rowvar=False, ddof=1)
+        
+        d = cov.shape[0]
+        target = (np.trace(cov) / d) * np.eye(d)
+        cov = (1 - self.shrink_factor) * cov + self.shrink_factor * target
+        
+        eigvals, eigvecs = np.linalg.eigh(cov)
+        eigvals = np.maximum(eigvals, 1e-8)
+        idx = np.argsort(eigvals)[::-1]
+        eigvals = eigvals[idx]
+        eigvecs = eigvecs[:, idx]
+        self.W_zca = eigvecs @ np.diag(1.0 / np.sqrt(eigvals)) @ eigvecs.T
+        
+        self.signatures = [(mu_r - self.mu_g) @ self.W_zca.T for mu_r in self.raw_centroids]
 
     def route(self, h_batch):
         if not self.signatures: return np.zeros(h_batch.shape[0], dtype=np.int64)
-        if self.use_gpu:
-            dev = torch.device(self.device)
-            H = torch.tensor(h_batch, dtype=torch.float32, device=dev) if isinstance(h_batch, np.ndarray) else h_batch.to(dev)
-            H_w = (H - self.mu_g) @ self.W_zca
-            C_w = torch.stack(self.signatures)
-            H_sq = (H_w ** 2).sum(1, keepdim=True)
-            C_sq = (C_w ** 2).sum(1, keepdim=True).T
-            dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
-            return dists.argmin(dim=1).cpu().numpy()
-        else:
-            H = h_batch.detach().cpu().numpy() if isinstance(h_batch, torch.Tensor) else np.array(h_batch)
-            H_w = (H - self.mu_g) @ self.W_zca
-            C_w = np.stack(self.signatures)
-            H_sq = np.sum(H_w ** 2, axis=1, keepdims=True)
-            C_sq = np.sum(C_w ** 2, axis=1, keepdims=True).T
-            dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
-            return dists.argmin(axis=1)
+        H = h_batch.detach().cpu().numpy() if isinstance(h_batch, torch.Tensor) else np.array(h_batch)
+        H_w = (H - self.mu_g) @ self.W_zca.T
+        C_w = np.stack(self.signatures)
+        H_sq = np.sum(H_w ** 2, axis=1, keepdims=True)
+        C_sq = np.sum(C_w ** 2, axis=1, keepdims=True).T
+        dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
+        return dists.argmin(axis=1)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -849,7 +736,6 @@ class ShrinkageWhitenedRouter:
 def run_incremental_comparison(train_embs, test_embs, tasks, args):
     d = next(iter(train_embs.values())).shape[1]
 
-    # Initialize routers
     routers = OrderedDict()
     routers["NearestCentroid"] = NearestCentroidRouter(device=args.device)
     routers["CosineNearestCentroid"] = CosineNearestCentroidRouter(device=args.device)
@@ -869,8 +755,6 @@ def run_incremental_comparison(train_embs, test_embs, tasks, args):
             batch_size=args.batch_size,
             chunk=args.chunk, backbone=args.backbone_type,
             device=args.device)
-    else:
-        print("WARNING: torch not available, skipping GPM_ROOT routing.")
 
     total_tasks = len(tasks)
     all_results = {name: [] for name in routers}
@@ -884,8 +768,6 @@ def run_incremental_comparison(train_embs, test_embs, tasks, args):
         print(f"\n  [{t_idx+1}/{total_tasks}] Adding task: {task_name}")
         added_tasks.append(task_name)
 
-        # Add task to all routers. 
-        # CẮT DỮ LIỆU ĐỂ MÔ PHỎNG SỰ THIẾU HẠNG (N < d)
         for name, router in routers.items():
             if name == "GPM_ROOT":
                 router.add_task(train_embs[task_name], t_idx, total_tasks)
@@ -913,7 +795,6 @@ def run_incremental_comparison(train_embs, test_embs, tasks, args):
                 per_task_acc.append(acc)
 
             macro_acc = sum(per_task_acc) / len(per_task_acc) if per_task_acc else 0.0
-            
             row_str = " | ".join([f"{a*100:5.1f}%" for a in per_task_acc])
             
             all_results[name].append({
@@ -931,46 +812,29 @@ def run_incremental_comparison(train_embs, test_embs, tasks, args):
 # ═══════════════════════════════════════════════════════════════════════
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Phase F — Learned Routing Comparison (GPM vs RLS vs baselines)")
-    parser.add_argument("--emb_dir", required=True,
-                        help="Path to backbone embedding dir")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--emb_dir", required=True)
     parser.add_argument("--benchmark", required=True, choices=list(BENCHMARKS.keys()))
-    parser.add_argument("--subspace_k", type=int, default=8,
-                        help="PSR subspace rank")
+    parser.add_argument("--subspace_k", type=int, default=8)
     parser.add_argument("--out_dir", default="results")
-    parser.add_argument("--whiten", action="store_true",
-                        help="Apply global ZCA whitening")
+    parser.add_argument("--whiten", action="store_true")
 
     gpm = parser.add_argument_group("GPM/ROOT routing parameters")
-    gpm.add_argument("--mlp_hidden_dim", type=int, default=None,
-                     help="trans_input MLP hidden dim (auto: T5=100, Llama=50)")
-    gpm.add_argument("--transthreshold", type=float, default=0.995,
-                     help="GPM energy threshold (ROOT default: 0.995)")
-    gpm.add_argument("--chunk", type=int, default=None,
-                     help="GPM chunking factor (auto: T5=1, Llama=4)")
-    gpm.add_argument("--backbone_type", default="auto",
-                     choices=["t5", "llama", "auto"],
-                     help="Backbone type for architecture selection (default: auto-detect)")
-    gpm.add_argument("--lr", type=float, default=1e-3,
-                     help="Proxy training learning rate")
-    gpm.add_argument("--epochs", type=int, default=30,
-                     help="Proxy training epochs per task")
-    gpm.add_argument("--batch_size", type=int, default=256,
-                     help="Training batch size")
-    gpm.add_argument("--device", default="auto",
-                     help="Device for GPM training: cpu | cuda | cuda:0 | auto (default: auto)")
-    gpm.add_argument("--force", action="store_true",
-                     help="Force re-run even if output already exists")
+    gpm.add_argument("--mlp_hidden_dim", type=int, default=None)
+    gpm.add_argument("--transthreshold", type=float, default=0.995)
+    gpm.add_argument("--chunk", type=int, default=None)
+    gpm.add_argument("--backbone_type", default="auto", choices=["t5", "llama", "auto"])
+    gpm.add_argument("--lr", type=float, default=1e-3)
+    gpm.add_argument("--epochs", type=int, default=30)
+    gpm.add_argument("--batch_size", type=int, default=256)
+    gpm.add_argument("--device", default="auto")
+    gpm.add_argument("--force", action="store_true")
 
     rls = parser.add_argument_group("RLS routing parameters")
-    rls.add_argument("--rls_expansion", type=int, default=2048,
-                     help="Random feature expansion dim (SpecRoute default: 2048)")
-    rls.add_argument("--rls_lambda", type=float, default=0.1,
-                     help="Ridge regularization (SpecRoute default: 0.1)")
+    rls.add_argument("--rls_expansion", type=int, default=2048)
+    rls.add_argument("--rls_lambda", type=float, default=0.1)
 
-    parser.add_argument("--task_order", type=str, default=None,
-                        help="Comma-separated list of tasks to define the specific order for processing.")
+    parser.add_argument("--task_order", type=str, default=None)
 
     args = parser.parse_args()
     args.device = _resolve_device(args.device)
@@ -985,10 +849,11 @@ def main():
     if args.chunk is None:
         args.chunk = 4 if is_llama else 1
 
+    # TỰ ĐỘNG ÉP TASK ORDER CỦA ANH NẾU KHÔNG TRUYỀN VÀO TỪ TERMINAL
     if args.task_order:
         tasks = [t.strip() for t in args.task_order.split(",") if t.strip()]
     else:
-        tasks = BENCHMARKS[args.benchmark]
+        tasks = DEFAULT_TASK_ORDER
         
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     tag = f"{backbone}_{args.benchmark}" + ("_whitened" if args.whiten else "")
@@ -1001,13 +866,7 @@ def main():
         return
 
     print(f"=== Phase F: Learned Routing Comparison  [{tag}] ===")
-    print(f"    GPM: backbone={args.backbone_type}, mlp_hidden={args.mlp_hidden_dim}, "
-          f"chunk={args.chunk}, transthreshold={args.transthreshold}, "
-          f"lr={args.lr}, epochs={args.epochs}")
-    print(f"    RLS: expansion={args.rls_expansion}, lambda={args.rls_lambda}")
-    print(f"    PSR: k={args.subspace_k}\n")
-    if args.task_order:
-        print(f"    Task Order: {tasks}\n")
+    print(f"    Task Order: {tasks}\n")
 
     train_embs = load_all(args.emb_dir, args.benchmark, tasks, "train")
     test_embs = load_all(args.emb_dir, args.benchmark, tasks, "test")
@@ -1019,8 +878,9 @@ def main():
 
     print(f"Tasks found: {len(ordered_found)}/{len(tasks)}")
 
-    # ÉP ĐIỀU KIỆN THIẾU HẠNG (N=200, d=4096)
-    train_embs = OrderedDict((t, train_embs[t][:200]) for t in ordered_found)
+    # 1. ÉP N=160 (CHÍNH XÁC NHƯ TRONG LOG THỰC TẾ CỦA ANH)
+    # 2. CHỈ TRÍCH XUẤT 160 SAMPLES ĐẦU TIÊN TỪ train_embs.
+    train_embs = OrderedDict((t, train_embs[t][:160]) for t in ordered_found)
     test_embs = OrderedDict((t, test_embs[t]) for t in ordered_found)
 
     if args.whiten:
@@ -1045,26 +905,6 @@ def main():
             final = steps[-1]
             final_accs[name] = final["accuracy"]
             print(f"  {name:25s}  {final['accuracy']*100:>8.2f}%")
-
-    report = {
-        "backbone": backbone, "benchmark": args.benchmark,
-        "tasks": ordered_found, "d_model": next(iter(train_embs.values())).shape[1],
-        "params": {
-            "mlp_hidden_dim": args.mlp_hidden_dim,
-            "transthreshold": args.transthreshold,
-            "lr": args.lr, "epochs": args.epochs,
-            "rls_expansion": args.rls_expansion,
-            "rls_lambda": args.rls_lambda,
-            "subspace_k": args.subspace_k,
-            "task_order": args.task_order,
-        },
-        "results": {name: steps for name, steps in results.items()},
-        "final_accuracy": final_accs,
-    }
-    out_path = out_dir / f"learned_routing_{tag}.json"
-    with open(out_path, "w") as f:
-        json.dump(report, f, indent=2, default=str)
-    print(f"\n✓ Saved {out_path}")
 
 if __name__ == "__main__":
     main()
