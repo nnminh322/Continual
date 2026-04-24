@@ -655,31 +655,47 @@ class PSRRouter:
 # --- [A/B TEST ROUTERS] Optimized for CPU/Numpy to avoid torch.linalg hangs ---
 
 class BuggyFitOnceWhitenedRouter:
+# class TrueBuggyFitOnceRouter:
+    """
+    # Mô phỏng ĐÚNG hiện tượng rớt điểm không phanh của Task 1 (Không phục hồi).
+    Nguyên nhân: Fit ZCA trên Task 1, tạo ra một không gian bị bóp méo trầm trọng (Nhiễu >> Tín hiệu).
+    Các Task sau đi vào không gian bóp méo này sẽ tạo ra các Signature ngẫu nhiên nhưng cực kỳ lớn, 
+    chèn ép và lấn át Signature của Task 1.
+    """
     def __init__(self, device='cpu'):
         self.signatures = []
         self.mu_g = None
         self.W_zca = None
-        self.zca_fitted = False
+        self.device = device
+        self.use_gpu = 'cuda' in device and HAS_TORCH
 
     def add_task(self, embs):
         X = embs.detach().cpu().numpy() if isinstance(embs, torch.Tensor) else np.array(embs)
-        if not self.zca_fitted:
+        
+        # Chỉ FIT ZCA ĐÚNG 1 LẦN TẠI TASK 1 (Giống code hiện tại của anh)
+        if self.W_zca is None:
             self.mu_g = X.mean(0)
             Xc = X - self.mu_g
+            # Tính hiệp phương sai chỉ từ Task 1 (n=160, d=4096 => Thiếu hạng nặng)
             cov = (Xc.T @ Xc) / max(X.shape[0] - 1, 1)
             ev, evec = np.linalg.eigh(cov)
             ev = np.maximum(ev, 1e-8)
+            # Ma trận W_zca này chứa toàn rác khuếch đại ở các chiều thiếu hạng
             self.W_zca = evec @ np.diag(1.0 / np.sqrt(ev)) @ evec.T
-            self.zca_fitted = True
             
+        # Transform Task centroid bằng cái ma trận ZCA "Rác" này
+        # Task 1 sẽ có 1 signature. Các Task sau sẽ bị bóp méo trầm trọng.
         mu_raw = X.mean(0)
         self.signatures.append((mu_raw - self.mu_g) @ self.W_zca)
 
     def route(self, h_batch):
         if not self.signatures: return np.zeros(h_batch.shape[0], dtype=np.int64)
         H = h_batch.detach().cpu().numpy() if isinstance(h_batch, torch.Tensor) else np.array(h_batch)
+        
+        # Lúc Eval, input đi qua ma trận rác
         H_w = (H - self.mu_g) @ self.W_zca
         C_w = np.stack(self.signatures)
+        
         H_sq = np.sum(H_w ** 2, axis=1, keepdims=True)
         C_sq = np.sum(C_w ** 2, axis=1, keepdims=True).T
         dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
