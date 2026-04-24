@@ -744,6 +744,136 @@ class CosineNearestCentroidRouter:
         sims = h_norm @ C.T  # (N, T)
         return sims.argmax(axis=1)
 
+class BuggyFitOnceWhitenedRouter:
+    """
+    [A/B Test - Bản Lỗi] Mô phỏng chính xác code hiện tại:
+    Fit ZCA DUY NHẤT ở Task 1. Dùng ZCA cũ rích này để biến đổi cho mọi Task sau.
+    Không lưu Raw Centroid, không Re-whiten.
+    """
+    def __init__(self, device='cpu'):
+        self.signatures = []
+        self.mu_g = None
+        self.W_zca = None
+        self.zca_fitted = False
+        self.device = device
+        self.use_gpu = 'cuda' in device and HAS_TORCH
+
+    def add_task(self, embs):
+        if self.use_gpu:
+            dev = torch.device(self.device)
+            X = torch.tensor(embs, dtype=torch.float32, device=dev) if isinstance(embs, np.ndarray) else embs.to(dev)
+            
+            if not self.zca_fitted:
+                self.mu_g = X.mean(0)
+                Xc = X - self.mu_g
+                cov = (Xc.T @ Xc) / max(X.shape[0] - 1, 1)
+                ev, evec = torch.linalg.eigh(cov)
+                ev = torch.clamp(ev, min=1e-8)
+                self.W_zca = evec @ torch.diag(1.0 / torch.sqrt(ev)) @ evec.T
+                self.zca_fitted = True
+            
+            # Extract raw centroid and project using the STALE ZCA
+            mu_raw = X.mean(0)
+            self.signatures.append((mu_raw - self.mu_g) @ self.W_zca)
+        else:
+            if not self.zca_fitted:
+                self.mu_g = embs.mean(0)
+                cov = np.cov(embs, rowvar=False)
+                ev, evec = np.linalg.eigh(cov)
+                ev = np.maximum(ev, 1e-8)
+                self.W_zca = evec @ np.diag(1.0 / np.sqrt(ev)) @ evec.T
+                self.zca_fitted = True
+                
+            mu_raw = embs.mean(0)
+            self.signatures.append((mu_raw - self.mu_g) @ self.W_zca)
+
+    def route(self, h_batch):
+        if not self.signatures: return np.zeros(h_batch.shape[0], dtype=np.int64)
+        if self.use_gpu:
+            dev = torch.device(self.device)
+            H = torch.tensor(h_batch, dtype=torch.float32, device=dev) if isinstance(h_batch, np.ndarray) else h_batch.to(dev)
+            H_w = (H - self.mu_g) @ self.W_zca
+            C_w = torch.stack(self.signatures)
+            H_sq = (H_w ** 2).sum(1, keepdim=True)
+            C_sq = (C_w ** 2).sum(1, keepdim=True).T
+            dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
+            return dists.argmin(dim=1).cpu().numpy()
+        else:
+            H_w = (h_batch - self.mu_g) @ self.W_zca
+            C_w = np.stack(self.signatures)
+            H_sq = np.sum(H_w ** 2, axis=1, keepdims=True)
+            C_sq = np.sum(C_w ** 2, axis=1, keepdims=True).T
+            dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
+            return dists.argmin(axis=1)
+
+class IncrementalWhitenedRouter:
+    """
+    [A/B Test - Bản Đúng] Mô phỏng kịch bản chuẩn:
+    Lưu Raw Centroid. Re-fit ZCA sau mỗi Task.
+    Re-whiten toàn bộ Signatures cũ bằng ZCA mới nhất.
+    """
+    def __init__(self, device='cpu'):
+        self.raw_centroids = []
+        self.seen_embs = []
+        self.mu_g = None
+        self.W_zca = None
+        self.signatures = []
+        self.device = device
+        self.use_gpu = 'cuda' in device and HAS_TORCH
+
+    def add_task(self, embs):
+        if self.use_gpu:
+            dev = torch.device(self.device)
+            X = torch.tensor(embs, dtype=torch.float32, device=dev) if isinstance(embs, np.ndarray) else embs.to(dev)
+            
+            # 1. Lưu Raw Centroid
+            self.raw_centroids.append(X.mean(0))
+            
+            # 2. Cập nhật dữ liệu để tính ZCA (Pool)
+            self.seen_embs.append(X)
+            all_embs = torch.cat(self.seen_embs, dim=0)
+            
+            # 3. Tính hệ quy chiếu mới (New ZCA)
+            self.mu_g = all_embs.mean(0)
+            all_embs_c = all_embs - self.mu_g
+            cov = (all_embs_c.T @ all_embs_c) / max(all_embs.shape[0] - 1, 1)
+            ev, evec = torch.linalg.eigh(cov)
+            ev = torch.clamp(ev, min=1e-8)
+            self.W_zca = evec @ torch.diag(1.0 / torch.sqrt(ev)) @ evec.T
+            
+            # 4. RE-WHITEN toàn bộ Signatures
+            self.signatures = [(mu_r - self.mu_g) @ self.W_zca for mu_r in self.raw_centroids]
+        else:
+            self.raw_centroids.append(embs.mean(0))
+            self.seen_embs.append(embs)
+            all_embs = np.vstack(self.seen_embs)
+            
+            self.mu_g = all_embs.mean(0)
+            cov = np.cov(all_embs, rowvar=False)
+            ev, evec = np.linalg.eigh(cov)
+            ev = np.maximum(ev, 1e-8)
+            self.W_zca = evec @ np.diag(1.0 / np.sqrt(ev)) @ evec.T
+            
+            self.signatures = [(mu_r - self.mu_g) @ self.W_zca for mu_r in self.raw_centroids]
+
+    def route(self, h_batch):
+        if not self.signatures: return np.zeros(h_batch.shape[0], dtype=np.int64)
+        if self.use_gpu:
+            dev = torch.device(self.device)
+            H = torch.tensor(h_batch, dtype=torch.float32, device=dev) if isinstance(h_batch, np.ndarray) else h_batch.to(dev)
+            H_w = (H - self.mu_g) @ self.W_zca
+            C_w = torch.stack(self.signatures)
+            H_sq = (H_w ** 2).sum(1, keepdim=True)
+            C_sq = (C_w ** 2).sum(1, keepdim=True).T
+            dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
+            return dists.argmin(dim=1).cpu().numpy()
+        else:
+            H_w = (h_batch - self.mu_g) @ self.W_zca
+            C_w = np.stack(self.signatures)
+            H_sq = np.sum(H_w ** 2, axis=1, keepdims=True)
+            C_sq = np.sum(C_w ** 2, axis=1, keepdims=True).T
+            dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
+            return dists.argmin(axis=1)
 
 class PSRRouter:
     """PPCA-based PSR routing (non-parametric, from analyze_geometry).
@@ -855,6 +985,9 @@ def run_incremental_comparison(train_embs, test_embs, tasks, args):
     routers["NearestCentroid"] = NearestCentroidRouter(device=args.device)
     routers["CosineNearestCentroid"] = CosineNearestCentroidRouter(device=args.device)
     routers["PSR"] = PSRRouter(k=args.subspace_k, device=args.device)
+    routers["Buggy_FitOnce_Whiten"] = BuggyFitOnceWhitenedRouter(device=args.device)  # <-- THÊM DÒNG NÀY
+    routers["Correct_ReWhiten"] = IncrementalWhitenedRouter(device=args.device)       # <-- THÊM DÒNG NÀY
+    routers["NearestCentroid"] = NearestCentroidRouter(device=args.device)
 
     routers["RLS_Woodbury"] = RLSRouter(
         d, expansion_dim=args.rls_expansion, lam=args.rls_lambda,
