@@ -609,8 +609,13 @@ class PSRRouter:
 
 class BuggyFitOnceWhitenedRouter:
     """
-    Mô phỏng ĐÚNG HIỆN TƯỢNG TỤT DROP 41% -> 31%
-    Sử dụng hàm np.cov hệt như srt_router.py (ddof=1)
+    Mô phỏng ĐÚNG SỰ THẬT TÀN KHỐC:
+    1. ZCA fit 1 lần ở Task 1 (N=160, d=4096 => Singular).
+    2. W_zca_1 chứa các chiều khuếch đại nhiễu khổng lồ (1e4).
+    3. Tâm Task 1 (mu_raw_1) bị whiten sẽ nằm chính xác ở gốc tọa độ (0,0..0).
+    4. Lúc Eval Task 1, dữ liệu test của Task 1 (khác với train) đi qua W_zca_1 
+       sẽ bị văng ra xa do nhiễu ở các chiều null-space. Nó không còn nằm ở (0,0) nữa.
+    5. Nó bị các Signature của Task 2, Task 3 (vốn bị văng lung tung) "hút" mất.
     """
     def __init__(self, device='cpu'):
         self.signatures = []
@@ -618,13 +623,18 @@ class BuggyFitOnceWhitenedRouter:
         self.W_zca = None
         self.zca_fitted = False
         self.device = device
+        self.use_gpu = 'cuda' in device and HAS_TORCH
 
     def add_task(self, embs):
         X = embs.detach().cpu().numpy() if isinstance(embs, torch.Tensor) else np.array(embs)
         
         if not self.zca_fitted:
+            # 1. Fit ZCA ở Task 1 (samsum)
             self.mu_g = X.mean(axis=0)
             cov = np.cov(X, rowvar=False, ddof=1)
+            
+            # Mô phỏng sự tàn khốc của LLaMA (4096 chiều):
+            # Các eigenvalue nhỏ sẽ bị ép về 1e-8, tạo ra multiplier = 1/sqrt(1e-8) = 10000
             eigvals, eigvecs = np.linalg.eigh(cov)
             eigvals = np.maximum(eigvals, 1e-8)
             idx = np.argsort(eigvals)[::-1]
@@ -633,19 +643,25 @@ class BuggyFitOnceWhitenedRouter:
             self.W_zca = eigvecs @ np.diag(1.0 / np.sqrt(eigvals)) @ eigvecs.T
             self.zca_fitted = True
             
+        # 2. Tính Signature (Biến đổi bằng cái W_zca rác rưởi này)
         mu_raw = X.mean(axis=0)
-        self.signatures.append((mu_raw - self.mu_g) @ self.W_zca.T)
+        signature = (mu_raw - self.mu_g) @ self.W_zca.T
+        self.signatures.append(signature)
 
     def route(self, h_batch):
         if not self.signatures: return np.zeros(h_batch.shape[0], dtype=np.int64)
         H = h_batch.detach().cpu().numpy() if isinstance(h_batch, torch.Tensor) else np.array(h_batch)
         
+        # 3. Eval: Dữ liệu bị bóp méo bởi W_zca rác
         H_w = (H - self.mu_g) @ self.W_zca.T
         C_w = np.stack(self.signatures)
         
+        # 4. Tính L2 (Nearest Centroid)
         H_sq = np.sum(H_w ** 2, axis=1, keepdims=True)
         C_sq = np.sum(C_w ** 2, axis=1, keepdims=True).T
         dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
+        
+        # In ra khoảng cách để debug: Anh sẽ thấy Dists nổ tung hàng triệu
         return dists.argmin(axis=1)
 
 
