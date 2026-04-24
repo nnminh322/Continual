@@ -609,33 +609,29 @@ class PSRRouter:
 
 class BuggyFitOnceWhitenedRouter:
     """
-    Mô phỏng ĐÚNG SỰ THẬT TÀN KHỐC:
-    1. ZCA fit 1 lần ở Task 1 (N=160, d=4096 => Singular).
-    2. W_zca_1 chứa các chiều khuếch đại nhiễu khổng lồ (1e4).
-    3. Tâm Task 1 (mu_raw_1) bị whiten sẽ nằm chính xác ở gốc tọa độ (0,0..0).
-    4. Lúc Eval Task 1, dữ liệu test của Task 1 (khác với train) đi qua W_zca_1 
-       sẽ bị văng ra xa do nhiễu ở các chiều null-space. Nó không còn nằm ở (0,0) nữa.
-    5. Nó bị các Signature của Task 2, Task 3 (vốn bị văng lung tung) "hút" mất.
+    MÔ PHỎNG CHÍNH XÁC 100% LOGIC CỦA srt_router.py (Chế độ 'hard')
+    --------------------------------------------------------------
+    1. Chỉ fit ZCA đúng 1 lần khi task 1 kết thúc.
+    2. Dùng np.cov(rowvar=False, ddof=1) đúng chuẩn NumPy.
+    3. Phép nhân: h_whitened = (h - mu) @ W_zca.T
+    4. Sigma_whitened = W_zca @ Sigma @ W_zca.T
     """
     def __init__(self, device='cpu'):
         self.signatures = []
-        self.mu_g = None
+        self.mu_global = None
         self.W_zca = None
         self.zca_fitted = False
-        self.device = device
-        self.use_gpu = 'cuda' in device and HAS_TORCH
 
     def add_task(self, embs):
         X = embs.detach().cpu().numpy() if isinstance(embs, torch.Tensor) else np.array(embs)
-        
+        mu_t = X.mean(axis=0)
+        Sigma_t = np.cov(X, rowvar=False, ddof=1)
+
+        # GIẢ LẬP: Task 1 (samsum) xong, srt_router.py sẽ chạy khối 'if not self._zca_fitted'
         if not self.zca_fitted:
-            # 1. Fit ZCA ở Task 1 (samsum)
-            self.mu_g = X.mean(axis=0)
-            cov = np.cov(X, rowvar=False, ddof=1)
-            
-            # Mô phỏng sự tàn khốc của LLaMA (4096 chiều):
-            # Các eigenvalue nhỏ sẽ bị ép về 1e-8, tạo ra multiplier = 1/sqrt(1e-8) = 10000
-            eigvals, eigvecs = np.linalg.eigh(cov)
+            self.mu_global = mu_t.copy()
+            # Eigendecomposition hệt như srt_router.py
+            eigvals, eigvecs = np.linalg.eigh(Sigma_t)
             eigvals = np.maximum(eigvals, 1e-8)
             idx = np.argsort(eigvals)[::-1]
             eigvals = eigvals[idx]
@@ -643,28 +639,30 @@ class BuggyFitOnceWhitenedRouter:
             self.W_zca = eigvecs @ np.diag(1.0 / np.sqrt(eigvals)) @ eigvecs.T
             self.zca_fitted = True
             
-        # 2. Tính Signature (Biến đổi bằng cái W_zca rác rưởi này)
-        mu_raw = X.mean(axis=0)
-        signature = (mu_raw - self.mu_g) @ self.W_zca.T
-        self.signatures.append(signature)
+            # Re-whiten Task 1 (chính nó)
+            mu_w = (mu_t - self.mu_global) @ self.W_zca.T
+            Sigma_w = self.W_zca @ Sigma_t @ self.W_zca.T
+            self.signatures.append({'mu': mu_w, 'Sigma': Sigma_w})
+        else:
+            # Task 2 trở đi: KHÔNG refit, dùng W_zca cũ nhân với mu_t mới
+            mu_w = (mu_t - self.mu_global) @ self.W_zca.T
+            Sigma_w = self.W_zca @ Sigma_t @ self.W_zca.T
+            self.signatures.append({'mu': mu_w, 'Sigma': Sigma_w})
 
     def route(self, h_batch):
         if not self.signatures: return np.zeros(h_batch.shape[0], dtype=np.int64)
         H = h_batch.detach().cpu().numpy() if isinstance(h_batch, torch.Tensor) else np.array(h_batch)
         
-        # 3. Eval: Dữ liệu bị bóp méo bởi W_zca rác
-        H_w = (H - self.mu_g) @ self.W_zca.T
-        C_w = np.stack(self.signatures)
+        # Apply whitening hệt như hàm route() trong srt_router.py
+        H_w = (H - self.mu_global) @ self.W_zca.T
         
-        # 4. Tính L2 (Nearest Centroid)
-        H_sq = np.sum(H_w ** 2, axis=1, keepdims=True)
-        C_sq = np.sum(C_w ** 2, axis=1, keepdims=True).T
-        dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
-        
-        # In ra khoảng cách để debug: Anh sẽ thấy Dists nổ tung hàng triệu
+        dists = np.zeros((H_w.shape[0], len(self.signatures)))
+        for i, sig in enumerate(self.signatures):
+            # Tính L2 distance trong không gian whitened (metric_l2)
+            diff = H_w - sig['mu']
+            dists[:, i] = np.sqrt(np.einsum('nd,nd->n', diff, diff))
+            
         return dists.argmin(axis=1)
-
-
 class IncrementalWhitenedRouter:
     def __init__(self, device='cpu'):
         self.raw_centroids = []
