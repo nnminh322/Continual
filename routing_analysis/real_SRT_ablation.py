@@ -762,7 +762,6 @@ class ShrinkageWhitenedRouter:
         dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
         return dists.argmin(axis=1)
 
-
 # ═══════════════════════════════════════════════════════════════════════
 # Incremental Evaluation
 # ═══════════════════════════════════════════════════════════════════════
@@ -796,12 +795,17 @@ def run_incremental_comparison(train_embs, test_embs, tasks, args):
     total_tasks = len(tasks)
     all_results = {name: [] for name in routers}
 
+    # Lưu lại lịch sử các task đã được add (thứ tự này quyết định index trả về của argmin)
+    added_tasks = []
+
     for t_idx, task_name in enumerate(tasks):
         if task_name not in train_embs:
             continue
 
         print(f"\n  [{t_idx+1}/{total_tasks}] Adding task: {task_name}")
+        added_tasks.append(task_name)
 
+        # Add task to all routers
         for name, router in routers.items():
             if name == "GPM_ROOT":
                 router.add_task(train_embs[task_name], t_idx, total_tasks)
@@ -810,27 +814,31 @@ def run_incremental_comparison(train_embs, test_embs, tasks, args):
             else:
                 router.add_task(train_embs[task_name])
 
-        seen_tasks = [tasks[i] for i in range(t_idx + 1) if tasks[i] in test_embs]
+        # Danh sách các task đã thấy tính đến thời điểm hiện tại
+        seen_tasks = [t for t in added_tasks if t in test_embs]
         if not seen_tasks:
             continue
 
-        task2idx = {t: i for i, t in enumerate(
-            [tasks[j] for j in range(t_idx + 1) if tasks[j] in train_embs]
-        )}
-
+        # ĐÁNH GIÁ (EVALUATION)
         for name, router in routers.items():
             per_task_acc = []
             for true_task in seen_tasks:
-                if true_task not in test_embs or true_task not in task2idx:
-                    continue
                 embs_test = test_embs[true_task]
-                preds = router.route(embs_test)
-                true_idx = task2idx[true_task]
                 
-                # Tính độ chính xác theo Macro (Độc lập từng Task)
-                acc = float((preds == true_idx).mean())
+                # Model dự đoán ra một mảng index (0, 1, 2, ..., t_idx)
+                preds = router.route(embs_test)
+                
+                # Ground truth CHÍNH LÀ index của true_task trong mảng added_tasks
+                true_idx = added_tasks.index(true_task)
+                
+                # Tính accuracy cho TỪNG TASK: Số lượng mẫu dự đoán trúng / Tổng số mẫu của task đó
+                correct = int((preds == true_idx).sum())
+                total = embs_test.shape[0]
+                acc = correct / max(total, 1)
+                
                 per_task_acc.append(acc)
 
+            # MACRO AVERAGE: Tính trung bình các acc của từng task
             macro_acc = sum(per_task_acc) / len(per_task_acc) if per_task_acc else 0.0
             
             # Format row output
@@ -838,9 +846,9 @@ def run_incremental_comparison(train_embs, test_embs, tasks, args):
             
             all_results[name].append({
                 "step": t_idx + 1,
-                "n_tasks": len(task2idx),
+                "n_tasks": len(seen_tasks),
                 "accuracy": macro_acc,
-                "per_task": per_task_acc,
+                "per_task": {t: a for t, a in zip(seen_tasks, per_task_acc)}, # Lưu dạng dict cho script của anh
             })
             print(f"    {name:25s}  macro_acc={macro_acc*100:6.2f}%   Row: [{row_str}]")
 
