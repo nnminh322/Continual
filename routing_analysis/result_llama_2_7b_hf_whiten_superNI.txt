@@ -1,0 +1,150 @@
+/usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:435: UserWarning:
+    Found GPU0 Tesla P100-PCIE-16GB which is of cuda capability 6.0.
+    Minimum and Maximum cuda capability supported by this version of PyTorch is
+    (7.0) - (12.0)
+
+  queued_call()
+/usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:435: UserWarning:
+    Please install PyTorch with a following CUDA
+    configurations:  12.6 following instructions at
+    https://pytorch.org/get-started/locally/
+
+  queued_call()
+/usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:435: UserWarning:
+Tesla P100-PCIE-16GB with CUDA capability sm_60 is not compatible with the current PyTorch installation.
+The current PyTorch install supports CUDA capabilities sm_70 sm_75 sm_80 sm_86 sm_90 sm_100 sm_120.
+If you want to use the Tesla P100-PCIE-16GB GPU with PyTorch, please check the instructions at https://pytorch.org/get-started/locally/
+
+  queued_call()
+[GPU] CUDA reported available but kernel launch failed (AcceleratorError: CUDA error: no kernel image is available for execution on the device
+Search for `cudaErrorNoKernelImageForDevice' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+) — falling back to CPU
+=== Phase F: Learned Routing Comparison  [Llama-2-7b-hf_SuperNI_whitened] ===
+    GPM: backbone=llama, mlp_hidden=50, chunk=4, transthreshold=0.995, lr=0.001, epochs=30
+    RLS: expansion=2048, lambda=0.1
+    PSR: k=8
+
+Tasks found: 15/15
+Applied ZCA whitening
+
+
+  [1/15] Adding task: task002_quoref_answer_generation
+    NearestCentroid            acc=100.00% (1 tasks)
+    CosineNearestCentroid      acc=100.00% (1 tasks)
+    PSR                        acc=100.00% (1 tasks)
+    RLS_Woodbury               acc=100.00% (1 tasks)
+    GPM_ROOT                   acc=100.00% (1 tasks)
+
+  [2/15] Adding task: task073_commonsenseqa_answer_generation
+    NearestCentroid            acc=99.00% (2 tasks)
+    CosineNearestCentroid      acc=99.00% (2 tasks)
+    PSR                        acc=76.50% (2 tasks)
+    RLS_Woodbury               acc=70.00% (2 tasks)
+    GPM_ROOT                   acc=63.00% (2 tasks)
+
+  [3/15] Adding task: task1290_xsum_summarization
+    NearestCentroid            acc=98.33% (3 tasks)
+    CosineNearestCentroid      acc=98.33% (3 tasks)
+    PSR                        acc=50.00% (3 tasks)
+    RLS_Woodbury               acc=57.00% (3 tasks)
+    GPM_ROOT                   acc=33.33% (3 tasks)
+
+  [4/15] Adding task: task1510_evalution_relation_extraction
+    NearestCentroid            acc=98.75% (4 tasks)
+    CosineNearestCentroid      acc=98.75% (4 tasks)
+    PSR                        acc=35.75% (4 tasks)
+    RLS_Woodbury               acc=57.50% (4 tasks)
+    GPM_ROOT                   acc=25.25% (4 tasks)
+
+  [5/15] Adding task: task1572_samsum_summary
+    NearestCentroid            acc=98.10% (5 tasks)
+    CosineNearestCentroid      acc=96.90% (5 tasks)
+    PSR                        acc=32.86% (5 tasks)
+    RLS_Woodbury               acc=55.24% (5 tasks)
+    GPM_ROOT                   acc=23.81% (5 tasks)
+
+  [6/15] Adding task: task1590_diplomacy_text_generation
+    NearestCentroid            acc=98.17% (6 tasks)
+    CosineNearestCentroid      acc=96.33% (6 tasks)
+    PSR                        acc=31.19% (6 tasks)
+    RLS_Woodbury               acc=50.92% (6 tasks)
+    GPM_ROOT                   acc=22.02% (6 tasks)
+
+  [7/15] Adding task: task1687_sentiment140_classification
+    NearestCentroid            acc=98.32% (7 tasks)
+    CosineNearestCentroid      acc=96.64% (7 tasks)
+    PSR                        acc=23.69% (7 tasks)
+    RLS_Woodbury               acc=50.37% (7 tasks)
+    GPM_ROOT                   acc=19.22% (7 tasks)
+
+  [8/15] Adding task: task1729_personachat_generate_next
+    NearestCentroid            acc=97.96% (8 tasks)
+    CosineNearestCentroid      acc=96.07% (8 tasks)
+    PSR                        acc=19.65% (8 tasks)
+    RLS_Woodbury               acc=51.26% (8 tasks)
+    GPM_ROOT                   acc=17.45% (8 tasks)
+
+  [9/15] Adding task: task181_outcome_extraction
+    NearestCentroid            acc=97.64% (9 tasks)
+    CosineNearestCentroid      acc=96.02% (9 tasks)
+    PSR                        acc=18.56% (9 tasks)
+    RLS_Woodbury               acc=48.01% (9 tasks)
+    GPM_ROOT                   acc=16.20% (9 tasks)
+
+  [10/15] Adding task: task363_sst2_polarity_classification
+    NearestCentroid            acc=97.69% (10 tasks)
+    CosineNearestCentroid      acc=95.76% (10 tasks)
+    PSR                        acc=16.05% (10 tasks)
+    RLS_Woodbury               acc=47.37% (10 tasks)
+    GPM_ROOT                   acc=12.07% (10 tasks)
+
+  [11/15] Adding task: task511_reddit_tifu_long_text_summarization
+    NearestCentroid            acc=97.50% (11 tasks)
+    CosineNearestCentroid      acc=95.68% (11 tasks)
+    PSR                        acc=14.33% (11 tasks)
+    RLS_Woodbury               acc=48.58% (11 tasks)
+    GPM_ROOT                   acc=11.38% (11 tasks)
+
+  [12/15] Adding task: task591_sciq_answer_generation
+    NearestCentroid            acc=97.75% (12 tasks)
+    CosineNearestCentroid      acc=95.91% (12 tasks)
+    PSR                        acc=12.67% (12 tasks)
+    RLS_Woodbury               acc=46.27% (12 tasks)
+    GPM_ROOT                   acc=10.93% (12 tasks)
+
+  [13/15] Adding task: task639_multi_woz_user_utterance_generation
+    NearestCentroid            acc=97.79% (13 tasks)
+    CosineNearestCentroid      acc=95.59% (13 tasks)
+    PSR                        acc=12.44% (13 tasks)
+    RLS_Woodbury               acc=42.73% (13 tasks)
+    GPM_ROOT                   acc=10.73% (13 tasks)
+
+  [14/15] Adding task: task748_glucose_reverse_cause_event_detection
+    NearestCentroid            acc=97.72% (14 tasks)
+    CosineNearestCentroid      acc=95.53% (14 tasks)
+    PSR                        acc=11.67% (14 tasks)
+    RLS_Woodbury               acc=42.30% (14 tasks)
+    GPM_ROOT                   acc=9.75% (14 tasks)
+
+  [15/15] Adding task: task875_emotion_classification
+    NearestCentroid            acc=97.33% (15 tasks)
+    CosineNearestCentroid      acc=95.49% (15 tasks)
+    PSR                        acc=10.78% (15 tasks)
+    RLS_Woodbury               acc=42.69% (15 tasks)
+    GPM_ROOT                   acc=8.94% (15 tasks)
+
+======================================================================
+  Final Routing Accuracy (all 15 tasks)
+======================================================================
+  Method                       Accuracy
+  -------------------------------------
+  NearestCentroid               97.33%
+  CosineNearestCentroid         95.49%
+  PSR                           10.78%
+  RLS_Woodbury                  42.69%
+  GPM_ROOT                       8.94%
+
+✓ Saved results/learned_routing_Llama-2-7b-hf_SuperNI_whitened.json

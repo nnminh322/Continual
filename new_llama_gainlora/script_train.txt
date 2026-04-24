@@ -1,0 +1,367 @@
+==================================================
+LLaMA GainLoRA Continual Learning — SuperNI Order 1
+MODEL:     /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights
+TASKS:     15
+RUN_NAME:  superni_order1_llama_srt
+LOG_DIR:   /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs
+EXTRA:
+==================================================
+
+──────────────────────────────────────────────────
+TASK 1/15: task1572_samsum_summary
+OUTPUT:  /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary
+PREV LORA: <none>
+SRT PATH:  <none>
+
+============================================================
+Task 0: task1572_samsum_summary
+Task order (15 tasks): ['task1572_samsum_summary', 'task363_sst2_polarity_classification', 'task1290_xsum_summarization', 'task181_outcome_extraction', 'task002_quoref_answer_generation', 'task1510_evalution_relation_extraction', 'task639_multi_woz_user_utterance_generation', 'task1729_personachat_generate_next', 'task073_commonsenseqa_answer_generation', 'task1590_diplomacy_text_generation', 'task748_glucose_reverse_cause_event_detection', 'task511_reddit_tifu_long_text_summarization', 'task591_sciq_answer_generation', 'task1687_sentiment140_classification', 'task875_emotion_classification']
+previous_lora_path: None
+srt_load_path:      None
+sgwi:               True
+============================================================
+
+{'train_runtime': '225.9', 'train_samples_per_second': '10.62', 'train_steps_per_second': '0.332', 'train_loss': '0.9074', 'epoch': '15'}
+100%|██████████| 75/75 [03:45<00:00,  3.01s/it]
+***** train metrics *****
+  epoch                    =       15.0
+  total_flos               = 22535523GF
+  train_loss               =     0.9074
+  train_runtime            = 0:03:45.90
+  train_samples            =        160
+  train_samples_per_second =     10.624
+  train_steps_per_second   =      0.332
+  [EVAL] Restored best model (eval_rougeL=0.4225, 128 tensors)
+[SAVE] LoRA weights → /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights
+[SRT] Loading frozen backbone from /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights …
+Loading weights: 100%|██████████| 291/291 [00:00<00:00, 806.34it/s]
+[SRT] Frozen backbone attached (moved to cuda:0).
+  [SRT] → Forward extraction (max 200 batches)
+  [SRT] ZCA fitted once: n_pool=160, d=4096, n/d=0.04
+  [SRT] Task 'task1572_samsum_summary': PaR=159.0, metric=l2, n=160
+  [SRT] Wired router: 1 sigs, cur=task1572_samsum_summary, mapping={'task1572_samsum_summary': 0}
+[SRT] Router: 1 tasks, avg_PaR=159.0, metrics=['l2']
+  [SRT] Saved signatures → /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights/srt_signatures.npz
+*** Prediction ***
+Continual predict: 100%|██████████| 10/10 [00:37<00:00,  3.79s/it]
+***** predict metrics *****
+  epoch                                           =       15.0
+  predict_eval_rougeL                             =    42.2975
+  predict_eval_rougeL_for_CL                      =    42.2975
+  predict_eval_rougeL_for_task1572_samsum_summary =    42.2975
+  predict_exact_match                             =        0.0
+  predict_exact_match_for_CL                      =        0.0
+  predict_exact_match_for_task1572_samsum_summary =        0.0
+  predict_gen_len                                 =      29.05
+  predict_global_step                             =         75
+  predict_rouge1                                  =     51.915
+  predict_rouge1_for_CL                           =     51.915
+  predict_rouge1_for_task1572_samsum_summary      =     51.915
+  predict_runtime                                 = 0:00:37.88
+  predict_samples                                 =         20
+  predict_samples_per_second                      =      0.528
+  predict_steps_per_second                        =      0.264
+
+──────────────────────────────────────────────────
+TASK 2/15: task363_sst2_polarity_classification
+OUTPUT:  /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification
+PREV LORA: /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights
+SRT PATH:  /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights
+──────────────────────────────────────────────────
+
+============================================================
+Task 1: task363_sst2_polarity_classification
+Task order (15 tasks): ['task1572_samsum_summary', 'task363_sst2_polarity_classification', 'task1290_xsum_summarization', 'task181_outcome_extraction', 'task002_quoref_answer_generation', 'task1510_evalution_relation_extraction', 'task639_multi_woz_user_utterance_generation', 'task1729_personachat_generate_next', 'task073_commonsenseqa_answer_generation', 'task1590_diplomacy_text_generation', 'task748_glucose_reverse_cause_event_detection', 'task511_reddit_tifu_long_text_summarization', 'task591_sciq_answer_generation', 'task1687_sentiment140_classification', 'task875_emotion_classification']
+previous_lora_path: /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights
+srt_load_path:      /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights
+sgwi:               True
+============================================================
+
+[LOAD] HF checkpoint copied into custom LLaMA (allowed_missing=291)
+[FIX] Re-initialized lora_A/B in 128 LoRA layers
+[FIX] Re-initialized prompt_key ~ U(-1,1)
+[FIX] n_slots: dummy previous_prompts_keys shape=(1, 4096)
+[PREV-LORA] Loaded slot[0] ← /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights
+[PREV-LORA] Moved 1 past adapters to CPU
+[FIX] Upcast 131 trainable tensors to fp32
+Trainable: 2.920M / 6743.437M (0.04%)
+[TRAIN] step_per_epoch=32, eval_steps=160
+100%|██████████| 480/480 [14:25<00:00,  1.80s/it]
+***** train metrics *****
+  epoch                    =       15.0
+  total_flos               = 50859468GF
+  train_loss               =     0.0791
+  train_runtime            = 0:14:25.40
+  train_samples            =       1000
+  train_samples_per_second =     17.333
+  train_steps_per_second   =      0.555
+  [EVAL] Restored best model (eval_rougeL=0.9200, 128 tensors)
+[SAVE] LoRA weights → /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights
+[SRT] Loading frozen backbone from /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights …
+Loading weights: 100%|██████████| 291/291 [00:00<00:00, 803.11it/s]
+[SRT] Frozen backbone attached (moved to cuda:0).
+  [SRT] → Forward extraction (max 200 batches)
+  [SRT] Task 'task363_sst2_polarity_classification': PaR=37.8, metric=l2, n=200
+  [SRT] Wired router: 2 sigs, cur=task363_sst2_polarity_classification, mapping={'task363_sst2_polarity_classification': 0, 'task1572_samsum_summary': 1}
+[SRT] Router: 2 tasks, avg_PaR=19.9, metrics=['l2', 'l2']
+  [SRT] Saved signatures → /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights/srt_signatures.npz
+*** Prediction ***
+Continual predict: 100%|██████████| 70/70 [01:22<00:00,  1.18s/it]
+***** predict metrics *****
+  epoch                                                        =       15.0
+  predict_eval_rougeL                                          =    73.9407
+  predict_eval_rougeL_for_CL                                   =    73.9407
+  predict_eval_rougeL_for_task1572_samsum_summary              =    41.2923
+  predict_eval_rougeL_for_task363_sst2_polarity_classification =       87.0
+  predict_exact_match                                          =    62.1429
+  predict_exact_match_for_CL                                   =    62.1429
+  predict_exact_match_for_task1572_samsum_summary              =        0.0
+  predict_exact_match_for_task363_sst2_polarity_classification =       87.0
+  predict_gen_len                                              =     9.6929
+  predict_global_step                                          =        480
+  predict_rouge1                                               =     76.663
+  predict_rouge1_for_CL                                        =     76.663
+  predict_rouge1_for_task1572_samsum_summary                   =    50.8205
+  predict_rouge1_for_task363_sst2_polarity_classification      =       87.0
+  predict_runtime                                              = 0:01:22.43
+  predict_samples                                              =        140
+  predict_samples_per_second                                   =      1.698
+  predict_steps_per_second                                     =      0.849
+[2026-04-24 05:29:28,434] [INFO] [launch.py:367:main] Process 1232 exits successfully.
+[Done] Task 2: saved → /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights
+
+──────────────────────────────────────────────────
+TASK 3/15: task1290_xsum_summarization
+OUTPUT:  /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization
+PREV LORA: /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights
+SRT PATH:  /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights
+──────────────────────────────────────────────────
+
+============================================================
+Task 2: task1290_xsum_summarization
+Task order (15 tasks): ['task1572_samsum_summary', 'task363_sst2_polarity_classification', 'task1290_xsum_summarization', 'task181_outcome_extraction', 'task002_quoref_answer_generation', 'task1510_evalution_relation_extraction', 'task639_multi_woz_user_utterance_generation', 'task1729_personachat_generate_next', 'task073_commonsenseqa_answer_generation', 'task1590_diplomacy_text_generation', 'task748_glucose_reverse_cause_event_detection', 'task511_reddit_tifu_long_text_summarization', 'task591_sciq_answer_generation', 'task1687_sentiment140_classification', 'task875_emotion_classification']
+previous_lora_path: /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights
+srt_load_path:      /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights
+sgwi:               True
+============================================================
+[LOAD] HF checkpoint copied into custom LLaMA (allowed_missing=419)
+[FIX] Re-initialized lora_A/B in 192 LoRA layers
+[FIX] Re-initialized prompt_key ~ U(-1,1)
+[FIX] n_slots: dummy previous_prompts_keys shape=(2, 4096)
+[PREV-LORA] Loaded slot[0] ← /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights
+[PREV-LORA] Loaded slot[1] ← /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights
+[PREV-LORA] Moved 2 past adapters to CPU
+[FIX] Upcast 131 trainable tensors to fp32
+Trainable: 2.920M / 6745.539M (0.04%)
+[TRAIN] step_per_epoch=32, eval_steps=160
+  [SRT] Loaded 2 signatures from /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights/srt_signatures.npz
+  [SRT] Wired router: 2 sigs, cur=task1290_xsum_summarization, mapping={'task1290_xsum_summarization': 0, 'task1572_samsum_summary': 2, 'task363_sst2_polarity_classification': 1}
+[SGWI] Task 2: computing SRT weights for warm-init…
+  [SRT] WARNING: encoder_frozen not attached. Returning empty embeddings.
+[SGWI] No SRT weights available. Skipping warm-init.
+[RANK 0] Gradient accumulation steps mismatch: GradientAccumulationPlugin has 1, DeepSpeed config has 32. Using DeepSpeed's value.
+***** train metrics *****
+  epoch                    =        15.0
+  total_flos               = 316866069GF
+  train_loss               =      0.8378
+  train_runtime            =  0:42:47.05
+  train_samples            =        1000
+  train_samples_per_second =       5.843
+  train_steps_per_second   =       0.187
+  [EVAL] Restored best model (eval_rougeL=0.3137, 128 tensors)
+[SAVE] LoRA weights → /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
+[SRT] Loading frozen backbone from /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights …
+Loading weights: 100%|██████████| 291/291 [00:00<00:00, 789.28it/s]
+[SRT] Frozen backbone attached (moved to cuda:0).
+  [SRT] → Forward extraction (max 200 batches)
+  [SRT] Task 'task1290_xsum_summarization': PaR=12.0, metric=l2, n=200
+  [SRT] Wired router: 3 sigs, cur=task1290_xsum_summarization, mapping={'task1290_xsum_summarization': 0, 'task1572_samsum_summary': 2, 'task363_sst2_polarity_classification': 1}
+[SRT] Router: 3 tasks, avg_PaR=7.0, metrics=['l2', 'l2', 'l2']
+  [SRT] Saved signatures → /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights/srt_signatures.npz
+*** Prediction ***
+[SRT-ROUTE] Sample 0: dists=[1216406.41044529, 1330121.8073585818, 1304875.620905444] argmin=0 pred=task1290_xsum_summarization
+[SRT-ROUTE] SRM metrics: {}
+Continual predict:  53%|█████▎    | 95/180 [02:40<01:22,  1.03it/s][SRT-ROUTE] mode=hard n_tasks=3 task_list=['task1290_xsum_summarization', 'task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
+[SRT-ROUTE] Sample 0: dists=[598471.2040149546, 773520.1716157628, 197252.90735936034] argmin=2 pred=task363_sst2_polarity_classification
+[SRT-ROUTE] SRM metrics: {}
+Continual predict:  82%|████████▏ | 147/180 [04:47<02:56,  5.36s/it][SRT-ROUTE] mode=hard n_tasks=3 task_list=['task1290_xsum_summarization', 'task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
+[SRT-ROUTE] Sample 0: dists=[461783.4427764067, 585949.5989011299, 752260.1011877609] argmin=0 pred=task1290_xsum_summarization
+[SRT-ROUTE] SRM metrics: {}
+Continual predict: 100%|██████████| 180/180 [07:55<00:00,  2.64s/it]
+***** predict metrics *****
+  epoch                                                        =       15.0
+  predict_eval_rougeL                                          =     48.495
+  predict_eval_rougeL_for_CL                                   =     48.495
+  predict_eval_rougeL_for_task1290_xsum_summarization          =    31.3881
+  predict_eval_rougeL_for_task1572_samsum_summary              =    32.5927
+  predict_eval_rougeL_for_task363_sst2_polarity_classification =     61.819
+  predict_exact_match                                          =    33.3333
+  predict_exact_match_for_CL                                   =    33.3333
+  predict_exact_match_for_task1290_xsum_summarization          =        0.0
+  predict_exact_match_for_task1572_samsum_summary              =        0.0
+  predict_exact_match_for_task363_sst2_polarity_classification =       60.0
+  predict_gen_len                                              =    15.4056
+  predict_global_step                                          =        480
+  predict_rouge1                                               =     51.498
+  predict_rouge1_for_CL                                        =     51.498
+  predict_rouge1_for_task1290_xsum_summarization               =    38.7882
+  predict_rouge1_for_task1572_samsum_summary                   =    38.2777
+  predict_rouge1_for_task363_sst2_polarity_classification      =     61.819
+  predict_runtime                                              = 0:07:55.65
+  predict_samples                                              =        360
+  predict_samples_per_second                                   =      0.757
+  predict_steps_per_second                                     =      0.378
+[2026-04-24 06:22:07,054] [INFO] [launch.py:367:main] Process 1937 exits successfully.
+[Done] Task 3: saved → /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
+
+──────────────────────────────────────────────────
+TASK 4/15: task181_outcome_extraction
+OUTPUT:  /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/4-task181_outcome_extraction
+PREV LORA: /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights,/kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
+SRT PATH:  /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
+──────────────────────────────────────────────────
+
+============================================================
+Task 3: task181_outcome_extraction
+Task order (15 tasks): ['task1572_samsum_summary', 'task363_sst2_polarity_classification', 'task1290_xsum_summarization', 'task181_outcome_extraction', 'task002_quoref_answer_generation', 'task1510_evalution_relation_extraction', 'task639_multi_woz_user_utterance_generation', 'task1729_personachat_generate_next', 'task073_commonsenseqa_answer_generation', 'task1590_diplomacy_text_generation', 'task748_glucose_reverse_cause_event_detection', 'task511_reddit_tifu_long_text_summarization', 'task591_sciq_answer_generation', 'task1687_sentiment140_classification', 'task875_emotion_classification']
+previous_lora_path: /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights,/kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
+srt_load_path:      /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
+sgwi:               True
+============================================================
+[LOAD] HF checkpoint copied into custom LLaMA (allowed_missing=547)
+[FIX] Re-initialized lora_A/B in 256 LoRA layers
+[FIX] Re-initialized prompt_key ~ U(-1,1)
+[FIX] n_slots: dummy previous_prompts_keys shape=(3, 4096)
+[PREV-LORA] Loaded slot[0] ← /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
+[PREV-LORA] Loaded slot[1] ← /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights
+[PREV-LORA] Loaded slot[2] ← /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights
+[PREV-LORA] Moved 3 past adapters to CPU
+[FIX] Upcast 131 trainable tensors to fp32
+[TRAIN] step_per_epoch=11, eval_steps=55
+***** train metrics *****
+  epoch                    =       15.0
+  total_flos               = 46532126GF
+  train_loss               =     0.3029
+  train_runtime            = 0:06:09.35
+  train_samples            =        338
+  train_samples_per_second =     13.727
+  train_steps_per_second   =      0.447
+  [EVAL] Restored best model (eval_rougeL=0.6599, 128 tensors)
+[SAVE] LoRA weights → /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/4-task181_outcome_extraction/saved_weights
+[SRT] Loading frozen backbone from /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights …
+Loading weights: 100%|██████████| 291/291 [00:00<00:00, 771.99it/s]
+[SRT] Frozen backbone attached (moved to cuda:0).
+  [SRT] → Forward extraction (max 200 batches)
+  [SRT] Task 'task181_outcome_extraction': PaR=39.6, metric=l2, n=200
+  [SRT] Wired router: 4 sigs, cur=task181_outcome_extraction, mapping={'task181_outcome_extraction': 0, 'task1572_samsum_summary': 3, 'task363_sst2_polarity_classification': 2, 'task1290_xsum_summarization': 1}
+[SRT] Router: 4 tasks, avg_PaR=14.8, metrics=['l2', 'l2', 'l2', 'l2']
+  [SRT] Saved signatures → /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/4-task181_outcome_extraction/saved_weights/srt_signatures.npz
+*** Prediction ***
+***** predict metrics *****
+  epoch                                                        =       15.0
+  predict_eval_rougeL                                          =    47.6749
+  predict_eval_rougeL_for_CL                                   =    47.6749
+  predict_eval_rougeL_for_task1290_xsum_summarization          =    31.3881
+  predict_eval_rougeL_for_task1572_samsum_summary              =    32.5927
+  predict_eval_rougeL_for_task181_outcome_extraction           =    52.8079
+  predict_eval_rougeL_for_task363_sst2_polarity_classification =     61.819
+  predict_exact_match                                          =    31.4607
+  predict_exact_match_for_CL                                   =    31.4607
+  predict_exact_match_for_task1290_xsum_summarization          =        0.0
+  predict_exact_match_for_task1572_samsum_summary              =        0.0
+  predict_exact_match_for_task181_outcome_extraction           =    37.2093
+  predict_exact_match_for_task363_sst2_polarity_classification =       60.0
+  predict_gen_len                                              =    15.8331
+  predict_global_step                                          =        165
+  predict_rouge1                                               =    50.8035
+  predict_rouge1_for_CL                                        =    50.8035
+  predict_rouge1_for_task1290_xsum_summarization               =    38.7882
+  predict_rouge1_for_task1572_samsum_summary                   =    38.2777
+  predict_rouge1_for_task181_outcome_extraction                =    53.1401
+  predict_rouge1_for_task363_sst2_polarity_classification      =     61.819
+  predict_runtime                                              = 0:14:51.49
+  predict_samples                                              =        623
+  predict_samples_per_second                                   =      0.699
+  predict_steps_per_second                                     =       0.35
+[Done] Task 4: saved → /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/4-task181_outcome_extraction/saved_weights
+
+──────────────────────────────────────────────────
+TASK 5/15: task002_quoref_answer_generation
+OUTPUT:  /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/5-task002_quoref_answer_generation
+PREV LORA: /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights,/kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights,/kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/4-task181_outcome_extraction/saved_weights
+SRT PATH:  /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/4-task181_outcome_extraction/saved_weights
+──────────────────────────────────────────────────
+============================================================
+Task 4: task002_quoref_answer_generation
+Task order (15 tasks): ['task1572_samsum_summary', 'task363_sst2_polarity_classification', 'task1290_xsum_summarization', 'task181_outcome_extraction', 'task002_quoref_answer_generation', 'task1510_evalution_relation_extraction', 'task639_multi_woz_user_utterance_generation', 'task1729_personachat_generate_next', 'task073_commonsenseqa_answer_generation', 'task1590_diplomacy_text_generation', 'task748_glucose_reverse_cause_event_detection', 'task511_reddit_tifu_long_text_summarization', 'task591_sciq_answer_generation', 'task1687_sentiment140_classification', 'task875_emotion_classification']
+previous_lora_path: /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights,/kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights,/kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/4-task181_outcome_extraction/saved_weights
+srt_load_path:      /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/4-task181_outcome_extraction/saved_weights
+sgwi:               True
+============================================================
+[LOAD] HF checkpoint copied into custom LLaMA (allowed_missing=675)
+[FIX] Re-initialized lora_A/B in 320 LoRA layers
+[FIX] Re-initialized prompt_key ~ U(-1,1)
+[FIX] n_slots: dummy previous_prompts_keys shape=(4, 4096)
+[PREV-LORA] Loaded slot[0] ← /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/4-task181_outcome_extraction/saved_weights
+[PREV-LORA] Loaded slot[1] ← /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
+[PREV-LORA] Loaded slot[2] ← /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights
+[PREV-LORA] Loaded slot[3] ← /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights
+[PREV-LORA] Moved 4 past adapters to CPU
+[FIX] Upcast 131 trainable tensors to fp32
+Trainable: 2.920M / 6749.741M (0.04%)
+[TRAIN] step_per_epoch=32, eval_steps=160
+  [SRT] Loaded 4 signatures from /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/4-task181_outcome_extraction/saved_weights/srt_signatures.npz
+  [SRT] Wired router: 4 sigs, cur=task002_quoref_answer_generation, mapping={'task002_quoref_answer_generation': 0, 'task1572_samsum_summary': 4, 'task363_sst2_polarity_classification': 3, 'task1290_xsum_summarization': 2, 'task181_outcome_extraction': 1}
+[SGWI] Task 4: computing SRT weights for warm-init…
+  [SRT] WARNING: encoder_frozen not attached. Returning empty embeddings.
+[SGWI] No SRT weights available. Skipping warm-init.
+***** train metrics *****
+  epoch                    =        15.0
+  total_flos               = 342749931GF
+  train_loss               =      0.1244
+  train_runtime            =  0:37:01.50
+  train_samples            =        1000
+  train_samples_per_second =       6.752
+  train_steps_per_second   =       0.216
+  [EVAL] Restored best model (eval_rougeL=0.7564, 128 tensors)
+[SAVE] LoRA weights → /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/5-task002_quoref_answer_generation/saved_weights
+[SRT] Loading frozen backbone from /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights …
+Loading weights: 100%|██████████| 291/291 [00:00<00:00, 809.18it/s]
+[SRT] Frozen backbone attached (moved to cuda:0).
+  [SRT] → Forward extraction (max 200 batches)
+  [SRT] Task 'task002_quoref_answer_generation': PaR=56.2, metric=l2, n=200
+  [SRT] Wired router: 5 sigs, cur=task002_quoref_answer_generation, mapping={'task002_quoref_answer_generation': 0, 'task1572_samsum_summary': 4, 'task363_sst2_polarity_classification': 3, 'task1290_xsum_summarization': 2, 'task181_outcome_extraction': 1}
+[SRT] Router: 5 tasks, avg_PaR=17.4, metrics=['l2', 'l2', 'l2', 'l2', 'l2']
+  [SRT] Saved signatures → /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/5-task002_quoref_answer_generation/saved_weights/srt_signatures.npz
+*** Prediction ***
+***** predict metrics *****
+  epoch                                                        =       15.0
+  predict_eval_rougeL                                          =    46.1636
+  predict_eval_rougeL_for_CL                                   =    46.1636
+  predict_eval_rougeL_for_task002_quoref_answer_generation     =    38.9129
+  predict_eval_rougeL_for_task1290_xsum_summarization          =    31.3967
+  predict_eval_rougeL_for_task1572_samsum_summary              =    31.7875
+  predict_eval_rougeL_for_task181_outcome_extraction           =    51.3791
+  predict_eval_rougeL_for_task363_sst2_polarity_classification =    61.5242
+  predict_exact_match                                          =    30.8316
+  predict_exact_match_for_CL                                   =    30.8316
+  predict_exact_match_for_task002_quoref_answer_generation     =       35.0
+  predict_exact_match_for_task1290_xsum_summarization          =        0.0
+  predict_exact_match_for_task1572_samsum_summary              =        0.0
+  predict_exact_match_for_task181_outcome_extraction           =    36.0465
+  predict_exact_match_for_task363_sst2_polarity_classification =       59.5
+  predict_gen_len                                              =    16.1876
+  predict_global_step                                          =        480
+  predict_rouge1                                               =    49.0939
+  predict_rouge1_for_CL                                        =    49.0939
+  predict_rouge1_for_task002_quoref_answer_generation          =    38.9129
+  predict_rouge1_for_task1290_xsum_summarization               =    38.7842
+  predict_rouge1_for_task1572_samsum_summary                   =    38.2314
+  predict_rouge1_for_task181_outcome_extraction                =    51.7114
+  predict_rouge1_for_task363_sst2_polarity_classification      =    61.5242
+  predict_runtime                                              = 0:27:12.91
+  predict_samples                                              =        986
+  predict_samples_per_second                                   =      0.604
+  predict_steps_per_second                                     =      0.302
+[2026-04-24 07:51:48,016] [INFO] [launch.py:367:main] Process 3347 exits successfully.
+[Done] Task 5: saved → /kaggle/working/tly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/5-task002_quoref_answer_generation/saved_weights

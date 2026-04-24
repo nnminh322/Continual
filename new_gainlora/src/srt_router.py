@@ -3,8 +3,9 @@ SRT Router: Statistical Routing Theory implementation.
 
 Two modes:
   --srt_metric_mode hard:
-    Whitening + ZCA + L2 (equivalent to Pooled Mahalanobis per Theorem 4).
-    Matches routing_analysis experiment: whitening fitted on train, applied always.
+    ZCA whitening + L2 (equivalent to Pooled Mahalanobis per Theorem 4).
+    ZCA is REFIT every add_task() from updated pooled covariance with
+    Ledoit-Wolf shrinkage, then ALL centroids are re-whitened.
     Single fixed metric → argmin is always valid.
 
   --srt_metric_mode dynamics:
@@ -435,8 +436,8 @@ class SRTRouter:
     Statistical Routing Theory Router.
 
     Two modes (set via srt_metric_mode):
-      'hard'    : whitening + L2. No SRM. Matches routing_analysis experiment.
-                  Whitening fitted on train embeddings, applied always.
+      'hard'    : ZCA whitening + L2. ZCA is REFIT every add_task() from
+                  shrunk pooled covariance, then ALL centroids are re-whitened.
                   Single fixed metric (L2 in whitened space = Pooled Mahalanobis).
                   argmin is always valid because all tasks use L2 in same space.
 
@@ -476,7 +477,6 @@ class SRTRouter:
         # ── ZCA whitening (hard mode) ────────────────────────────────────
         self._mu_global: Optional[np.ndarray] = None
         self._W_zca: Optional[np.ndarray] = None
-        self._zca_fitted: bool = False   # True after first ZCA fit; NEVER refit
 
         # ── SRM state (dynamics mode) ────────────────────────────────────
         self._srm_metrics: Dict[int, str] = {}
@@ -514,14 +514,12 @@ class SRTRouter:
         """
         Add a new task's statistical signature.
 
-        HARD MODE — ZCA fit-once (the key fix):
-          - Task 1: store raw stats only, ZCA NOT fitted yet
-          - Task 2+: fit ZCA ONCE from pooled covariance of ALL seen tasks,
-            WHITEN ALL tasks (including previous) with this fixed W.
-            NEVER refit W again.
-          - This matches the offline experiment (compute_whitening on all train
-            embeddings once) and avoids the catastrophic incremental refitting
-            bug where W changes every add_task() → centroids non-comparable.
+        HARD MODE — ZCA refit every task:
+          - Compute raw {μ_t, Σ_t} from h_train
+          - Update pooled covariance via Welford-Hart
+          - Shrink pooled Σ with Ledoit-Wolf (toward λ̄I) for stable ZCA
+          - Refit ZCA from shrunk pooled Σ
+          - Re-whiten ALL existing centroids + covariances from their raw stats
 
         DYNAMICS MODE — SRM (unchanged logic):
           - Pooled update + re-shrink + SRM per task.
@@ -570,61 +568,48 @@ class SRTRouter:
                     self.signatures[t_id]._metric = m
             return sig
 
-        # ── Hard mode: ZCA fit-once ───────────────────────────────────
-        # Re-shrink previous tasks toward updated pool (raw Σ, pre-whitening)
-        if len(self.signatures) > 0:
-            self._reshrink_all()
-
-        if not self._zca_fitted:
-            # FIRST TIME: fit ZCA from pooled mean + pooled covariance.
-            # Uses Σ_pool which already aggregates ALL seen tasks via Welford–Hart.
-            # This is the single, FINAL whitening transform — never refitted.
-            self._mu_global = self._mu_pool.copy()
-            cov_pool = self._Sigma_pool.copy()
-
-            # Eigendecomposition of pooled covariance → ZCA transform
-            eigvals, eigvecs = np.linalg.eigh(cov_pool)
-            eigvals = np.maximum(eigvals, 1e-8)
-            idx = np.argsort(eigvals)[::-1]
-            eigvals = eigvals[idx]
-            eigvecs = eigvecs[:, idx]
-            self._W_zca = eigvecs @ np.diag(1.0 / np.sqrt(eigvals)) @ eigvecs.T
-            self._zca_fitted = True
-
-            # Re-whiten ALL previous tasks (from their raw centroids)
-            for sig in self.signatures.values():
-                # sig.Sigma was reshrunk-but-unwhitened by _reshrink_all()
-                # sig.mu_raw is the unwhitened centroid
-                sig.mu = apply_whitening(
-                    sig.mu_raw.reshape(1, -1),
-                    self._mu_global, self._W_zca,
-                ).ravel()
-                sig.Sigma = self._W_zca @ sig.Sigma @ self._W_zca.T
-                sig._eigvals = None; sig._eigvecs = None
-                sig._Sinv = None; sig._par = None
-                sig._metric = 'l2'
-
-            n_d = self._n_pool / d
-            print(f"  [SRT] ZCA fitted once: n_pool={self._n_pool}, d={d}, n/d={n_d:.2f}")
-
-        # Whiten current task with the FIXED (already-fitted) ZCA
-        mu_t_w = apply_whitening(
-            mu_t.reshape(1, -1), self._mu_global, self._W_zca,
-        ).ravel()
-        Sigma_t_w = self._W_zca @ Sigma_t_shrunk @ self._W_zca.T
-
-        # NOTE: NO Ledoit-Wolf here — space is already whitened.
-        # Post-whitening LW with lambda-bar-I target would distort isotropy.
-
+        # ── Hard mode: refit ZCA every task ───────────────────────────
+        # 1. Create signature with raw stats (will be re-whitened below)
         sig = TaskSignature(
-            task_id, mu_t_w, Sigma_t_w, n_t,
+            task_id, mu_t, Sigma_t_shrunk, n_t,
             metric='l2',
-            Sigma_raw=Sigma_t_shrunk,
-            h_train=h_train,
+            Sigma_raw=Sigma_t,
+            h_train=None,
             mu_raw=mu_t,
         )
         self.signatures[task_id] = sig
-        return sig
+
+        # 2. Shrink pooled covariance for stable ZCA (Ledoit-Wolf toward λ̄I)
+        d = self._Sigma_pool.shape[0]
+        trace = np.trace(self._Sigma_pool)
+        target = (trace / d) * np.eye(d)
+        cov_shrunk = (1 - self.shrink_factor) * self._Sigma_pool + self.shrink_factor * target
+
+        # 3. Refit ZCA from shrunk pooled covariance
+        self._mu_global = self._mu_pool.copy()
+        eigvals, eigvecs = np.linalg.eigh(cov_shrunk)
+        eigvals = np.maximum(eigvals, 1e-8)
+        idx = np.argsort(eigvals)[::-1]
+        eigvals = eigvals[idx]
+        eigvecs = eigvecs[:, idx]
+        self._W_zca = eigvecs @ np.diag(1.0 / np.sqrt(eigvals)) @ eigvecs.T
+
+        # 4. Re-whiten ALL signatures (centroids + covariances) from raw stats
+        for s in self.signatures.values():
+            s.mu = ((s.mu_raw - self._mu_global) @ self._W_zca.T)
+            s.Sigma = self._W_zca @ s.Sigma_raw @ self._W_zca.T
+            s._metric = 'l2'
+            # Clear cached decompositions (stale after rewhitening)
+            s._eigvals = None
+            s._eigvecs = None
+            s._Sinv = None
+            s._par = None
+
+        n_d = self._n_pool / d
+        print(f"  [SRT] ZCA refit: n_pool={self._n_pool}, d={d}, n/d={n_d:.2f}, "
+              f"shrink={self.shrink_factor}")
+
+        return self.signatures[task_id]
 
     # ── Route ────────────────────────────────────────────────────────
 
@@ -690,7 +675,6 @@ class SRTRouter:
             shrink_factor=np.array([self.shrink_factor]),
             mu_global=self._mu_global if self._mu_global is not None else np.array([]),
             W_zca=self._W_zca if self._W_zca is not None else np.array([]),
-            zca_fitted=np.array([self._zca_fitted]),
         )
 
     def load(self, path: str):
@@ -716,11 +700,6 @@ class SRTRouter:
         W_z = data.get('W_zca', np.array([]))
         self._mu_global = mu_g if mu_g.size > 0 else None
         self._W_zca = W_z if W_z.size > 0 else None
-        # ZCA was fitted once; restore flag (backward compat: infer from W if not saved)
-        if 'zca_fitted' in data:
-            self._zca_fitted = bool(data['zca_fitted'][0])
-        else:
-            self._zca_fitted = (self._mu_global is not None and self._W_zca is not None)
 
         for k, v in data['signatures'].item().items():
             self.signatures[k] = TaskSignature.from_dict(v)
