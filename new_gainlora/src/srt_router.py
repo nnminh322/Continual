@@ -568,6 +568,11 @@ class SRTRouter:
                     self.signatures[t_id]._metric = m
             return sig
 
+        # ── DEBUG: log mode and shrink settings ──────────────────────────────────
+        print(f"  [SRT-add_task] task_id={task_id!r}  mode={self.srt_metric_mode}  "
+              f"use_shrink={self.use_shrink}  shrink_factor={self.shrink_factor}  "
+              f"n_prev_sigs={len(self.signatures)}")
+
         # ── Hard mode: refit ZCA every task ───────────────────────────
         # 1. Create signature with raw stats (will be re-whitened below)
         sig = TaskSignature(
@@ -609,6 +614,15 @@ class SRTRouter:
         print(f"  [SRT] ZCA refit: n_pool={self._n_pool}, d={d}, n/d={n_d:.2f}, "
               f"shrink={self.shrink_factor}")
 
+        # ── DEBUG: trace whitening state after each add_task ──────────────────
+        for _tid, _s in self.signatures.items():
+            _m = _s.mu
+            _norm = float(np.linalg.norm(_m)) if _m.size > 0 else 0.0
+            _max = float(np.abs(_m).max()) if _m.size > 0 else 0.0
+            print(f"  [SRT-DEBUG] task={_tid!r:45s}  "
+                  f"mu_norm={_norm:.6f}  mu_max={_max:.6f}  "
+                  f"mu_raw_norm={float(np.linalg.norm(_s.mu_raw)):.6f}")
+
         return self.signatures[task_id]
 
     # ── Route ────────────────────────────────────────────────────────
@@ -649,11 +663,20 @@ class SRTRouter:
         if not hasattr(self, '_route_debug_count'):
             self._route_debug_count = 0
         self._route_debug_count += 1
-        if self._route_debug_count % 1000 == 0 and n > 0:
-            print(f"[SRT-ROUTE] mode={self.srt_metric_mode} n_tasks={T} "
-                  f"task_list={task_list} whiten={'Yes' if self._W_zca is not None else 'No'}")
-            print(f"[SRT-ROUTE] Sample 0: dists={dists[0,:].tolist()} "
-                  f"argmin={nearest_idx[0]} pred={nearest_task[0]}")
+        # Always print first 3 calls and every 1000 calls
+        if self._route_debug_count <= 3 or self._route_debug_count % 1000 == 0:
+            print(f"[SRT-ROUTE] #{self._route_debug_count} mode={self.srt_metric_mode} "
+                  f"n_tasks={T} task_list={task_list} "
+                  f"whiten={'Yes' if self._W_zca is not None else 'No'}")
+            if n > 0:
+                print(f"[SRT-ROUTE]   Sample 0: dists={[round(float(x),4) for x in dists[0,:]]} "
+                      f"argmin={nearest_idx[0]} pred={nearest_task[0]}")
+            if self._route_debug_count <= 3:
+                # Print all distances for first few calls
+                for i in range(min(n, 5)):
+                    print(f"[SRT-ROUTE]   Sample {i}: "
+                          f"dists={[round(float(x),4) for x in dists[i,:]]} "
+                          f"argmin={nearest_idx[i]}")
             if hasattr(self, '_srm_metrics'):
                 print(f"[SRT-ROUTE] SRM metrics: {self._srm_metrics}")
 
@@ -664,6 +687,13 @@ class SRTRouter:
     def save(self, path: str):
         """Save all signatures to disk."""
         sigs_data = {k: v.to_dict() for k, v in self.signatures.items()}
+        print(f"  [SRT-SAVE] path={path}")
+        for _tid, _s in self.signatures.items():
+            _norm = float(np.linalg.norm(_s.mu)) if _s.mu.size > 0 else 0.0
+            print(f"    task={_tid!r:45s}  saved_mu_norm={_norm:.6f}  "
+                  f"saved_mu_raw_norm={float(np.linalg.norm(_s.mu_raw)):.6f}")
+        print(f"  [SRT-SAVE] mu_global saved: {'Yes' if self._mu_global is not None else 'No'}  "
+              f"W_zca saved: {'Yes' if self._W_zca is not None else 'No'}")
         np.savez_compressed(
             path,
             signatures=sigs_data,
@@ -703,6 +733,15 @@ class SRTRouter:
 
         for k, v in data['signatures'].item().items():
             self.signatures[k] = TaskSignature.from_dict(v)
+
+        # ── DEBUG: trace loaded state ────────────────────────────────────────
+        for _tid, _s in self.signatures.items():
+            _norm = float(np.linalg.norm(_s.mu)) if _s.mu.size > 0 else 0.0
+            _max = float(np.abs(_s.mu).max()) if _s.mu.size > 0 else 0.0
+            print(f"  [SRT-LOAD] task={_tid!r:45s}  "
+                  f"loaded_mu_norm={_norm:.6f}  loaded_mu_max={_max:.6f}  "
+                  f"loaded_mu_raw_norm={float(np.linalg.norm(_s.mu_raw)):.6f}  "
+                  f"W_zca_loaded={'Yes' if self._W_zca is not None else 'No'}")
 
     # ── Summary ───────────────────────────────────────────────────────
 
