@@ -4,7 +4,7 @@ MODEL:     /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights
 TASKS:     15
 RUN_NAME:  superni_order1_llama_srt
 LOG_DIR:   /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs
-EXTRA:
+EXTRA:     --srt_shrink
 ==================================================
 
 ──────────────────────────────────────────────────
@@ -13,21 +13,21 @@ OUTPUT:  /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/supern
 PREV LORA: <none>
 SRT PATH:  <none>
 ──────────────────────────────────────────────────
-[2026-04-25 08:52:50,368] [WARNING] [runner.py:232:fetch_hostfile] Unable to find hostfile, will proceed with training with local resources only.
-[2026-04-25 08:52:50,368] [INFO] [runner.py:630:main] cmd = /usr/bin/python3 -u -m deepspeed.launcher.launch --world_info=eyJsb2NhbGhvc3QiOiBbMF19 --master_addr=127.0.0.1 --master_port=29500 --enable_each_rank_log=None --log_level=info /kaggle/working/thienly-code/new_llama_gainlora/run_llama_gainlora_cl.py --model_name_or_path /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights --data_dir /kaggle/working/thienly-code/root_gainlora/CL_Benchmark --task_config_dir /kaggle/working/thienly-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task1572_samsum_summary --output_dir /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary --cur_task_id 0 --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification --lora_r 4 --lora_alpha 32 --lora_dropout 0.0 --per_device_train_batch_size 1 --per_device_eval_batch_size 2 --gradient_accumulation_steps 32 --learning_rate 5e-5 --num_train_epochs 15 --max_source_length 1024 --max_target_length 50 --max_new_tokens 50 --srt_metric_mode hard --srt_max_emb_samples 200 --use_srt_router --bf16 --deepspeed /kaggle/working/thienly-code/new_gainlora/configs/ds_configs/stage2.config --logging_steps 10 --seed 42
-[2026-04-25 08:52:54,878] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE=libnccl-dev=2.25.1-1+cuda12.8
-[2026-04-25 08:52:54,878] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_VERSION=2.25.1-1
-[2026-04-25 08:52:54,878] [INFO] [launch.py:155:main] 0 NCCL_VERSION=2.25.1-1
-[2026-04-25 08:52:54,878] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_NAME=libnccl-dev
-[2026-04-25 08:52:54,878] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE=libnccl2=2.25.1-1+cuda12.8
-[2026-04-25 08:52:54,878] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_NAME=libnccl2
-[2026-04-25 08:52:54,878] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_VERSION=2.25.1-1
-[2026-04-25 08:52:54,878] [INFO] [launch.py:162:main] WORLD INFO DICT: {'localhost': [0]}
-[2026-04-25 08:52:54,878] [INFO] [launch.py:168:main] nnodes=1, num_local_procs=1, node_rank=0
-[2026-04-25 08:52:54,878] [INFO] [launch.py:179:main] global_rank_mapping=defaultdict(<class 'list'>, {'localhost': [0]})
-[2026-04-25 08:52:54,878] [INFO] [launch.py:180:main] dist_world_size=1
-[2026-04-25 08:52:54,878] [INFO] [launch.py:184:main] Setting CUDA_VISIBLE_DEVICES=0
-[2026-04-25 08:52:54,879] [INFO] [launch.py:272:main] process 526 spawned with command: ['/usr/bin/python3', '-u', '/kaggle/working/thienly-code/new_llama_gainlora/run_llama_gainlora_cl.py', '--local_rank=0', '--model_name_or_path', '/kaggle/input/datasets/natmin322/llama-2-7b-hf-weights', '--data_dir', '/kaggle/working/thienly-code/root_gainlora/CL_Benchmark', '--task_config_dir', '/kaggle/working/thienly-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task1572_samsum_summary', '--output_dir', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary', '--cur_task_id', '0', '--task_order', 'task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification', '--lora_r', '4', '--lora_alpha', '32', '--lora_dropout', '0.0', '--per_device_train_batch_size', '1', '--per_device_eval_batch_size', '2', '--gradient_accumulation_steps', '32', '--learning_rate', '5e-5', '--num_train_epochs', '15', '--max_source_length', '1024', '--max_target_length', '50', '--max_new_tokens', '50', '--srt_metric_mode', 'hard', '--srt_max_emb_samples', '200', '--use_srt_router', '--bf16', '--deepspeed', '/kaggle/working/thienly-code/new_gainlora/configs/ds_configs/stage2.config', '--logging_steps', '10', '--seed', '42']
+[2026-04-25 10:19:45,994] [WARNING] [runner.py:232:fetch_hostfile] Unable to find hostfile, will proceed with training with local resources only.
+[2026-04-25 10:19:45,994] [INFO] [runner.py:630:main] cmd = /usr/bin/python3 -u -m deepspeed.launcher.launch --world_info=eyJsb2NhbGhvc3QiOiBbMF19 --master_addr=127.0.0.1 --master_port=29500 --enable_each_rank_log=None --log_level=info /kaggle/working/thienly-code/new_llama_gainlora/run_llama_gainlora_cl.py --model_name_or_path /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights --data_dir /kaggle/working/thienly-code/root_gainlora/CL_Benchmark --task_config_dir /kaggle/working/thienly-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task1572_samsum_summary --output_dir /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary --cur_task_id 0 --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification --lora_r 4 --lora_alpha 32 --lora_dropout 0.0 --per_device_train_batch_size 1 --per_device_eval_batch_size 2 --gradient_accumulation_steps 32 --learning_rate 5e-5 --num_train_epochs 15 --max_source_length 1024 --max_target_length 50 --max_new_tokens 50 --srt_metric_mode hard --srt_max_emb_samples 200 --use_srt_router --bf16 --deepspeed /kaggle/working/thienly-code/new_gainlora/configs/ds_configs/stage2.config --logging_steps 10 --seed 42 --srt_shrink
+[2026-04-25 10:19:50,688] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE=libnccl-dev=2.25.1-1+cuda12.8
+[2026-04-25 10:19:50,688] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_VERSION=2.25.1-1
+[2026-04-25 10:19:50,688] [INFO] [launch.py:155:main] 0 NCCL_VERSION=2.25.1-1
+[2026-04-25 10:19:50,688] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_NAME=libnccl-dev
+[2026-04-25 10:19:50,688] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE=libnccl2=2.25.1-1+cuda12.8
+[2026-04-25 10:19:50,688] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_NAME=libnccl2
+[2026-04-25 10:19:50,688] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_VERSION=2.25.1-1
+[2026-04-25 10:19:50,688] [INFO] [launch.py:162:main] WORLD INFO DICT: {'localhost': [0]}
+[2026-04-25 10:19:50,688] [INFO] [launch.py:168:main] nnodes=1, num_local_procs=1, node_rank=0
+[2026-04-25 10:19:50,688] [INFO] [launch.py:179:main] global_rank_mapping=defaultdict(<class 'list'>, {'localhost': [0]})
+[2026-04-25 10:19:50,688] [INFO] [launch.py:180:main] dist_world_size=1
+[2026-04-25 10:19:50,688] [INFO] [launch.py:184:main] Setting CUDA_VISIBLE_DEVICES=0
+[2026-04-25 10:19:50,689] [INFO] [launch.py:272:main] process 3408 spawned with command: ['/usr/bin/python3', '-u', '/kaggle/working/thienly-code/new_llama_gainlora/run_llama_gainlora_cl.py', '--local_rank=0', '--model_name_or_path', '/kaggle/input/datasets/natmin322/llama-2-7b-hf-weights', '--data_dir', '/kaggle/working/thienly-code/root_gainlora/CL_Benchmark', '--task_config_dir', '/kaggle/working/thienly-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task1572_samsum_summary', '--output_dir', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary', '--cur_task_id', '0', '--task_order', 'task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification', '--lora_r', '4', '--lora_alpha', '32', '--lora_dropout', '0.0', '--per_device_train_batch_size', '1', '--per_device_eval_batch_size', '2', '--gradient_accumulation_steps', '32', '--learning_rate', '5e-5', '--num_train_epochs', '15', '--max_source_length', '1024', '--max_target_length', '50', '--max_new_tokens', '50', '--srt_metric_mode', 'hard', '--srt_max_emb_samples', '200', '--use_srt_router', '--bf16', '--deepspeed', '/kaggle/working/thienly-code/new_gainlora/configs/ds_configs/stage2.config', '--logging_steps', '10', '--seed', '42', '--srt_shrink']
 
 ============================================================
 Task 0: task1572_samsum_summary
@@ -44,7 +44,7 @@ sgwi:               True
 /kaggle/working/thienly-code/root_gainlora/CL_Benchmark/SuperNI/task1572_samsum_summary/test.json
 ['Contributors', 'Source', 'URL', 'Categories', 'Reasoning', 'Definition', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Instance License']
 Train/dev/test: 160/20/20
-Loading weights: 100%|██████████| 291/291 [00:14<00:00, 20.69it/s]
+Loading weights: 100%|██████████| 291/291 [00:00<00:00, 828.68it/s]
 [transformers] LlamaForCausalLM has generative capabilities, as `prepare_inputs_for_generation` is explicitly defined. However, it doesn't directly inherit from `GenerationMixin`. From 👉v4.50👈 onwards, `PreTrainedModel` will NOT inherit from `GenerationMixin`, and this model will lose the ability to call `generate` and other related functions.
   - If you're using `trust_remote_code=True`, you can get rid of this warning by loading the model with an auto class. See https://huggingface.co/docs/transformers/en/model_doc/auto#auto-classes
   - If you are the owner of the model architecture code, please modify your model class such that it inherits from `GenerationMixin` (after `PreTrainedModel`, otherwise you'll get an exception).
@@ -59,12 +59,12 @@ Loading weights: 100%|██████████| 291/291 [00:14<00:00, 20.6
 [FIX] Upcast 131 trainable tensors to fp32
 Trainable: 2.920M / 6741.336M (0.04%)
 [TRAIN] step_per_epoch=5, eval_steps=25
-[W425 08:53:56.941831412 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
+[W425 10:20:38.435326181 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
 [SGWI] Task 0: no prior adapters, skipping warm-init.
 [RANK 0] Gradient accumulation steps mismatch: GradientAccumulationPlugin has 1, DeepSpeed config has 32. Using DeepSpeed's value.
 {'loss': '1.385', 'grad_norm': '1.351', 'learning_rate': '5e-05', 'epoch': '2'}
 {'loss': '1.111', 'grad_norm': '1.223', 'learning_rate': '5e-05', 'epoch': '4'}
- 33%|███▎      | 25/75 [00:56<01:52,  2.24s/it]
+ 33%|███▎      | 25/75 [00:54<01:47,  2.15s/it]
 Eval @ step 25:   0%|          | 0/10 [00:00<?, ?it/s]
 Eval @ step 25:  10%|█         | 1/10 [00:01<00:10,  1.20s/it]
 Eval @ step 25:  20%|██        | 2/10 [00:01<00:05,  1.38it/s]
@@ -81,12 +81,12 @@ Eval @ step 25: 100%|██████████| 10/10 [00:22<00:00,  2.92s/
 {'loss': '0.9669', 'grad_norm': '1.321', 'learning_rate': '5e-05', 'epoch': '6'}
 {'loss': '0.8769', 'grad_norm': '1.334', 'learning_rate': '5e-05', 'epoch': '8'}
 {'loss': '0.8038', 'grad_norm': '1.441', 'learning_rate': '5e-05', 'epoch': '10'}
- 67%|██████▋   | 50/75 [02:14<00:55,  2.24s/it]
+ 67%|██████▋   | 50/75 [02:10<00:53,  2.14s/it]
 Eval @ step 50:   0%|          | 0/10 [00:00<?, ?it/s]
 Eval @ step 50:  10%|█         | 1/10 [00:00<00:08,  1.02it/s]
 Eval @ step 50:  20%|██        | 2/10 [00:01<00:05,  1.58it/s]
 Eval @ step 50:  30%|███       | 3/10 [00:04<00:11,  1.60s/it]
-Eval @ step 50:  40%|████      | 4/10 [00:05<00:08,  1.38s/it]
+Eval @ step 50:  40%|████      | 4/10 [00:05<00:08,  1.39s/it]
 Eval @ step 50:  50%|█████     | 5/10 [00:05<00:05,  1.15s/it]
 Eval @ step 50:  60%|██████    | 6/10 [00:08<00:06,  1.71s/it]
 Eval @ step 50:  70%|███████   | 7/10 [00:10<00:04,  1.65s/it]
@@ -97,7 +97,7 @@ Eval @ step 50: 100%|██████████| 10/10 [00:19<00:00,  2.49s/
 {'eval_rougeL': '0.4225', 'epoch': '10'}
 {'loss': '0.7279', 'grad_norm': '1.657', 'learning_rate': '5e-05', 'epoch': '12'}
 {'loss': '0.6447', 'grad_norm': '2.623', 'learning_rate': '5e-05', 'epoch': '14'}
-100%|██████████| 75/75 [03:29<00:00,  2.27s/it]
+100%|██████████| 75/75 [03:23<00:00,  2.18s/it]
 Eval @ step 75:   0%|          | 0/10 [00:00<?, ?it/s]
 Eval @ step 75:  10%|█         | 1/10 [00:01<00:09,  1.09s/it]
 Eval @ step 75:  20%|██        | 2/10 [00:01<00:05,  1.36it/s]
@@ -108,26 +108,27 @@ Eval @ step 75:  60%|██████    | 6/10 [00:09<00:06,  1.74s/it]
 Eval @ step 75:  70%|███████   | 7/10 [00:11<00:05,  1.86s/it]
 Eval @ step 75:  80%|████████  | 8/10 [00:13<00:04,  2.06s/it]
 Eval @ step 75:  90%|█████████ | 9/10 [00:16<00:02,  2.41s/it]
-Eval @ step 75: 100%|██████████| 10/10 [00:18<00:00,  2.26s/it]
+Eval @ step 75: 100%|██████████| 10/10 [00:18<00:00,  2.27s/it]
                                                                  [EVAL] eval_rougeL=0.3971 (best=0.4225)
 {'eval_rougeL': '0.3971', 'epoch': '15'}
-{'train_runtime': '228.5', 'train_samples_per_second': '10.51', 'train_steps_per_second': '0.328', 'train_loss': '0.9074', 'epoch': '15'}
-100%|██████████| 75/75 [03:48<00:00,  3.05s/it]
+{'train_runtime': '222.2', 'train_samples_per_second': '10.8', 'train_steps_per_second': '0.337', 'train_loss': '0.9074', 'epoch': '15'}
+100%|██████████| 75/75 [03:42<00:00,  2.96s/it]
 ***** train metrics *****
   epoch                    =       15.0
   total_flos               = 22535523GF
   train_loss               =     0.9074
-  train_runtime            = 0:03:48.47
+  train_runtime            = 0:03:42.23
   train_samples            =        160
-  train_samples_per_second =     10.505
-  train_steps_per_second   =      0.328
+  train_samples_per_second =     10.799
+  train_steps_per_second   =      0.337
   [EVAL] Restored best model (eval_rougeL=0.4225, 128 tensors)
 [SAVE] LoRA weights → /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights
 [SRT] Loading frozen backbone from /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights …
-Loading weights: 100%|██████████| 291/291 [00:00<00:00, 819.00it/s]
+Loading weights: 100%|██████████| 291/291 [00:00<00:00, 832.66it/s]
 [SRT] Frozen backbone attached (moved to cuda:0).
+  [SRT] Cache miss for 'task1572_samsum_summary' → falling back to forward pass
   [SRT] → Forward extraction (max 200 batches)
-  [SRT-add_task] task_id='task1572_samsum_summary'  mode=hard  use_shrink=False  shrink_factor=0.1  n_prev_sigs=0
+  [SRT-add_task] task_id='task1572_samsum_summary'  mode=hard  use_shrink=True  shrink_factor=0.1  n_prev_sigs=0
   [SRT] ZCA refit: n_pool=160, d=4096, n/d=0.04, shrink=0.1
   [SRT-DEBUG] task='task1572_samsum_summary'                      mu_norm=0.000000  mu_max=0.000000  mu_raw_norm=112.232383
   [SRT] Task 'task1572_samsum_summary': PaR=159.0, metric=l2, n=160
@@ -141,21 +142,21 @@ Loading weights: 100%|██████████| 291/291 [00:00<00:00, 819.
 /kaggle/working/thienly-code/root_gainlora/CL_Benchmark/SuperNI/task1572_samsum_summary/test.json
 ['Contributors', 'Source', 'URL', 'Categories', 'Reasoning', 'Definition', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Instance License']
 Continual predict:   0%|          | 0/10 [00:00<?, ?it/s][SRT-ROUTE] #1 mode=hard n_tasks=1 task_list=['task1572_samsum_summary'] whiten=Yes
-[SRT-ROUTE]   Sample 0: dists=[429.2117] argmin=0 pred=task1572_samsum_summary
-[SRT-ROUTE]   Sample 0: dists=[429.2117] argmin=0
-[SRT-ROUTE]   Sample 1: dists=[136.4139] argmin=0
+[SRT-ROUTE]   Sample 0: dists=[311.9941] argmin=0 pred=task1572_samsum_summary
+[SRT-ROUTE]   Sample 0: dists=[311.9941] argmin=0
+[SRT-ROUTE]   Sample 1: dists=[99.1914] argmin=0
 [SRT-ROUTE] SRM metrics: {}
 [SRT-ROUTE] #2 mode=hard n_tasks=1 task_list=['task1572_samsum_summary'] whiten=Yes
-[SRT-ROUTE]   Sample 0: dists=[429.2117] argmin=0 pred=task1572_samsum_summary
-[SRT-ROUTE]   Sample 0: dists=[429.2117] argmin=0
-[SRT-ROUTE]   Sample 1: dists=[136.4139] argmin=0
+[SRT-ROUTE]   Sample 0: dists=[311.9941] argmin=0 pred=task1572_samsum_summary
+[SRT-ROUTE]   Sample 0: dists=[311.9941] argmin=0
+[SRT-ROUTE]   Sample 1: dists=[99.1914] argmin=0
 [SRT-ROUTE] SRM metrics: {}
 [SRT-ROUTE] #3 mode=hard n_tasks=1 task_list=['task1572_samsum_summary'] whiten=Yes
-[SRT-ROUTE]   Sample 0: dists=[429.2117] argmin=0 pred=task1572_samsum_summary
-[SRT-ROUTE]   Sample 0: dists=[429.2117] argmin=0
-[SRT-ROUTE]   Sample 1: dists=[136.4139] argmin=0
+[SRT-ROUTE]   Sample 0: dists=[311.9941] argmin=0 pred=task1572_samsum_summary
+[SRT-ROUTE]   Sample 0: dists=[311.9941] argmin=0
+[SRT-ROUTE]   Sample 1: dists=[99.1914] argmin=0
 [SRT-ROUTE] SRM metrics: {}
-Continual predict: 100%|██████████| 10/10 [00:37<00:00,  3.77s/it]
+Continual predict: 100%|██████████| 10/10 [00:38<00:00,  3.87s/it]
 ***** predict metrics *****
   epoch                                           =       15.0
   predict_eval_rougeL                             =    42.2975
@@ -169,11 +170,11 @@ Continual predict: 100%|██████████| 10/10 [00:37<00:00,  3.7
   predict_rouge1                                  =     51.915
   predict_rouge1_for_CL                           =     51.915
   predict_rouge1_for_task1572_samsum_summary      =     51.915
-  predict_runtime                                 = 0:00:37.72
+  predict_runtime                                 = 0:00:38.68
   predict_samples                                 =         20
-  predict_samples_per_second                      =       0.53
-  predict_steps_per_second                        =      0.265
-[2026-04-25 08:58:56,917] [INFO] [launch.py:367:main] Process 526 exits successfully.
+  predict_samples_per_second                      =      0.517
+  predict_steps_per_second                        =      0.259
+[2026-04-25 10:25:31,723] [INFO] [launch.py:367:main] Process 3408 exits successfully.
 [Done] Task 1: saved → /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights
 
 ──────────────────────────────────────────────────
@@ -182,21 +183,21 @@ OUTPUT:  /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/supern
 PREV LORA: /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights
 SRT PATH:  /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights
 ──────────────────────────────────────────────────
-[2026-04-25 08:59:04,276] [WARNING] [runner.py:232:fetch_hostfile] Unable to find hostfile, will proceed with training with local resources only.
-[2026-04-25 08:59:04,276] [INFO] [runner.py:630:main] cmd = /usr/bin/python3 -u -m deepspeed.launcher.launch --world_info=eyJsb2NhbGhvc3QiOiBbMF19 --master_addr=127.0.0.1 --master_port=29501 --enable_each_rank_log=None --log_level=info /kaggle/working/thienly-code/new_llama_gainlora/run_llama_gainlora_cl.py --model_name_or_path /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights --data_dir /kaggle/working/thienly-code/root_gainlora/CL_Benchmark --task_config_dir /kaggle/working/thienly-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task363_sst2_polarity_classification --output_dir /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification --cur_task_id 1 --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification --lora_r 4 --lora_alpha 32 --lora_dropout 0.0 --per_device_train_batch_size 1 --per_device_eval_batch_size 2 --gradient_accumulation_steps 32 --learning_rate 5e-5 --num_train_epochs 15 --max_source_length 1024 --max_target_length 50 --max_new_tokens 50 --srt_metric_mode hard --srt_max_emb_samples 200 --use_srt_router --bf16 --deepspeed /kaggle/working/thienly-code/new_gainlora/configs/ds_configs/stage2.config --logging_steps 10 --seed 42 --previous_lora_path /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights --srt_load_path /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights
-[2026-04-25 08:59:09,003] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE=libnccl-dev=2.25.1-1+cuda12.8
-[2026-04-25 08:59:09,004] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_VERSION=2.25.1-1
-[2026-04-25 08:59:09,004] [INFO] [launch.py:155:main] 0 NCCL_VERSION=2.25.1-1
-[2026-04-25 08:59:09,004] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_NAME=libnccl-dev
-[2026-04-25 08:59:09,004] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE=libnccl2=2.25.1-1+cuda12.8
-[2026-04-25 08:59:09,004] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_NAME=libnccl2
-[2026-04-25 08:59:09,004] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_VERSION=2.25.1-1
-[2026-04-25 08:59:09,004] [INFO] [launch.py:162:main] WORLD INFO DICT: {'localhost': [0]}
-[2026-04-25 08:59:09,004] [INFO] [launch.py:168:main] nnodes=1, num_local_procs=1, node_rank=0
-[2026-04-25 08:59:09,004] [INFO] [launch.py:179:main] global_rank_mapping=defaultdict(<class 'list'>, {'localhost': [0]})
-[2026-04-25 08:59:09,004] [INFO] [launch.py:180:main] dist_world_size=1
-[2026-04-25 08:59:09,004] [INFO] [launch.py:184:main] Setting CUDA_VISIBLE_DEVICES=0
-[2026-04-25 08:59:09,004] [INFO] [launch.py:272:main] process 1231 spawned with command: ['/usr/bin/python3', '-u', '/kaggle/working/thienly-code/new_llama_gainlora/run_llama_gainlora_cl.py', '--local_rank=0', '--model_name_or_path', '/kaggle/input/datasets/natmin322/llama-2-7b-hf-weights', '--data_dir', '/kaggle/working/thienly-code/root_gainlora/CL_Benchmark', '--task_config_dir', '/kaggle/working/thienly-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task363_sst2_polarity_classification', '--output_dir', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification', '--cur_task_id', '1', '--task_order', 'task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification', '--lora_r', '4', '--lora_alpha', '32', '--lora_dropout', '0.0', '--per_device_train_batch_size', '1', '--per_device_eval_batch_size', '2', '--gradient_accumulation_steps', '32', '--learning_rate', '5e-5', '--num_train_epochs', '15', '--max_source_length', '1024', '--max_target_length', '50', '--max_new_tokens', '50', '--srt_metric_mode', 'hard', '--srt_max_emb_samples', '200', '--use_srt_router', '--bf16', '--deepspeed', '/kaggle/working/thienly-code/new_gainlora/configs/ds_configs/stage2.config', '--logging_steps', '10', '--seed', '42', '--previous_lora_path', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights', '--srt_load_path', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights']
+[2026-04-25 10:25:39,126] [WARNING] [runner.py:232:fetch_hostfile] Unable to find hostfile, will proceed with training with local resources only.
+[2026-04-25 10:25:39,126] [INFO] [runner.py:630:main] cmd = /usr/bin/python3 -u -m deepspeed.launcher.launch --world_info=eyJsb2NhbGhvc3QiOiBbMF19 --master_addr=127.0.0.1 --master_port=29501 --enable_each_rank_log=None --log_level=info /kaggle/working/thienly-code/new_llama_gainlora/run_llama_gainlora_cl.py --model_name_or_path /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights --data_dir /kaggle/working/thienly-code/root_gainlora/CL_Benchmark --task_config_dir /kaggle/working/thienly-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task363_sst2_polarity_classification --output_dir /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification --cur_task_id 1 --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification --lora_r 4 --lora_alpha 32 --lora_dropout 0.0 --per_device_train_batch_size 1 --per_device_eval_batch_size 2 --gradient_accumulation_steps 32 --learning_rate 5e-5 --num_train_epochs 15 --max_source_length 1024 --max_target_length 50 --max_new_tokens 50 --srt_metric_mode hard --srt_max_emb_samples 200 --use_srt_router --bf16 --deepspeed /kaggle/working/thienly-code/new_gainlora/configs/ds_configs/stage2.config --logging_steps 10 --seed 42 --previous_lora_path /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights --srt_load_path /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights --srt_shrink
+[2026-04-25 10:25:43,839] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE=libnccl-dev=2.25.1-1+cuda12.8
+[2026-04-25 10:25:43,839] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_VERSION=2.25.1-1
+[2026-04-25 10:25:43,839] [INFO] [launch.py:155:main] 0 NCCL_VERSION=2.25.1-1
+[2026-04-25 10:25:43,839] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_NAME=libnccl-dev
+[2026-04-25 10:25:43,839] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE=libnccl2=2.25.1-1+cuda12.8
+[2026-04-25 10:25:43,839] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_NAME=libnccl2
+[2026-04-25 10:25:43,839] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_VERSION=2.25.1-1
+[2026-04-25 10:25:43,839] [INFO] [launch.py:162:main] WORLD INFO DICT: {'localhost': [0]}
+[2026-04-25 10:25:43,839] [INFO] [launch.py:168:main] nnodes=1, num_local_procs=1, node_rank=0
+[2026-04-25 10:25:43,839] [INFO] [launch.py:179:main] global_rank_mapping=defaultdict(<class 'list'>, {'localhost': [0]})
+[2026-04-25 10:25:43,839] [INFO] [launch.py:180:main] dist_world_size=1
+[2026-04-25 10:25:43,839] [INFO] [launch.py:184:main] Setting CUDA_VISIBLE_DEVICES=0
+[2026-04-25 10:25:43,839] [INFO] [launch.py:272:main] process 4113 spawned with command: ['/usr/bin/python3', '-u', '/kaggle/working/thienly-code/new_llama_gainlora/run_llama_gainlora_cl.py', '--local_rank=0', '--model_name_or_path', '/kaggle/input/datasets/natmin322/llama-2-7b-hf-weights', '--data_dir', '/kaggle/working/thienly-code/root_gainlora/CL_Benchmark', '--task_config_dir', '/kaggle/working/thienly-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task363_sst2_polarity_classification', '--output_dir', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification', '--cur_task_id', '1', '--task_order', 'task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification', '--lora_r', '4', '--lora_alpha', '32', '--lora_dropout', '0.0', '--per_device_train_batch_size', '1', '--per_device_eval_batch_size', '2', '--gradient_accumulation_steps', '32', '--learning_rate', '5e-5', '--num_train_epochs', '15', '--max_source_length', '1024', '--max_target_length', '50', '--max_new_tokens', '50', '--srt_metric_mode', 'hard', '--srt_max_emb_samples', '200', '--use_srt_router', '--bf16', '--deepspeed', '/kaggle/working/thienly-code/new_gainlora/configs/ds_configs/stage2.config', '--logging_steps', '10', '--seed', '42', '--previous_lora_path', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights', '--srt_load_path', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights', '--srt_shrink']
 
 ============================================================
 Task 1: task363_sst2_polarity_classification
@@ -215,7 +216,7 @@ sgwi:               True
 /kaggle/working/thienly-code/root_gainlora/CL_Benchmark/SuperNI/task363_sst2_polarity_classification/test.json
 ['URL', 'Categories', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Definition']
 Train/dev/test: 1000/100/120
-Loading weights: 100%|██████████| 291/291 [00:00<00:00, 828.49it/s]
+Loading weights: 100%|██████████| 291/291 [00:00<00:00, 822.53it/s]
 [transformers] LlamaForCausalLM has generative capabilities, as `prepare_inputs_for_generation` is explicitly defined. However, it doesn't directly inherit from `GenerationMixin`. From 👉v4.50👈 onwards, `PreTrainedModel` will NOT inherit from `GenerationMixin`, and this model will lose the ability to call `generate` and other related functions.
   - If you're using `trust_remote_code=True`, you can get rid of this warning by loading the model with an auto class. See https://huggingface.co/docs/transformers/en/model_doc/auto#auto-classes
   - If you are the owner of the model architecture code, please modify your model class such that it inherits from `GenerationMixin` (after `PreTrainedModel`, otherwise you'll get an exception).
@@ -233,11 +234,12 @@ Loading weights: 100%|██████████| 291/291 [00:00<00:00, 828.
 [FIX] Upcast 131 trainable tensors to fp32
 Trainable: 2.920M / 6743.437M (0.04%)
 [TRAIN] step_per_epoch=32, eval_steps=160
-[W425 08:59:56.629191315 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
+[W425 10:26:31.521512465 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
   [SRT-LOAD] task='task1572_samsum_summary'                      loaded_mu_norm=0.000000  loaded_mu_max=0.000000  loaded_mu_raw_norm=112.232383  W_zca_loaded=Yes
   [SRT] Loaded 1 signatures from /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights/srt_signatures.npz
   [SRT] Wired router: 1 sigs, cur=task363_sst2_polarity_classification, mapping={'task363_sst2_polarity_classification': 0, 'task1572_samsum_summary': 1}
 [SGWI] Task 1: computing SRT weights for warm-init…
+  [SRT] Cache miss for 'task363_sst2_polarity_classification' → falling back to forward pass
   [SRT] WARNING: encoder_frozen not attached. Returning empty embeddings.
 [SGWI] No SRT weights available. Skipping warm-init.
 [RANK 0] Gradient accumulation steps mismatch: GradientAccumulationPlugin has 1, DeepSpeed config has 32. Using DeepSpeed's value.
@@ -257,9 +259,9 @@ Trainable: 2.920M / 6743.437M (0.04%)
 {'loss': '0.06357', 'grad_norm': '1.262', 'learning_rate': '5e-05', 'epoch': '4.384'}
 {'loss': '0.04888', 'grad_norm': '1.216', 'learning_rate': '5e-05', 'epoch': '4.704'}
 {'loss': '0.06187', 'grad_norm': '3.862', 'learning_rate': '5e-05', 'epoch': '5'}
- 33%|███▎      | 160/480 [05:01<07:59,  1.50s/it]
+ 33%|███▎      | 160/480 [04:48<07:14,  1.36s/it]
 Eval @ step 160:   0%|          | 0/50 [00:00<?, ?it/s]
-Eval @ step 160:   4%|▍         | 2/50 [00:00<00:04, 11.94it/s]
+Eval @ step 160:   4%|▍         | 2/50 [00:00<00:04, 11.93it/s]
 Eval @ step 160:   8%|▊         | 4/50 [00:00<00:03, 12.81it/s]
 Eval @ step 160:  12%|█▏        | 6/50 [00:00<00:03, 13.04it/s]
 Eval @ step 160:  16%|█▌        | 8/50 [00:00<00:03, 13.07it/s]
@@ -268,22 +270,22 @@ Eval @ step 160:  24%|██▍       | 12/50 [00:00<00:02, 13.25it/s]
 Eval @ step 160:  28%|██▊       | 14/50 [00:01<00:02, 13.26it/s]
 Eval @ step 160:  32%|███▏      | 16/50 [00:01<00:02, 13.28it/s]
 Eval @ step 160:  36%|███▌      | 18/50 [00:01<00:02, 13.26it/s]
-Eval @ step 160:  40%|████      | 20/50 [00:01<00:02, 13.28it/s]
+Eval @ step 160:  40%|████      | 20/50 [00:01<00:02, 13.29it/s]
 Eval @ step 160:  44%|████▍     | 22/50 [00:01<00:02, 13.35it/s]
-Eval @ step 160:  48%|████▊     | 24/50 [00:01<00:01, 13.43it/s]
-Eval @ step 160:  52%|█████▏    | 26/50 [00:01<00:01, 13.45it/s]
+Eval @ step 160:  48%|████▊     | 24/50 [00:01<00:01, 13.44it/s]
+Eval @ step 160:  52%|█████▏    | 26/50 [00:01<00:01, 13.46it/s]
 Eval @ step 160:  56%|█████▌    | 28/50 [00:02<00:01, 13.39it/s]
 Eval @ step 160:  60%|██████    | 30/50 [00:02<00:01, 13.42it/s]
 Eval @ step 160:  64%|██████▍   | 32/50 [00:02<00:01, 13.42it/s]
 Eval @ step 160:  68%|██████▊   | 34/50 [00:02<00:01, 13.41it/s]
 Eval @ step 160:  72%|███████▏  | 36/50 [00:02<00:01, 13.45it/s]
 Eval @ step 160:  76%|███████▌  | 38/50 [00:02<00:00, 13.42it/s]
-Eval @ step 160:  80%|████████  | 40/50 [00:03<00:00, 13.39it/s]
-Eval @ step 160:  84%|████████▍ | 42/50 [00:03<00:00, 13.46it/s]
-Eval @ step 160:  88%|████████▊ | 44/50 [00:03<00:00, 13.48it/s]
-Eval @ step 160:  92%|█████████▏| 46/50 [00:03<00:00, 13.50it/s]
-Eval @ step 160:  96%|█████████▌| 48/50 [00:03<00:00, 13.46it/s]
-Eval @ step 160: 100%|██████████| 50/50 [00:03<00:00, 13.44it/s]
+Eval @ step 160:  80%|████████  | 40/50 [00:03<00:00, 13.38it/s]
+Eval @ step 160:  84%|████████▍ | 42/50 [00:03<00:00, 13.44it/s]
+Eval @ step 160:  88%|████████▊ | 44/50 [00:03<00:00, 13.46it/s]
+Eval @ step 160:  92%|█████████▏| 46/50 [00:03<00:00, 13.49it/s]
+Eval @ step 160:  96%|█████████▌| 48/50 [00:03<00:00, 13.45it/s]
+Eval @ step 160: 100%|██████████| 50/50 [00:03<00:00, 13.42it/s]
                                                                   [EVAL] ★ New best eval_rougeL=0.9200 (step=160) — snapshot saved in memory
 {'eval_rougeL': '0.92', 'epoch': '5'}
 {'loss': '0.03048', 'grad_norm': '1.916', 'learning_rate': '5e-05', 'epoch': '5.32'}
@@ -302,33 +304,33 @@ Eval @ step 160: 100%|██████████| 50/50 [00:03<00:00, 13.44i
 {'loss': '0.002386', 'grad_norm': '1.283', 'learning_rate': '5e-05', 'epoch': '9.384'}
 {'loss': '0.001822', 'grad_norm': '0.003565', 'learning_rate': '5e-05', 'epoch': '9.704'}
 {'loss': '0.01405', 'grad_norm': '0.01814', 'learning_rate': '5e-05', 'epoch': '10'}
- 67%|██████▋   | 320/480 [10:07<03:59,  1.50s/it]
+ 67%|██████▋   | 320/480 [09:47<03:59,  1.50s/it]
 Eval @ step 320:   0%|          | 0/50 [00:00<?, ?it/s]
-Eval @ step 320:   4%|▍         | 2/50 [00:00<00:03, 13.02it/s]
-Eval @ step 320:   8%|▊         | 4/50 [00:00<00:03, 13.32it/s]
-Eval @ step 320:  12%|█▏        | 6/50 [00:00<00:03, 13.32it/s]
-Eval @ step 320:  16%|█▌        | 8/50 [00:00<00:03, 13.25it/s]
-Eval @ step 320:  20%|██        | 10/50 [00:00<00:02, 13.34it/s]
-Eval @ step 320:  24%|██▍       | 12/50 [00:00<00:02, 13.33it/s]
-Eval @ step 320:  28%|██▊       | 14/50 [00:01<00:02, 13.32it/s]
-Eval @ step 320:  32%|███▏      | 16/50 [00:01<00:02, 13.31it/s]
-Eval @ step 320:  36%|███▌      | 18/50 [00:01<00:02, 13.29it/s]
-Eval @ step 320:  40%|████      | 20/50 [00:01<00:02, 13.31it/s]
-Eval @ step 320:  44%|████▍     | 22/50 [00:01<00:02, 13.37it/s]
-Eval @ step 320:  48%|████▊     | 24/50 [00:01<00:01, 13.45it/s]
-Eval @ step 320:  52%|█████▏    | 26/50 [00:01<00:01, 13.46it/s]
-Eval @ step 320:  56%|█████▌    | 28/50 [00:02<00:01, 13.40it/s]
-Eval @ step 320:  60%|██████    | 30/50 [00:02<00:01, 13.42it/s]
-Eval @ step 320:  64%|██████▍   | 32/50 [00:02<00:01, 13.42it/s]
-Eval @ step 320:  68%|██████▊   | 34/50 [00:02<00:01, 13.41it/s]
-Eval @ step 320:  72%|███████▏  | 36/50 [00:02<00:01, 13.44it/s]
-Eval @ step 320:  76%|███████▌  | 38/50 [00:02<00:00, 13.42it/s]
-Eval @ step 320:  80%|████████  | 40/50 [00:02<00:00, 13.38it/s]
-Eval @ step 320:  84%|████████▍ | 42/50 [00:03<00:00, 13.45it/s]
-Eval @ step 320:  88%|████████▊ | 44/50 [00:03<00:00, 13.47it/s]
-Eval @ step 320:  92%|█████████▏| 46/50 [00:03<00:00, 13.49it/s]
-Eval @ step 320:  96%|█████████▌| 48/50 [00:03<00:00, 13.46it/s]
-Eval @ step 320: 100%|██████████| 50/50 [00:03<00:00, 13.43it/s]
+Eval @ step 320:   4%|▍         | 2/50 [00:00<00:03, 12.98it/s]
+Eval @ step 320:   8%|▊         | 4/50 [00:00<00:03, 13.29it/s]
+Eval @ step 320:  12%|█▏        | 6/50 [00:00<00:03, 13.30it/s]
+Eval @ step 320:  16%|█▌        | 8/50 [00:00<00:03, 13.22it/s]
+Eval @ step 320:  20%|██        | 10/50 [00:00<00:03, 13.32it/s]
+Eval @ step 320:  24%|██▍       | 12/50 [00:00<00:02, 13.31it/s]
+Eval @ step 320:  28%|██▊       | 14/50 [00:01<00:02, 13.30it/s]
+Eval @ step 320:  32%|███▏      | 16/50 [00:01<00:02, 13.29it/s]
+Eval @ step 320:  36%|███▌      | 18/50 [00:01<00:02, 13.26it/s]
+Eval @ step 320:  40%|████      | 20/50 [00:01<00:02, 13.28it/s]
+Eval @ step 320:  44%|████▍     | 22/50 [00:01<00:02, 13.34it/s]
+Eval @ step 320:  48%|████▊     | 24/50 [00:01<00:01, 13.42it/s]
+Eval @ step 320:  52%|█████▏    | 26/50 [00:01<00:01, 13.44it/s]
+Eval @ step 320:  56%|█████▌    | 28/50 [00:02<00:01, 13.37it/s]
+Eval @ step 320:  60%|██████    | 30/50 [00:02<00:01, 13.39it/s]
+Eval @ step 320:  64%|██████▍   | 32/50 [00:02<00:01, 13.39it/s]
+Eval @ step 320:  68%|██████▊   | 34/50 [00:02<00:01, 13.38it/s]
+Eval @ step 320:  72%|███████▏  | 36/50 [00:02<00:01, 13.41it/s]
+Eval @ step 320:  76%|███████▌  | 38/50 [00:02<00:00, 13.39it/s]
+Eval @ step 320:  80%|████████  | 40/50 [00:02<00:00, 13.36it/s]
+Eval @ step 320:  84%|████████▍ | 42/50 [00:03<00:00, 13.42it/s]
+Eval @ step 320:  88%|████████▊ | 44/50 [00:03<00:00, 13.44it/s]
+Eval @ step 320:  92%|█████████▏| 46/50 [00:03<00:00, 13.46it/s]
+Eval @ step 320:  96%|█████████▌| 48/50 [00:03<00:00, 13.43it/s]
+Eval @ step 320: 100%|██████████| 50/50 [00:03<00:00, 13.40it/s]
                                                                   [EVAL] eval_rougeL=0.9100 (best=0.9200)
 {'eval_rougeL': '0.91', 'epoch': '10'}
 {'loss': '0.005151', 'grad_norm': '17.73', 'learning_rate': '5e-05', 'epoch': '10.32'}
@@ -347,61 +349,62 @@ Eval @ step 320: 100%|██████████| 50/50 [00:03<00:00, 13.43i
 {'loss': '9.595e-06', 'grad_norm': '0.0004657', 'learning_rate': '5e-05', 'epoch': '14.38'}
 {'loss': '1.725e-05', 'grad_norm': '0.0006295', 'learning_rate': '5e-05', 'epoch': '14.7'}
 {'loss': '6.99e-06', 'grad_norm': '0.0006086', 'learning_rate': '5e-05', 'epoch': '15'}
-100%|██████████| 480/480 [15:08<00:00,  1.37s/it]
+100%|██████████| 480/480 [14:28<00:00,  1.46s/it]
 Eval @ step 480:   0%|          | 0/50 [00:00<?, ?it/s]
-Eval @ step 480:   4%|▍         | 2/50 [00:00<00:03, 12.92it/s]
-Eval @ step 480:   8%|▊         | 4/50 [00:00<00:03, 13.28it/s]
+Eval @ step 480:   4%|▍         | 2/50 [00:00<00:03, 12.98it/s]
+Eval @ step 480:   8%|▊         | 4/50 [00:00<00:03, 13.29it/s]
 Eval @ step 480:  12%|█▏        | 6/50 [00:00<00:03, 13.30it/s]
-Eval @ step 480:  16%|█▌        | 8/50 [00:00<00:03, 13.23it/s]
-Eval @ step 480:  20%|██        | 10/50 [00:00<00:02, 13.34it/s]
-Eval @ step 480:  24%|██▍       | 12/50 [00:00<00:02, 13.34it/s]
-Eval @ step 480:  28%|██▊       | 14/50 [00:01<00:02, 13.32it/s]
-Eval @ step 480:  32%|███▏      | 16/50 [00:01<00:02, 13.32it/s]
-Eval @ step 480:  36%|███▌      | 18/50 [00:01<00:02, 13.29it/s]
-Eval @ step 480:  40%|████      | 20/50 [00:01<00:02, 13.31it/s]
-Eval @ step 480:  44%|████▍     | 22/50 [00:01<00:02, 13.37it/s]
-Eval @ step 480:  48%|████▊     | 24/50 [00:01<00:01, 13.44it/s]
-Eval @ step 480:  52%|█████▏    | 26/50 [00:01<00:01, 13.46it/s]
-Eval @ step 480:  56%|█████▌    | 28/50 [00:02<00:01, 13.39it/s]
-Eval @ step 480:  60%|██████    | 30/50 [00:02<00:01, 13.41it/s]
-Eval @ step 480:  64%|██████▍   | 32/50 [00:02<00:01, 13.41it/s]
-Eval @ step 480:  68%|██████▊   | 34/50 [00:02<00:01, 13.40it/s]
-Eval @ step 480:  72%|███████▏  | 36/50 [00:02<00:01, 13.43it/s]
-Eval @ step 480:  76%|███████▌  | 38/50 [00:02<00:00, 13.41it/s]
-Eval @ step 480:  80%|████████  | 40/50 [00:02<00:00, 13.38it/s]
-Eval @ step 480:  84%|████████▍ | 42/50 [00:03<00:00, 13.44it/s]
-Eval @ step 480:  88%|████████▊ | 44/50 [00:03<00:00, 13.46it/s]
+Eval @ step 480:  16%|█▌        | 8/50 [00:00<00:03, 13.22it/s]
+Eval @ step 480:  20%|██        | 10/50 [00:00<00:03, 13.32it/s]
+Eval @ step 480:  24%|██▍       | 12/50 [00:00<00:02, 13.31it/s]
+Eval @ step 480:  28%|██▊       | 14/50 [00:01<00:02, 13.29it/s]
+Eval @ step 480:  32%|███▏      | 16/50 [00:01<00:02, 13.29it/s]
+Eval @ step 480:  36%|███▌      | 18/50 [00:01<00:02, 13.26it/s]
+Eval @ step 480:  40%|████      | 20/50 [00:01<00:02, 13.27it/s]
+Eval @ step 480:  44%|████▍     | 22/50 [00:01<00:02, 13.34it/s]
+Eval @ step 480:  48%|████▊     | 24/50 [00:01<00:01, 13.42it/s]
+Eval @ step 480:  52%|█████▏    | 26/50 [00:01<00:01, 13.43it/s]
+Eval @ step 480:  56%|█████▌    | 28/50 [00:02<00:01, 13.37it/s]
+Eval @ step 480:  60%|██████    | 30/50 [00:02<00:01, 13.39it/s]
+Eval @ step 480:  64%|██████▍   | 32/50 [00:02<00:01, 13.38it/s]
+Eval @ step 480:  68%|██████▊   | 34/50 [00:02<00:01, 13.38it/s]
+Eval @ step 480:  72%|███████▏  | 36/50 [00:02<00:01, 13.42it/s]
+Eval @ step 480:  76%|███████▌  | 38/50 [00:02<00:00, 13.39it/s]
+Eval @ step 480:  80%|████████  | 40/50 [00:02<00:00, 13.36it/s]
+Eval @ step 480:  84%|████████▍ | 42/50 [00:03<00:00, 13.42it/s]
+Eval @ step 480:  88%|████████▊ | 44/50 [00:03<00:00, 13.44it/s]
 Eval @ step 480:  92%|█████████▏| 46/50 [00:03<00:00, 13.47it/s]
-Eval @ step 480:  96%|█████████▌| 48/50 [00:03<00:00, 13.44it/s]
+Eval @ step 480:  96%|█████████▌| 48/50 [00:03<00:00, 13.43it/s]
 Eval @ step 480: 100%|██████████| 50/50 [00:03<00:00, 13.41it/s]
                                                                   [EVAL] eval_rougeL=0.9000 (best=0.9200)
 {'eval_rougeL': '0.9', 'epoch': '15'}
-{'train_runtime': '912.7', 'train_samples_per_second': '16.43', 'train_steps_per_second': '0.526', 'train_loss': '0.07911', 'epoch': '15'}
-100%|██████████| 480/480 [15:12<00:00,  1.90s/it]
+{'train_runtime': '872.5', 'train_samples_per_second': '17.19', 'train_steps_per_second': '0.55', 'train_loss': '0.07911', 'epoch': '15'}
+100%|██████████| 480/480 [14:32<00:00,  1.82s/it]
 ***** train metrics *****
   epoch                    =       15.0
   total_flos               = 50859468GF
   train_loss               =     0.0791
-  train_runtime            = 0:15:12.67
+  train_runtime            = 0:14:32.49
   train_samples            =       1000
-  train_samples_per_second =     16.435
-  train_steps_per_second   =      0.526
+  train_samples_per_second =     17.192
+  train_steps_per_second   =       0.55
   [EVAL] Restored best model (eval_rougeL=0.9200, 128 tensors)
 [SAVE] LoRA weights → /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights
 [SRT] Loading frozen backbone from /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights …
-Loading weights: 100%|██████████| 291/291 [00:00<00:00, 822.41it/s]
+Loading weights: 100%|██████████| 291/291 [00:00<00:00, 796.72it/s]
 [SRT] Frozen backbone attached (moved to cuda:0).
+  [SRT] Cache miss for 'task363_sst2_polarity_classification' → falling back to forward pass
   [SRT] → Forward extraction (max 200 batches)
-  [SRT-add_task] task_id='task363_sst2_polarity_classification'  mode=hard  use_shrink=False  shrink_factor=0.1  n_prev_sigs=1
+  [SRT-add_task] task_id='task363_sst2_polarity_classification'  mode=hard  use_shrink=True  shrink_factor=0.1  n_prev_sigs=1
   [SRT] ZCA refit: n_pool=360, d=4096, n/d=0.09, shrink=0.1
-  [SRT-DEBUG] task='task1572_samsum_summary'                      mu_norm=1.176768  mu_max=0.288171  mu_raw_norm=112.232383
-  [SRT-DEBUG] task='task363_sst2_polarity_classification'         mu_norm=0.941414  mu_max=0.230537  mu_raw_norm=120.425399
-  [SRT] Task 'task363_sst2_polarity_classification': PaR=187.4, metric=l2, n=200
+  [SRT-DEBUG] task='task1572_samsum_summary'                      mu_norm=1.176751  mu_max=0.289219  mu_raw_norm=112.232383
+  [SRT-DEBUG] task='task363_sst2_polarity_classification'         mu_norm=0.941401  mu_max=0.231376  mu_raw_norm=120.425399
+  [SRT] Task 'task363_sst2_polarity_classification': PaR=183.4, metric=l2, n=200
   [SRT] Wired router: 2 sigs, cur=task363_sst2_polarity_classification, mapping={'task363_sst2_polarity_classification': 0, 'task1572_samsum_summary': 1}
-[SRT] Router: 2 tasks, avg_PaR=173.1, metrics=['l2', 'l2']
+[SRT] Router: 2 tasks, avg_PaR=171.0, metrics=['l2', 'l2']
   [SRT-SAVE] path=/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights/srt_signatures.npz
-    task='task1572_samsum_summary'                      saved_mu_norm=1.176768  saved_mu_raw_norm=112.232383
-    task='task363_sst2_polarity_classification'         saved_mu_norm=0.941414  saved_mu_raw_norm=120.425399
+    task='task1572_samsum_summary'                      saved_mu_norm=1.176751  saved_mu_raw_norm=112.232383
+    task='task363_sst2_polarity_classification'         saved_mu_norm=0.941401  saved_mu_raw_norm=120.425399
   [SRT-SAVE] mu_global saved: Yes  W_zca saved: Yes
   [SRT] Saved signatures → /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights/srt_signatures.npz
 *** Prediction ***
@@ -412,21 +415,21 @@ Loading weights: 100%|██████████| 291/291 [00:00<00:00, 822.
 /kaggle/working/thienly-code/root_gainlora/CL_Benchmark/SuperNI/task363_sst2_polarity_classification/test.json
 ['URL', 'Categories', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Definition']
 Continual predict:   0%|          | 0/70 [00:00<?, ?it/s][SRT-ROUTE] #1 mode=hard n_tasks=2 task_list=['task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
-[SRT-ROUTE]   Sample 0: dists=[214.7775, 214.7816] argmin=0 pred=task1572_samsum_summary
-[SRT-ROUTE]   Sample 0: dists=[214.7775, 214.7816] argmin=0
-[SRT-ROUTE]   Sample 1: dists=[79.5951, 79.6244] argmin=0
+[SRT-ROUTE]   Sample 0: dists=[198.425, 198.4293] argmin=0 pred=task1572_samsum_summary
+[SRT-ROUTE]   Sample 0: dists=[198.425, 198.4293] argmin=0
+[SRT-ROUTE]   Sample 1: dists=[73.5191, 73.5508] argmin=0
 [SRT-ROUTE] SRM metrics: {}
 [SRT-ROUTE] #2 mode=hard n_tasks=2 task_list=['task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
-[SRT-ROUTE]   Sample 0: dists=[214.7775, 214.7816] argmin=0 pred=task1572_samsum_summary
-[SRT-ROUTE]   Sample 0: dists=[214.7775, 214.7816] argmin=0
-[SRT-ROUTE]   Sample 1: dists=[79.5951, 79.6244] argmin=0
+[SRT-ROUTE]   Sample 0: dists=[198.425, 198.4293] argmin=0 pred=task1572_samsum_summary
+[SRT-ROUTE]   Sample 0: dists=[198.425, 198.4293] argmin=0
+[SRT-ROUTE]   Sample 1: dists=[73.5191, 73.5508] argmin=0
 [SRT-ROUTE] SRM metrics: {}
 [SRT-ROUTE] #3 mode=hard n_tasks=2 task_list=['task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
-[SRT-ROUTE]   Sample 0: dists=[214.7775, 214.7816] argmin=0 pred=task1572_samsum_summary
-[SRT-ROUTE]   Sample 0: dists=[214.7775, 214.7816] argmin=0
-[SRT-ROUTE]   Sample 1: dists=[79.5951, 79.6244] argmin=0
+[SRT-ROUTE]   Sample 0: dists=[198.425, 198.4293] argmin=0 pred=task1572_samsum_summary
+[SRT-ROUTE]   Sample 0: dists=[198.425, 198.4293] argmin=0
+[SRT-ROUTE]   Sample 1: dists=[73.5191, 73.5508] argmin=0
 [SRT-ROUTE] SRM metrics: {}
-Continual predict: 100%|██████████| 70/70 [01:26<00:00,  1.24s/it]
+Continual predict: 100%|██████████| 70/70 [01:26<00:00,  1.23s/it]
 ***** predict metrics *****
   epoch                                                        =       15.0
   predict_eval_rougeL                                          =    67.5612
@@ -443,11 +446,11 @@ Continual predict: 100%|██████████| 70/70 [01:26<00:00,  1.2
   predict_rouge1_for_CL                                        =     70.309
   predict_rouge1_for_task1572_samsum_summary                   =     51.915
   predict_rouge1_for_task363_sst2_polarity_classification      =    77.6667
-  predict_runtime                                              = 0:01:26.52
+  predict_runtime                                              = 0:01:26.18
   predict_samples                                              =        140
-  predict_samples_per_second                                   =      1.618
-  predict_steps_per_second                                     =      0.809
-[2026-04-25 09:17:21,099] [INFO] [launch.py:367:main] Process 1231 exits successfully.
+  predict_samples_per_second                                   =      1.624
+  predict_steps_per_second                                     =      0.812
+[2026-04-25 10:43:14,931] [INFO] [launch.py:367:main] Process 4113 exits successfully.
 [Done] Task 2: saved → /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights
 
 ──────────────────────────────────────────────────
@@ -456,21 +459,21 @@ OUTPUT:  /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/supern
 PREV LORA: /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights
 SRT PATH:  /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights
 ──────────────────────────────────────────────────
-[2026-04-25 09:17:28,662] [WARNING] [runner.py:232:fetch_hostfile] Unable to find hostfile, will proceed with training with local resources only.
-[2026-04-25 09:17:28,662] [INFO] [runner.py:630:main] cmd = /usr/bin/python3 -u -m deepspeed.launcher.launch --world_info=eyJsb2NhbGhvc3QiOiBbMF19 --master_addr=127.0.0.1 --master_port=29502 --enable_each_rank_log=None --log_level=info /kaggle/working/thienly-code/new_llama_gainlora/run_llama_gainlora_cl.py --model_name_or_path /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights --data_dir /kaggle/working/thienly-code/root_gainlora/CL_Benchmark --task_config_dir /kaggle/working/thienly-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task1290_xsum_summarization --output_dir /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization --cur_task_id 2 --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification --lora_r 4 --lora_alpha 32 --lora_dropout 0.0 --per_device_train_batch_size 1 --per_device_eval_batch_size 2 --gradient_accumulation_steps 32 --learning_rate 5e-5 --num_train_epochs 15 --max_source_length 1024 --max_target_length 50 --max_new_tokens 50 --srt_metric_mode hard --srt_max_emb_samples 200 --use_srt_router --bf16 --deepspeed /kaggle/working/thienly-code/new_gainlora/configs/ds_configs/stage2.config --logging_steps 10 --seed 42 --previous_lora_path /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights --srt_load_path /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights
-[2026-04-25 09:17:33,164] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE=libnccl-dev=2.25.1-1+cuda12.8
-[2026-04-25 09:17:33,164] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_VERSION=2.25.1-1
-[2026-04-25 09:17:33,164] [INFO] [launch.py:155:main] 0 NCCL_VERSION=2.25.1-1
-[2026-04-25 09:17:33,164] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_NAME=libnccl-dev
-[2026-04-25 09:17:33,164] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE=libnccl2=2.25.1-1+cuda12.8
-[2026-04-25 09:17:33,164] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_NAME=libnccl2
-[2026-04-25 09:17:33,164] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_VERSION=2.25.1-1
-[2026-04-25 09:17:33,164] [INFO] [launch.py:162:main] WORLD INFO DICT: {'localhost': [0]}
-[2026-04-25 09:17:33,164] [INFO] [launch.py:168:main] nnodes=1, num_local_procs=1, node_rank=0
-[2026-04-25 09:17:33,164] [INFO] [launch.py:179:main] global_rank_mapping=defaultdict(<class 'list'>, {'localhost': [0]})
-[2026-04-25 09:17:33,164] [INFO] [launch.py:180:main] dist_world_size=1
-[2026-04-25 09:17:33,164] [INFO] [launch.py:184:main] Setting CUDA_VISIBLE_DEVICES=0
-[2026-04-25 09:17:33,164] [INFO] [launch.py:272:main] process 1936 spawned with command: ['/usr/bin/python3', '-u', '/kaggle/working/thienly-code/new_llama_gainlora/run_llama_gainlora_cl.py', '--local_rank=0', '--model_name_or_path', '/kaggle/input/datasets/natmin322/llama-2-7b-hf-weights', '--data_dir', '/kaggle/working/thienly-code/root_gainlora/CL_Benchmark', '--task_config_dir', '/kaggle/working/thienly-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task1290_xsum_summarization', '--output_dir', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization', '--cur_task_id', '2', '--task_order', 'task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification', '--lora_r', '4', '--lora_alpha', '32', '--lora_dropout', '0.0', '--per_device_train_batch_size', '1', '--per_device_eval_batch_size', '2', '--gradient_accumulation_steps', '32', '--learning_rate', '5e-5', '--num_train_epochs', '15', '--max_source_length', '1024', '--max_target_length', '50', '--max_new_tokens', '50', '--srt_metric_mode', 'hard', '--srt_max_emb_samples', '200', '--use_srt_router', '--bf16', '--deepspeed', '/kaggle/working/thienly-code/new_gainlora/configs/ds_configs/stage2.config', '--logging_steps', '10', '--seed', '42', '--previous_lora_path', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights', '--srt_load_path', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights']
+[2026-04-25 10:43:22,461] [WARNING] [runner.py:232:fetch_hostfile] Unable to find hostfile, will proceed with training with local resources only.
+[2026-04-25 10:43:22,461] [INFO] [runner.py:630:main] cmd = /usr/bin/python3 -u -m deepspeed.launcher.launch --world_info=eyJsb2NhbGhvc3QiOiBbMF19 --master_addr=127.0.0.1 --master_port=29502 --enable_each_rank_log=None --log_level=info /kaggle/working/thienly-code/new_llama_gainlora/run_llama_gainlora_cl.py --model_name_or_path /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights --data_dir /kaggle/working/thienly-code/root_gainlora/CL_Benchmark --task_config_dir /kaggle/working/thienly-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task1290_xsum_summarization --output_dir /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization --cur_task_id 2 --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification --lora_r 4 --lora_alpha 32 --lora_dropout 0.0 --per_device_train_batch_size 1 --per_device_eval_batch_size 2 --gradient_accumulation_steps 32 --learning_rate 5e-5 --num_train_epochs 15 --max_source_length 1024 --max_target_length 50 --max_new_tokens 50 --srt_metric_mode hard --srt_max_emb_samples 200 --use_srt_router --bf16 --deepspeed /kaggle/working/thienly-code/new_gainlora/configs/ds_configs/stage2.config --logging_steps 10 --seed 42 --previous_lora_path /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights --srt_load_path /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights --srt_shrink
+[2026-04-25 10:43:27,193] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE=libnccl-dev=2.25.1-1+cuda12.8
+[2026-04-25 10:43:27,193] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_VERSION=2.25.1-1
+[2026-04-25 10:43:27,193] [INFO] [launch.py:155:main] 0 NCCL_VERSION=2.25.1-1
+[2026-04-25 10:43:27,193] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_NAME=libnccl-dev
+[2026-04-25 10:43:27,193] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE=libnccl2=2.25.1-1+cuda12.8
+[2026-04-25 10:43:27,193] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_NAME=libnccl2
+[2026-04-25 10:43:27,193] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_VERSION=2.25.1-1
+[2026-04-25 10:43:27,193] [INFO] [launch.py:162:main] WORLD INFO DICT: {'localhost': [0]}
+[2026-04-25 10:43:27,193] [INFO] [launch.py:168:main] nnodes=1, num_local_procs=1, node_rank=0
+[2026-04-25 10:43:27,193] [INFO] [launch.py:179:main] global_rank_mapping=defaultdict(<class 'list'>, {'localhost': [0]})
+[2026-04-25 10:43:27,193] [INFO] [launch.py:180:main] dist_world_size=1
+[2026-04-25 10:43:27,193] [INFO] [launch.py:184:main] Setting CUDA_VISIBLE_DEVICES=0
+[2026-04-25 10:43:27,194] [INFO] [launch.py:272:main] process 4818 spawned with command: ['/usr/bin/python3', '-u', '/kaggle/working/thienly-code/new_llama_gainlora/run_llama_gainlora_cl.py', '--local_rank=0', '--model_name_or_path', '/kaggle/input/datasets/natmin322/llama-2-7b-hf-weights', '--data_dir', '/kaggle/working/thienly-code/root_gainlora/CL_Benchmark', '--task_config_dir', '/kaggle/working/thienly-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task1290_xsum_summarization', '--output_dir', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization', '--cur_task_id', '2', '--task_order', 'task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification', '--lora_r', '4', '--lora_alpha', '32', '--lora_dropout', '0.0', '--per_device_train_batch_size', '1', '--per_device_eval_batch_size', '2', '--gradient_accumulation_steps', '32', '--learning_rate', '5e-5', '--num_train_epochs', '15', '--max_source_length', '1024', '--max_target_length', '50', '--max_new_tokens', '50', '--srt_metric_mode', 'hard', '--srt_max_emb_samples', '200', '--use_srt_router', '--bf16', '--deepspeed', '/kaggle/working/thienly-code/new_gainlora/configs/ds_configs/stage2.config', '--logging_steps', '10', '--seed', '42', '--previous_lora_path', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights', '--srt_load_path', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights', '--srt_shrink']
 
 ============================================================
 Task 2: task1290_xsum_summarization
@@ -491,7 +494,7 @@ sgwi:               True
 /kaggle/working/thienly-code/root_gainlora/CL_Benchmark/SuperNI/task1290_xsum_summarization/test.json
 ['Contributors', 'Source', 'URL', 'Categories', 'Reasoning', 'Definition', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Instance License']
 Train/dev/test: 1000/100/220
-Loading weights: 100%|██████████| 291/291 [00:00<00:00, 810.65it/s]
+Loading weights: 100%|██████████| 291/291 [00:00<00:00, 793.51it/s]
 [transformers] LlamaForCausalLM has generative capabilities, as `prepare_inputs_for_generation` is explicitly defined. However, it doesn't directly inherit from `GenerationMixin`. From 👉v4.50👈 onwards, `PreTrainedModel` will NOT inherit from `GenerationMixin`, and this model will lose the ability to call `generate` and other related functions.
   - If you're using `trust_remote_code=True`, you can get rid of this warning by loading the model with an auto class. See https://huggingface.co/docs/transformers/en/model_doc/auto#auto-classes
   - If you are the owner of the model architecture code, please modify your model class such that it inherits from `GenerationMixin` (after `PreTrainedModel`, otherwise you'll get an exception).
@@ -510,12 +513,13 @@ Loading weights: 100%|██████████| 291/291 [00:00<00:00, 810.
 [FIX] Upcast 131 trainable tensors to fp32
 Trainable: 2.920M / 6745.539M (0.04%)
 [TRAIN] step_per_epoch=32, eval_steps=160
-[W425 09:18:20.830331977 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
-  [SRT-LOAD] task='task1572_samsum_summary'                      loaded_mu_norm=1.176768  loaded_mu_max=0.288171  loaded_mu_raw_norm=112.232383  W_zca_loaded=Yes
-  [SRT-LOAD] task='task363_sst2_polarity_classification'         loaded_mu_norm=0.941414  loaded_mu_max=0.230537  loaded_mu_raw_norm=120.425399  W_zca_loaded=Yes
+[W425 10:44:15.080265865 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
+  [SRT-LOAD] task='task1572_samsum_summary'                      loaded_mu_norm=1.176751  loaded_mu_max=0.289219  loaded_mu_raw_norm=112.232383  W_zca_loaded=Yes
+  [SRT-LOAD] task='task363_sst2_polarity_classification'         loaded_mu_norm=0.941401  loaded_mu_max=0.231376  loaded_mu_raw_norm=120.425399  W_zca_loaded=Yes
   [SRT] Loaded 2 signatures from /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights/srt_signatures.npz
   [SRT] Wired router: 2 sigs, cur=task1290_xsum_summarization, mapping={'task1290_xsum_summarization': 0, 'task1572_samsum_summary': 2, 'task363_sst2_polarity_classification': 1}
 [SGWI] Task 2: computing SRT weights for warm-init…
+  [SRT] Cache miss for 'task1290_xsum_summarization' → falling back to forward pass
   [SRT] WARNING: encoder_frozen not attached. Returning empty embeddings.
 [SGWI] No SRT weights available. Skipping warm-init.
 [RANK 0] Gradient accumulation steps mismatch: GradientAccumulationPlugin has 1, DeepSpeed config has 32. Using DeepSpeed's value.
@@ -535,31 +539,31 @@ Trainable: 2.920M / 6745.539M (0.04%)
 {'loss': '1.03', 'grad_norm': '1.82', 'learning_rate': '5e-05', 'epoch': '4.384'}
 {'loss': '1.033', 'grad_norm': '3.303', 'learning_rate': '5e-05', 'epoch': '4.704'}
 {'loss': '1.042', 'grad_norm': '4.349', 'learning_rate': '5e-05', 'epoch': '5'}
- 33%|███▎      | 160/480 [11:14<18:30,  3.47s/it]
+ 33%|███▎      | 160/480 [11:10<18:17,  3.43s/it]
 Eval @ step 160:   0%|          | 0/50 [00:00<?, ?it/s]
-Eval @ step 160:   2%|▏         | 1/50 [00:04<03:36,  4.42s/it]
+Eval @ step 160:   2%|▏         | 1/50 [00:04<03:37,  4.43s/it]
 Eval @ step 160:   4%|▍         | 2/50 [00:08<03:26,  4.30s/it]
 Eval @ step 160:   6%|▌         | 3/50 [00:12<03:08,  4.01s/it]
-Eval @ step 160:   8%|▊         | 4/50 [00:19<04:01,  5.26s/it]
+Eval @ step 160:   8%|▊         | 4/50 [00:19<04:02,  5.26s/it]
 Eval @ step 160:  10%|█         | 5/50 [00:23<03:28,  4.64s/it]
 Eval @ step 160:  12%|█▏        | 6/50 [00:25<02:46,  3.79s/it]
-Eval @ step 160:  14%|█▍        | 7/50 [00:30<02:59,  4.18s/it]
-Eval @ step 160:  16%|█▌        | 8/50 [00:32<02:36,  3.74s/it]
-Eval @ step 160:  18%|█▊        | 9/50 [00:34<02:03,  3.00s/it]
+Eval @ step 160:  14%|█▍        | 7/50 [00:30<03:00,  4.19s/it]
+Eval @ step 160:  16%|█▌        | 8/50 [00:32<02:37,  3.74s/it]
+Eval @ step 160:  18%|█▊        | 9/50 [00:34<02:03,  3.01s/it]
 Eval @ step 160:  20%|██        | 10/50 [00:36<01:44,  2.60s/it]
 Eval @ step 160:  22%|██▏       | 11/50 [00:40<02:04,  3.20s/it]
 Eval @ step 160:  24%|██▍       | 12/50 [00:47<02:39,  4.19s/it]
 Eval @ step 160:  26%|██▌       | 13/50 [00:48<02:05,  3.39s/it]
-Eval @ step 160:  28%|██▊       | 14/50 [00:51<02:00,  3.36s/it]
+Eval @ step 160:  28%|██▊       | 14/50 [00:51<02:01,  3.36s/it]
 Eval @ step 160:  30%|███       | 15/50 [00:56<02:07,  3.64s/it]
 Eval @ step 160:  32%|███▏      | 16/50 [01:02<02:34,  4.54s/it]
 Eval @ step 160:  34%|███▍      | 17/50 [01:04<02:01,  3.69s/it]
 Eval @ step 160:  36%|███▌      | 18/50 [01:07<01:48,  3.38s/it]
 Eval @ step 160:  38%|███▊      | 19/50 [01:09<01:33,  3.00s/it]
 Eval @ step 160:  40%|████      | 20/50 [01:12<01:30,  3.01s/it]
-Eval @ step 160:  42%|████▏     | 21/50 [01:16<01:36,  3.31s/it]
+Eval @ step 160:  42%|████▏     | 21/50 [01:16<01:36,  3.32s/it]
 Eval @ step 160:  44%|████▍     | 22/50 [01:18<01:19,  2.83s/it]
-Eval @ step 160:  46%|████▌     | 23/50 [01:19<01:08,  2.52s/it]
+Eval @ step 160:  46%|████▌     | 23/50 [01:19<01:08,  2.53s/it]
 Eval @ step 160:  48%|████▊     | 24/50 [01:24<01:24,  3.25s/it]
 Eval @ step 160:  50%|█████     | 25/50 [01:26<01:12,  2.90s/it]
 Eval @ step 160:  52%|█████▏    | 26/50 [01:28<00:59,  2.47s/it]
@@ -573,19 +577,19 @@ Eval @ step 160:  66%|██████▌   | 33/50 [01:49<00:46,  2.74s/it]
 Eval @ step 160:  68%|██████▊   | 34/50 [01:52<00:44,  2.78s/it]
 Eval @ step 160:  70%|███████   | 35/50 [01:57<00:52,  3.49s/it]
 Eval @ step 160:  72%|███████▏  | 36/50 [02:00<00:44,  3.15s/it]
-Eval @ step 160:  74%|███████▍  | 37/50 [02:05<00:47,  3.66s/it]
+Eval @ step 160:  74%|███████▍  | 37/50 [02:05<00:47,  3.67s/it]
 Eval @ step 160:  76%|███████▌  | 38/50 [02:08<00:44,  3.74s/it]
-Eval @ step 160:  78%|███████▊  | 39/50 [02:14<00:48,  4.44s/it]
-Eval @ step 160:  80%|████████  | 40/50 [02:19<00:43,  4.31s/it]
+Eval @ step 160:  78%|███████▊  | 39/50 [02:15<00:48,  4.44s/it]
+Eval @ step 160:  80%|████████  | 40/50 [02:19<00:43,  4.32s/it]
 Eval @ step 160:  82%|████████▏ | 41/50 [02:21<00:33,  3.67s/it]
 Eval @ step 160:  84%|████████▍ | 42/50 [02:24<00:27,  3.48s/it]
-Eval @ step 160:  86%|████████▌ | 43/50 [02:28<00:27,  3.87s/it]
+Eval @ step 160:  86%|████████▌ | 43/50 [02:29<00:27,  3.87s/it]
 Eval @ step 160:  88%|████████▊ | 44/50 [02:34<00:25,  4.25s/it]
-Eval @ step 160:  90%|█████████ | 45/50 [02:39<00:23,  4.72s/it]
+Eval @ step 160:  90%|█████████ | 45/50 [02:40<00:23,  4.72s/it]
 Eval @ step 160:  92%|█████████▏| 46/50 [02:41<00:15,  3.89s/it]
 Eval @ step 160:  94%|█████████▍| 47/50 [02:44<00:10,  3.51s/it]
 Eval @ step 160:  96%|█████████▌| 48/50 [02:45<00:05,  2.87s/it]
-Eval @ step 160:  98%|█████████▊| 49/50 [02:48<00:02,  2.92s/it]
+Eval @ step 160:  98%|█████████▊| 49/50 [02:49<00:02,  2.92s/it]
 Eval @ step 160: 100%|██████████| 50/50 [02:51<00:00,  2.84s/it]
                                                                   [EVAL] ★ New best eval_rougeL=0.3107 (step=160) — snapshot saved in memory
 {'eval_rougeL': '0.3107', 'epoch': '5'}
@@ -605,58 +609,58 @@ Eval @ step 160: 100%|██████████| 50/50 [02:51<00:00,  2.84s
 {'loss': '0.6976', 'grad_norm': '4.81', 'learning_rate': '5e-05', 'epoch': '9.384'}
 {'loss': '0.6931', 'grad_norm': '5.487', 'learning_rate': '5e-05', 'epoch': '9.704'}
 {'loss': '0.6938', 'grad_norm': '9.464', 'learning_rate': '5e-05', 'epoch': '10'}
- 67%|██████▋   | 320/480 [25:17<08:36,  3.23s/it]
+ 67%|██████▋   | 320/480 [25:07<08:37,  3.23s/it]
 Eval @ step 320:   0%|          | 0/50 [00:00<?, ?it/s]
-Eval @ step 320:   2%|▏         | 1/50 [00:04<03:25,  4.18s/it]
-Eval @ step 320:   4%|▍         | 2/50 [00:09<04:03,  5.07s/it]
-Eval @ step 320:   6%|▌         | 3/50 [00:15<04:11,  5.35s/it]
+Eval @ step 320:   2%|▏         | 1/50 [00:04<03:25,  4.19s/it]
+Eval @ step 320:   4%|▍         | 2/50 [00:09<04:03,  5.08s/it]
+Eval @ step 320:   6%|▌         | 3/50 [00:15<04:11,  5.36s/it]
 Eval @ step 320:   8%|▊         | 4/50 [00:21<04:22,  5.71s/it]
-Eval @ step 320:  10%|█         | 5/50 [00:26<03:57,  5.29s/it]
-Eval @ step 320:  12%|█▏        | 6/50 [00:27<02:57,  4.04s/it]
-Eval @ step 320:  14%|█▍        | 7/50 [00:32<02:58,  4.15s/it]
+Eval @ step 320:  10%|█         | 5/50 [00:26<03:58,  5.29s/it]
+Eval @ step 320:  12%|█▏        | 6/50 [00:28<02:57,  4.04s/it]
+Eval @ step 320:  14%|█▍        | 7/50 [00:32<02:58,  4.16s/it]
 Eval @ step 320:  16%|█▌        | 8/50 [00:34<02:31,  3.61s/it]
 Eval @ step 320:  18%|█▊        | 9/50 [00:36<01:59,  2.92s/it]
-Eval @ step 320:  20%|██        | 10/50 [00:38<01:44,  2.62s/it]
+Eval @ step 320:  20%|██        | 10/50 [00:38<01:45,  2.63s/it]
 Eval @ step 320:  22%|██▏       | 11/50 [00:45<02:33,  3.94s/it]
-Eval @ step 320:  24%|██▍       | 12/50 [00:49<02:36,  4.13s/it]
+Eval @ step 320:  24%|██▍       | 12/50 [00:49<02:37,  4.13s/it]
 Eval @ step 320:  26%|██▌       | 13/50 [00:52<02:19,  3.76s/it]
-Eval @ step 320:  28%|██▊       | 14/50 [00:55<02:10,  3.61s/it]
+Eval @ step 320:  28%|██▊       | 14/50 [00:55<02:10,  3.62s/it]
 Eval @ step 320:  30%|███       | 15/50 [01:00<02:12,  3.78s/it]
-Eval @ step 320:  32%|███▏      | 16/50 [01:05<02:24,  4.24s/it]
-Eval @ step 320:  34%|███▍      | 17/50 [01:07<02:04,  3.77s/it]
+Eval @ step 320:  32%|███▏      | 16/50 [01:05<02:24,  4.25s/it]
+Eval @ step 320:  34%|███▍      | 17/50 [01:08<02:04,  3.77s/it]
 Eval @ step 320:  36%|███▌      | 18/50 [01:10<01:50,  3.46s/it]
 Eval @ step 320:  38%|███▊      | 19/50 [01:12<01:31,  2.94s/it]
 Eval @ step 320:  40%|████      | 20/50 [01:15<01:28,  2.94s/it]
-Eval @ step 320:  42%|████▏     | 21/50 [01:22<02:05,  4.32s/it]
-Eval @ step 320:  44%|████▍     | 22/50 [01:24<01:40,  3.57s/it]
+Eval @ step 320:  42%|████▏     | 21/50 [01:23<02:05,  4.33s/it]
+Eval @ step 320:  44%|████▍     | 22/50 [01:24<01:40,  3.58s/it]
 Eval @ step 320:  46%|████▌     | 23/50 [01:27<01:26,  3.21s/it]
 Eval @ step 320:  48%|████▊     | 24/50 [01:32<01:37,  3.73s/it]
 Eval @ step 320:  50%|█████     | 25/50 [01:34<01:20,  3.22s/it]
 Eval @ step 320:  52%|█████▏    | 26/50 [01:35<01:06,  2.78s/it]
 Eval @ step 320:  54%|█████▍    | 27/50 [01:41<01:25,  3.71s/it]
-Eval @ step 320:  56%|█████▌    | 28/50 [01:43<01:11,  3.25s/it]
+Eval @ step 320:  56%|█████▌    | 28/50 [01:44<01:11,  3.25s/it]
 Eval @ step 320:  58%|█████▊    | 29/50 [01:45<00:59,  2.81s/it]
 Eval @ step 320:  60%|██████    | 30/50 [01:53<01:26,  4.35s/it]
 Eval @ step 320:  62%|██████▏   | 31/50 [01:59<01:32,  4.86s/it]
-Eval @ step 320:  64%|██████▍   | 32/50 [02:05<01:32,  5.17s/it]
+Eval @ step 320:  64%|██████▍   | 32/50 [02:05<01:33,  5.17s/it]
 Eval @ step 320:  66%|██████▌   | 33/50 [02:07<01:12,  4.26s/it]
 Eval @ step 320:  68%|██████▊   | 34/50 [02:10<01:00,  3.78s/it]
-Eval @ step 320:  70%|███████   | 35/50 [02:13<00:55,  3.71s/it]
+Eval @ step 320:  70%|███████   | 35/50 [02:14<00:55,  3.71s/it]
 Eval @ step 320:  72%|███████▏  | 36/50 [02:16<00:47,  3.37s/it]
 Eval @ step 320:  74%|███████▍  | 37/50 [02:21<00:49,  3.82s/it]
 Eval @ step 320:  76%|███████▌  | 38/50 [02:25<00:45,  3.81s/it]
-Eval @ step 320:  78%|███████▊  | 39/50 [02:29<00:45,  4.11s/it]
+Eval @ step 320:  78%|███████▊  | 39/50 [02:30<00:45,  4.11s/it]
 Eval @ step 320:  80%|████████  | 40/50 [02:34<00:42,  4.25s/it]
-Eval @ step 320:  82%|████████▏ | 41/50 [02:36<00:33,  3.69s/it]
+Eval @ step 320:  82%|████████▏ | 41/50 [02:37<00:33,  3.69s/it]
 Eval @ step 320:  84%|████████▍ | 42/50 [02:39<00:27,  3.47s/it]
 Eval @ step 320:  86%|████████▌ | 43/50 [02:43<00:24,  3.47s/it]
 Eval @ step 320:  88%|████████▊ | 44/50 [02:49<00:26,  4.36s/it]
 Eval @ step 320:  90%|█████████ | 45/50 [02:54<00:22,  4.54s/it]
-Eval @ step 320:  92%|█████████▏| 46/50 [02:56<00:14,  3.70s/it]
+Eval @ step 320:  92%|█████████▏| 46/50 [02:56<00:14,  3.71s/it]
 Eval @ step 320:  94%|█████████▍| 47/50 [02:59<00:10,  3.50s/it]
 Eval @ step 320:  96%|█████████▌| 48/50 [03:00<00:05,  2.85s/it]
 Eval @ step 320:  98%|█████████▊| 49/50 [03:03<00:02,  2.72s/it]
-Eval @ step 320: 100%|██████████| 50/50 [03:05<00:00,  2.70s/it]
+Eval @ step 320: 100%|██████████| 50/50 [03:06<00:00,  2.70s/it]
                                                                   [EVAL] ★ New best eval_rougeL=0.3137 (step=320) — snapshot saved in memory
 {'eval_rougeL': '0.3137', 'epoch': '10'}
 {'loss': '0.6209', 'grad_norm': '5.001', 'learning_rate': '5e-05', 'epoch': '10.32'}
@@ -675,7 +679,7 @@ Eval @ step 320: 100%|██████████| 50/50 [03:05<00:00,  2.70s
 {'loss': '0.3627', 'grad_norm': '6.279', 'learning_rate': '5e-05', 'epoch': '14.38'}
 {'loss': '0.3514', 'grad_norm': '7.139', 'learning_rate': '5e-05', 'epoch': '14.7'}
 {'loss': '0.381', 'grad_norm': '13.31', 'learning_rate': '5e-05', 'epoch': '15'}
-100%|██████████| 480/480 [39:29<00:00,  3.62s/it]
+100%|██████████| 480/480 [39:20<00:00,  3.60s/it]
 Eval @ step 480:   0%|          | 0/50 [00:00<?, ?it/s]
 Eval @ step 480:   2%|▏         | 1/50 [00:04<03:42,  4.53s/it]
 Eval @ step 480:   4%|▍         | 2/50 [00:10<04:10,  5.22s/it]
@@ -694,7 +698,7 @@ Eval @ step 480:  28%|██▊       | 14/50 [00:57<02:22,  3.96s/it]
 Eval @ step 480:  30%|███       | 15/50 [01:01<02:25,  4.16s/it]
 Eval @ step 480:  32%|███▏      | 16/50 [01:06<02:27,  4.34s/it]
 Eval @ step 480:  34%|███▍      | 17/50 [01:09<02:05,  3.82s/it]
-Eval @ step 480:  36%|███▌      | 18/50 [01:11<01:47,  3.36s/it]
+Eval @ step 480:  36%|███▌      | 18/50 [01:11<01:47,  3.37s/it]
 Eval @ step 480:  38%|███▊      | 19/50 [01:13<01:30,  2.91s/it]
 Eval @ step 480:  40%|████      | 20/50 [01:17<01:34,  3.16s/it]
 Eval @ step 480:  42%|████▏     | 21/50 [01:22<01:53,  3.92s/it]
@@ -721,42 +725,43 @@ Eval @ step 480:  82%|████████▏ | 41/50 [02:48<00:39,  4.34s/i
 Eval @ step 480:  84%|████████▍ | 42/50 [02:51<00:32,  4.05s/it]
 Eval @ step 480:  86%|████████▌ | 43/50 [02:55<00:28,  4.10s/it]
 Eval @ step 480:  88%|████████▊ | 44/50 [03:02<00:29,  4.91s/it]
-Eval @ step 480:  90%|█████████ | 45/50 [03:08<00:26,  5.39s/it]
+Eval @ step 480:  90%|█████████ | 45/50 [03:09<00:26,  5.39s/it]
 Eval @ step 480:  92%|█████████▏| 46/50 [03:11<00:17,  4.48s/it]
 Eval @ step 480:  94%|█████████▍| 47/50 [03:14<00:12,  4.02s/it]
-Eval @ step 480:  96%|█████████▌| 48/50 [03:15<00:06,  3.21s/it]
+Eval @ step 480:  96%|█████████▌| 48/50 [03:15<00:06,  3.22s/it]
 Eval @ step 480:  98%|█████████▊| 49/50 [03:18<00:03,  3.12s/it]
 Eval @ step 480: 100%|██████████| 50/50 [03:21<00:00,  3.11s/it]
                                                                   [EVAL] eval_rougeL=0.2647 (best=0.3137)
 {'eval_rougeL': '0.2647', 'epoch': '15'}
-{'train_runtime': '2571', 'train_samples_per_second': '5.835', 'train_steps_per_second': '0.187', 'train_loss': '0.8378', 'epoch': '15'}
-100%|██████████| 480/480 [42:50<00:00,  5.36s/it]
+{'train_runtime': '2562', 'train_samples_per_second': '5.855', 'train_steps_per_second': '0.187', 'train_loss': '0.8378', 'epoch': '15'}
+100%|██████████| 480/480 [42:41<00:00,  5.34s/it]
 ***** train metrics *****
   epoch                    =        15.0
   total_flos               = 316866069GF
   train_loss               =      0.8378
-  train_runtime            =  0:42:50.73
+  train_runtime            =  0:42:41.71
   train_samples            =        1000
-  train_samples_per_second =       5.835
+  train_samples_per_second =       5.855
   train_steps_per_second   =       0.187
   [EVAL] Restored best model (eval_rougeL=0.3137, 128 tensors)
 [SAVE] LoRA weights → /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
 [SRT] Loading frozen backbone from /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights …
-Loading weights: 100%|██████████| 291/291 [00:00<00:00, 797.33it/s]
+Loading weights: 100%|██████████| 291/291 [00:00<00:00, 822.85it/s]
 [SRT] Frozen backbone attached (moved to cuda:0).
+  [SRT] Cache miss for 'task1290_xsum_summarization' → falling back to forward pass
   [SRT] → Forward extraction (max 200 batches)
-  [SRT-add_task] task_id='task1290_xsum_summarization'  mode=hard  use_shrink=False  shrink_factor=0.1  n_prev_sigs=2
+  [SRT-add_task] task_id='task1290_xsum_summarization'  mode=hard  use_shrink=True  shrink_factor=0.1  n_prev_sigs=2
   [SRT] ZCA refit: n_pool=560, d=4096, n/d=0.14, shrink=0.1
-  [SRT-DEBUG] task='task1572_samsum_summary'                      mu_norm=1.664250  mu_max=0.459961  mu_raw_norm=112.232383
-  [SRT-DEBUG] task='task363_sst2_polarity_classification'         mu_norm=1.412592  mu_max=0.242336  mu_raw_norm=120.425399
-  [SRT-DEBUG] task='task1290_xsum_summarization'                  mu_norm=1.412039  mu_max=0.259363  mu_raw_norm=88.246319
-  [SRT] Task 'task1290_xsum_summarization': PaR=197.6, metric=l2, n=200
+  [SRT-DEBUG] task='task1572_samsum_summary'                      mu_norm=1.663912  mu_max=0.464649  mu_raw_norm=112.232383
+  [SRT-DEBUG] task='task363_sst2_polarity_classification'         mu_norm=1.412465  mu_max=0.243808  mu_raw_norm=120.425399
+  [SRT-DEBUG] task='task1290_xsum_summarization'                  mu_norm=1.411706  mu_max=0.261747  mu_raw_norm=88.246319
+  [SRT] Task 'task1290_xsum_summarization': PaR=196.2, metric=l2, n=200
   [SRT] Wired router: 3 sigs, cur=task1290_xsum_summarization, mapping={'task1290_xsum_summarization': 0, 'task1572_samsum_summary': 2, 'task363_sst2_polarity_classification': 1}
-[SRT] Router: 3 tasks, avg_PaR=177.2, metrics=['l2', 'l2', 'l2']
+[SRT] Router: 3 tasks, avg_PaR=173.0, metrics=['l2', 'l2', 'l2']
   [SRT-SAVE] path=/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights/srt_signatures.npz
-    task='task1572_samsum_summary'                      saved_mu_norm=1.664250  saved_mu_raw_norm=112.232383
-    task='task363_sst2_polarity_classification'         saved_mu_norm=1.412592  saved_mu_raw_norm=120.425399
-    task='task1290_xsum_summarization'                  saved_mu_norm=1.412039  saved_mu_raw_norm=88.246319
+    task='task1572_samsum_summary'                      saved_mu_norm=1.663912  saved_mu_raw_norm=112.232383
+    task='task363_sst2_polarity_classification'         saved_mu_norm=1.412465  saved_mu_raw_norm=120.425399
+    task='task1290_xsum_summarization'                  saved_mu_norm=1.411706  saved_mu_raw_norm=88.246319
   [SRT-SAVE] mu_global saved: Yes  W_zca saved: Yes
   [SRT] Saved signatures → /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights/srt_signatures.npz
 *** Prediction ***
@@ -773,30 +778,30 @@ Loading weights: 100%|██████████| 291/291 [00:00<00:00, 797.
 /kaggle/working/thienly-code/root_gainlora/CL_Benchmark/SuperNI/task1290_xsum_summarization/test.json
 ['Contributors', 'Source', 'URL', 'Categories', 'Reasoning', 'Definition', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Instance License']
 Continual predict:   0%|          | 0/180 [00:00<?, ?it/s][SRT-ROUTE] #1 mode=hard n_tasks=3 task_list=['task1290_xsum_summarization', 'task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
-[SRT-ROUTE]   Sample 0: dists=[158.114, 158.1212, 158.1241] argmin=0 pred=task1290_xsum_summarization
-[SRT-ROUTE]   Sample 0: dists=[158.114, 158.1212, 158.1241] argmin=0
-[SRT-ROUTE]   Sample 1: dists=[70.0802, 70.0294, 70.0817] argmin=1
+[SRT-ROUTE]   Sample 0: dists=[133.7036, 133.712, 133.7156] argmin=0 pred=task1290_xsum_summarization
+[SRT-ROUTE]   Sample 0: dists=[133.7036, 133.712, 133.7156] argmin=0
+[SRT-ROUTE]   Sample 1: dists=[59.7492, 59.6897, 59.7513] argmin=1
 [SRT-ROUTE] SRM metrics: {}
 [SRT-ROUTE] #2 mode=hard n_tasks=3 task_list=['task1290_xsum_summarization', 'task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
-[SRT-ROUTE]   Sample 0: dists=[158.114, 158.1212, 158.1241] argmin=0 pred=task1290_xsum_summarization
-[SRT-ROUTE]   Sample 0: dists=[158.114, 158.1212, 158.1241] argmin=0
-[SRT-ROUTE]   Sample 1: dists=[70.0802, 70.0294, 70.0817] argmin=1
+[SRT-ROUTE]   Sample 0: dists=[133.7036, 133.712, 133.7156] argmin=0 pred=task1290_xsum_summarization
+[SRT-ROUTE]   Sample 0: dists=[133.7036, 133.712, 133.7156] argmin=0
+[SRT-ROUTE]   Sample 1: dists=[59.7492, 59.6897, 59.7513] argmin=1
 [SRT-ROUTE] SRM metrics: {}
 [SRT-ROUTE] #3 mode=hard n_tasks=3 task_list=['task1290_xsum_summarization', 'task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
-[SRT-ROUTE]   Sample 0: dists=[158.114, 158.1212, 158.1241] argmin=0 pred=task1290_xsum_summarization
-[SRT-ROUTE]   Sample 0: dists=[158.114, 158.1212, 158.1241] argmin=0
-[SRT-ROUTE]   Sample 1: dists=[70.0802, 70.0294, 70.0817] argmin=1
+[SRT-ROUTE]   Sample 0: dists=[133.7036, 133.712, 133.7156] argmin=0 pred=task1290_xsum_summarization
+[SRT-ROUTE]   Sample 0: dists=[133.7036, 133.712, 133.7156] argmin=0
+[SRT-ROUTE]   Sample 1: dists=[59.7492, 59.6897, 59.7513] argmin=1
 [SRT-ROUTE] SRM metrics: {}
-Continual predict:  22%|██▏       | 39/180 [01:30<01:07,  2.10it/s][SRT-ROUTE] #1000 mode=hard n_tasks=3 task_list=['task1290_xsum_summarization', 'task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
-[SRT-ROUTE]   Sample 0: dists=[198.8907, 198.903, 198.9009] argmin=0 pred=task1290_xsum_summarization
+Continual predict:  22%|██▏       | 39/180 [01:30<01:06,  2.13it/s][SRT-ROUTE] #1000 mode=hard n_tasks=3 task_list=['task1290_xsum_summarization', 'task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
+[SRT-ROUTE]   Sample 0: dists=[167.8514, 167.866, 167.8635] argmin=0 pred=task1290_xsum_summarization
 [SRT-ROUTE] SRM metrics: {}
-Continual predict:  52%|█████▏    | 94/180 [02:39<01:13,  1.18it/s][SRT-ROUTE] #2000 mode=hard n_tasks=3 task_list=['task1290_xsum_summarization', 'task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
-[SRT-ROUTE]   Sample 0: dists=[34.4539, 34.4639, 34.3629] argmin=2 pred=task363_sst2_polarity_classification
+Continual predict:  52%|█████▏    | 94/180 [02:40<01:13,  1.17it/s][SRT-ROUTE] #2000 mode=hard n_tasks=3 task_list=['task1290_xsum_summarization', 'task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
+[SRT-ROUTE]   Sample 0: dists=[29.6304, 29.6418, 29.5247] argmin=2 pred=task363_sst2_polarity_classification
 [SRT-ROUTE] SRM metrics: {}
-Continual predict:  82%|████████▏ | 148/180 [04:50<02:44,  5.15s/it][SRT-ROUTE] #3000 mode=hard n_tasks=3 task_list=['task1290_xsum_summarization', 'task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
-[SRT-ROUTE]   Sample 0: dists=[83.159, 83.2, 83.1949] argmin=0 pred=task1290_xsum_summarization
+Continual predict:  82%|████████▏ | 148/180 [04:54<02:48,  5.28s/it][SRT-ROUTE] #3000 mode=hard n_tasks=3 task_list=['task1290_xsum_summarization', 'task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
+[SRT-ROUTE]   Sample 0: dists=[70.8519, 70.8998, 70.894] argmin=0 pred=task1290_xsum_summarization
 [SRT-ROUTE] SRM metrics: {}
-Continual predict: 100%|██████████| 180/180 [07:52<00:00,  2.63s/it]
+Continual predict: 100%|██████████| 180/180 [07:57<00:00,  2.65s/it]
 ***** predict metrics *****
   epoch                                                        =       15.0
   predict_eval_rougeL                                          =    49.5743
@@ -816,11 +821,11 @@ Continual predict: 100%|██████████| 180/180 [07:52<00:00,  2
   predict_rouge1_for_task1290_xsum_summarization               =    38.7882
   predict_rouge1_for_task1572_samsum_summary                   =    38.2777
   predict_rouge1_for_task363_sst2_polarity_classification      =    63.7619
-  predict_runtime                                              = 0:07:52.66
+  predict_runtime                                              = 0:07:57.46
   predict_samples                                              =        360
-  predict_samples_per_second                                   =      0.762
-  predict_steps_per_second                                     =      0.381
-[2026-04-25 10:10:07,544] [INFO] [launch.py:367:main] Process 1936 exits successfully.
+  predict_samples_per_second                                   =      0.754
+  predict_steps_per_second                                     =      0.377
+[2026-04-25 11:35:55,544] [INFO] [launch.py:367:main] Process 4818 exits successfully.
 [Done] Task 3: saved → /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
 
 ──────────────────────────────────────────────────
@@ -829,3 +834,49 @@ OUTPUT:  /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/supern
 PREV LORA: /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights,/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
 SRT PATH:  /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
 ──────────────────────────────────────────────────
+[2026-04-25 11:36:02,941] [WARNING] [runner.py:232:fetch_hostfile] Unable to find hostfile, will proceed with training with local resources only.
+[2026-04-25 11:36:02,941] [INFO] [runner.py:630:main] cmd = /usr/bin/python3 -u -m deepspeed.launcher.launch --world_info=eyJsb2NhbGhvc3QiOiBbMF19 --master_addr=127.0.0.1 --master_port=29503 --enable_each_rank_log=None --log_level=info /kaggle/working/thienly-code/new_llama_gainlora/run_llama_gainlora_cl.py --model_name_or_path /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights --data_dir /kaggle/working/thienly-code/root_gainlora/CL_Benchmark --task_config_dir /kaggle/working/thienly-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task181_outcome_extraction --output_dir /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/4-task181_outcome_extraction --cur_task_id 3 --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification --lora_r 4 --lora_alpha 32 --lora_dropout 0.0 --per_device_train_batch_size 1 --per_device_eval_batch_size 2 --gradient_accumulation_steps 32 --learning_rate 5e-5 --num_train_epochs 15 --max_source_length 1024 --max_target_length 50 --max_new_tokens 50 --srt_metric_mode hard --srt_max_emb_samples 200 --use_srt_router --bf16 --deepspeed /kaggle/working/thienly-code/new_gainlora/configs/ds_configs/stage2.config --logging_steps 10 --seed 42 --previous_lora_path /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights,/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights --srt_load_path /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights --srt_shrink
+[2026-04-25 11:36:07,657] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE=libnccl-dev=2.25.1-1+cuda12.8
+[2026-04-25 11:36:07,657] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_VERSION=2.25.1-1
+[2026-04-25 11:36:07,657] [INFO] [launch.py:155:main] 0 NCCL_VERSION=2.25.1-1
+[2026-04-25 11:36:07,657] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_NAME=libnccl-dev
+[2026-04-25 11:36:07,657] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE=libnccl2=2.25.1-1+cuda12.8
+[2026-04-25 11:36:07,657] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_NAME=libnccl2
+[2026-04-25 11:36:07,657] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_VERSION=2.25.1-1
+[2026-04-25 11:36:07,657] [INFO] [launch.py:162:main] WORLD INFO DICT: {'localhost': [0]}
+[2026-04-25 11:36:07,657] [INFO] [launch.py:168:main] nnodes=1, num_local_procs=1, node_rank=0
+[2026-04-25 11:36:07,657] [INFO] [launch.py:179:main] global_rank_mapping=defaultdict(<class 'list'>, {'localhost': [0]})
+[2026-04-25 11:36:07,657] [INFO] [launch.py:180:main] dist_world_size=1
+[2026-04-25 11:36:07,657] [INFO] [launch.py:184:main] Setting CUDA_VISIBLE_DEVICES=0
+[2026-04-25 11:36:07,658] [INFO] [launch.py:272:main] process 5523 spawned with command: ['/usr/bin/python3', '-u', '/kaggle/working/thienly-code/new_llama_gainlora/run_llama_gainlora_cl.py', '--local_rank=0', '--model_name_or_path', '/kaggle/input/datasets/natmin322/llama-2-7b-hf-weights', '--data_dir', '/kaggle/working/thienly-code/root_gainlora/CL_Benchmark', '--task_config_dir', '/kaggle/working/thienly-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task181_outcome_extraction', '--output_dir', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/4-task181_outcome_extraction', '--cur_task_id', '3', '--task_order', 'task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification', '--lora_r', '4', '--lora_alpha', '32', '--lora_dropout', '0.0', '--per_device_train_batch_size', '1', '--per_device_eval_batch_size', '2', '--gradient_accumulation_steps', '32', '--learning_rate', '5e-5', '--num_train_epochs', '15', '--max_source_length', '1024', '--max_target_length', '50', '--max_new_tokens', '50', '--srt_metric_mode', 'hard', '--srt_max_emb_samples', '200', '--use_srt_router', '--bf16', '--deepspeed', '/kaggle/working/thienly-code/new_gainlora/configs/ds_configs/stage2.config', '--logging_steps', '10', '--seed', '42', '--previous_lora_path', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights,/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights', '--srt_load_path', '/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights', '--srt_shrink']
+
+============================================================
+Task 3: task181_outcome_extraction
+Task order (15 tasks): ['task1572_samsum_summary', 'task363_sst2_polarity_classification', 'task1290_xsum_summarization', 'task181_outcome_extraction', 'task002_quoref_answer_generation', 'task1510_evalution_relation_extraction', 'task639_multi_woz_user_utterance_generation', 'task1729_personachat_generate_next', 'task073_commonsenseqa_answer_generation', 'task1590_diplomacy_text_generation', 'task748_glucose_reverse_cause_event_detection', 'task511_reddit_tifu_long_text_summarization', 'task591_sciq_answer_generation', 'task1687_sentiment140_classification', 'task875_emotion_classification']
+previous_lora_path: /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights,/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
+srt_load_path:      /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
+sgwi:               True
+============================================================
+
+/kaggle/working/thienly-code/root_gainlora/CL_Benchmark/SuperNI/task181_outcome_extraction/train.json
+['Contributors', 'Source', 'URL', 'Categories', 'Reasoning', 'Definition', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Instance License']
+/kaggle/working/thienly-code/root_gainlora/CL_Benchmark/SuperNI/task181_outcome_extraction/dev.json
+['Contributors', 'Source', 'URL', 'Categories', 'Reasoning', 'Definition', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Instance License']
+/kaggle/working/thienly-code/root_gainlora/CL_Benchmark/SuperNI/task1572_samsum_summary/test.json
+['Contributors', 'Source', 'URL', 'Categories', 'Reasoning', 'Definition', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Instance License']
+/kaggle/working/thienly-code/root_gainlora/CL_Benchmark/SuperNI/task363_sst2_polarity_classification/test.json
+['URL', 'Categories', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Definition']
+/kaggle/working/thienly-code/root_gainlora/CL_Benchmark/SuperNI/task1290_xsum_summarization/test.json
+['Contributors', 'Source', 'URL', 'Categories', 'Reasoning', 'Definition', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Instance License']
+/kaggle/working/thienly-code/root_gainlora/CL_Benchmark/SuperNI/task181_outcome_extraction/test.json
+['Contributors', 'Source', 'URL', 'Categories', 'Reasoning', 'Definition', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Instance License']
+Train/dev/test: 338/43/263
+Loading weights: 100%|██████████| 291/291 [00:00<00:00, 824.73it/s]
+[transformers] LlamaForCausalLM has generative capabilities, as `prepare_inputs_for_generation` is explicitly defined. However, it doesn't directly inherit from `GenerationMixin`. From 👉v4.50👈 onwards, `PreTrainedModel` will NOT inherit from `GenerationMixin`, and this model will lose the ability to call `generate` and other related functions.
+  - If you're using `trust_remote_code=True`, you can get rid of this warning by loading the model with an auto class. See https://huggingface.co/docs/transformers/en/model_doc/auto#auto-classes
+  - If you are the owner of the model architecture code, please modify your model class such that it inherits from `GenerationMixin` (after `PreTrainedModel`, otherwise you'll get an exception).
+  - If you are not the owner of the model architecture class, please contact the model code owner to update it.
+[transformers] LlamaModel has generative capabilities, as `prepare_inputs_for_generation` is explicitly defined. However, it doesn't directly inherit from `GenerationMixin`. From 👉v4.50👈 onwards, `PreTrainedModel` will NOT inherit from `GenerationMixin`, and this model will lose the ability to call `generate` and other related functions.
+  - If you're using `trust_remote_code=True`, you can get rid of this warning by loading the model with an auto class. See https://huggingface.co/docs/transformers/en/model_doc/auto#auto-classes
+  - If you are the owner of the model architecture code, please modify your model class such that it inherits from `GenerationMixin` (after `PreTrainedModel`, otherwise you'll get an exception).
+  - If you are not the owner of the model architecture class, please contact the model code owner to update it.
