@@ -787,4 +787,45 @@ Continual predict:   0%|          | 0/180 [00:00<?, ?it/s][SRT-ROUTE] #1 mode=ha
 [SRT-ROUTE]   Sample 0: dists=[158.114, 158.1212, 158.1241] argmin=0
 [SRT-ROUTE]   Sample 1: dists=[70.0802, 70.0294, 70.0817] argmin=1
 [SRT-ROUTE] SRM metrics: {}
-Continual predict:   4%|▍         | 8/180 [00:24<10:50,  3.78s/it]
+Continual predict:  22%|██▏       | 39/180 [01:30<01:07,  2.10it/s][SRT-ROUTE] #1000 mode=hard n_tasks=3 task_list=['task1290_xsum_summarization', 'task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
+[SRT-ROUTE]   Sample 0: dists=[198.8907, 198.903, 198.9009] argmin=0 pred=task1290_xsum_summarization
+[SRT-ROUTE] SRM metrics: {}
+Continual predict:  52%|█████▏    | 94/180 [02:39<01:13,  1.18it/s][SRT-ROUTE] #2000 mode=hard n_tasks=3 task_list=['task1290_xsum_summarization', 'task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
+[SRT-ROUTE]   Sample 0: dists=[34.4539, 34.4639, 34.3629] argmin=2 pred=task363_sst2_polarity_classification
+[SRT-ROUTE] SRM metrics: {}
+Continual predict:  82%|████████▏ | 148/180 [04:50<02:44,  5.15s/it][SRT-ROUTE] #3000 mode=hard n_tasks=3 task_list=['task1290_xsum_summarization', 'task1572_samsum_summary', 'task363_sst2_polarity_classification'] whiten=Yes
+[SRT-ROUTE]   Sample 0: dists=[83.159, 83.2, 83.1949] argmin=0 pred=task1290_xsum_summarization
+[SRT-ROUTE] SRM metrics: {}
+Continual predict: 100%|██████████| 180/180 [07:52<00:00,  2.63s/it]
+***** predict metrics *****
+  epoch                                                        =       15.0
+  predict_eval_rougeL                                          =    49.5743
+  predict_eval_rougeL_for_CL                                   =    49.5743
+  predict_eval_rougeL_for_task1290_xsum_summarization          =    31.3881
+  predict_eval_rougeL_for_task1572_samsum_summary              =    32.5927
+  predict_eval_rougeL_for_task363_sst2_polarity_classification =    63.7619
+  predict_exact_match                                          =    34.4444
+  predict_exact_match_for_CL                                   =    34.4444
+  predict_exact_match_for_task1290_xsum_summarization          =        0.0
+  predict_exact_match_for_task1572_samsum_summary              =        0.0
+  predict_exact_match_for_task363_sst2_polarity_classification =       62.0
+  predict_gen_len                                              =    15.3722
+  predict_global_step                                          =        480
+  predict_rouge1                                               =    52.5774
+  predict_rouge1_for_CL                                        =    52.5774
+  predict_rouge1_for_task1290_xsum_summarization               =    38.7882
+  predict_rouge1_for_task1572_samsum_summary                   =    38.2777
+  predict_rouge1_for_task363_sst2_polarity_classification      =    63.7619
+  predict_runtime                                              = 0:07:52.66
+  predict_samples                                              =        360
+  predict_samples_per_second                                   =      0.762
+  predict_steps_per_second                                     =      0.381
+[2026-04-25 10:10:07,544] [INFO] [launch.py:367:main] Process 1936 exits successfully.
+[Done] Task 3: saved → /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
+
+──────────────────────────────────────────────────
+TASK 4/15: task181_outcome_extraction
+OUTPUT:  /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/4-task181_outcome_extraction
+PREV LORA: /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights,/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification/saved_weights,/kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
+SRT PATH:  /kaggle/working/thienly-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/3-task1290_xsum_summarization/saved_weights
+──────────────────────────────────────────────────
