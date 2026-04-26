@@ -430,7 +430,7 @@ class SRTSGWITrainer(Trainer):
         sig = self.srt_router.add_task(
             task_id=task_id, h_train=h_train.float().cpu().numpy()
         )
-        print(f"  [SRT] Task '{task_id}': PaR={sig.par:.1f}, metric={sig.metric}, n={sig.n}")
+        print(f"  [SRT] Task '{task_id}': PaR={sig.par:.1f}, shrinkage={sig.shrinkage}, n={sig.n}")
 
     def _replace_attention_routing(self):
         """Wire SRT router into LlamaModel (self.model.model)."""
