@@ -223,7 +223,7 @@ class NearestCentroidRouter:
         self.device = device
         self.centroids = []
 
-    def add_task(self, embs):
+    def add_task(self, embs, task_name=None):
         self.centroids.append(embs.mean(axis=0))
 
     def route(self, h_batch):
@@ -243,7 +243,7 @@ class CosineNearestCentroidRouter:
         self.device = device
         self.centroids = []
 
-    def add_task(self, embs):
+    def add_task(self, embs, task_name=None):
         mu = embs.mean(0)
         self.centroids.append(mu / (np.linalg.norm(mu) + 1e-12))
 
@@ -733,7 +733,7 @@ def run_incremental_eval(train_embs_dict, test_embs_dict, task_order, args):
 
         # Add task to all routers
         for name, router in routers.items():
-            router.add_task(embs_train, task_name)
+            router.add_task(embs_train, task_name=task_name)
 
         # Log diagnostics
         for name, router in routers.items():
