@@ -115,6 +115,14 @@ def welford_pooled_update(
     if total <= 1:
         return mu_old, cov_old, n_old
 
+    # Align all tensors to mu_new's device before arithmetic
+    target_device = mu_new.device
+    if mu_old.device != target_device:
+        mu_old = mu_old.to(target_device)
+        cov_old = cov_old.to(target_device)
+    if cov_new.device != target_device:
+        cov_new = cov_new.to(target_device)
+
     mu_pool = (n_old * mu_old + n_new * mu_new) / total
     delta = mu_new - mu_old
     C = (n_old * n_new / total) * torch.outer(delta, delta)
@@ -374,18 +382,18 @@ class PooledMahalanobisRouter:
         self._delta = float(data.get("delta", [0.0])[0])
         self._n_pool = int(data.get("n_pool", [0])[0])
 
-        # Restore pooled stats
+        # Restore pooled stats to self.dev
         mu_p = data["mu_pool"]
         self._mu_pool_t = (
-            torch.from_numpy(mu_p).float() if mu_p.size > 0 else None
+            torch.from_numpy(mu_p).float().to(self.dev) if mu_p.size > 0 else None
         )
         sp = data["Sigma_pool"]
         self._Sigma_pool_t = (
-            torch.from_numpy(sp).float() if sp.size > 0 else None
+            torch.from_numpy(sp).float().to(self.dev) if sp.size > 0 else None
         )
         si = data.get("Sinv_pool", np.array([]))
         self._Sigma_inv_t = (
-            torch.from_numpy(si).float() if si.size > 0 else None
+            torch.from_numpy(si).float().to(self.dev) if si.size > 0 else None
         )
 
         # Restore centroids and n_tasks_list from signatures
