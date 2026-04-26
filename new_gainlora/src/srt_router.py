@@ -320,6 +320,62 @@ class PooledMahalanobisRouter:
         nearest_task = np.array([task_ids_ordered[i] for i in nearest_idx])
         return nearest_task, dists
 
+    def route_debug(self, h: np.ndarray) -> dict:
+        """
+        Route with full debug info: all distances, top-2 predictions, confidence.
+
+        Returns:
+            dict with keys: task_ids, dists, nearest_task, confidence_ratio,
+                            second_task, n_tasks, task_id_list
+        """
+        if h.ndim == 1:
+            h = h.reshape(1, -1)
+
+        n_sample, d_h = h.shape
+        T = len(self.centroids)
+
+        if T == 0:
+            raise RuntimeError("PooledMahalanobisRouter: no tasks registered.")
+
+        # Move to GPU
+        H = torch.from_numpy(h.astype(np.float32)).to(self.dev)
+        Sinv = self._Sigma_inv_t
+        dists = np.zeros((n_sample, T), dtype=np.float64)
+
+        for i, mu_t_np in enumerate(self.centroids):
+            mu_t_t = torch.from_numpy(mu_t_np.astype(np.float32)).to(self.dev)
+            diff = H - mu_t_t
+            diff_Sinv = diff @ Sinv
+            dists[:, i] = (diff * diff_Sinv).sum(dim=1).cpu().numpy()
+
+        del H
+        nearest_idx = np.argmin(dists, axis=1)
+        task_ids_ordered = list(self._signatures_by_id.keys())
+        nearest_task = np.array([task_ids_ordered[i] for i in nearest_idx])
+
+        # Confidence: ratio of 2nd-best distance to best distance
+        sorted_idx = np.argsort(dists, axis=1)
+        best_idx = sorted_idx[:, 0]
+        second_idx = sorted_idx[:, 1]
+        best_d = dists[np.arange(n_sample), best_idx]
+        second_d = dists[np.arange(n_sample), second_idx]
+        # Confidence = (second - first) / first = margin / nearest distance
+        with np.errstate(divide='ignore', invalid='ignore'):
+            conf = (second_d - best_d) / (best_d + 1e-10)
+            conf = np.where(np.isfinite(conf), conf, 999.0)
+
+        return {
+            "task_ids": nearest_task,
+            "dists": dists,
+            "nearest_task": nearest_task,
+            "second_task": np.array([task_ids_ordered[i] for i in second_idx]),
+            "best_dist": best_d,
+            "second_dist": second_d,
+            "confidence_ratio": conf,
+            "n_tasks": T,
+            "task_id_list": task_ids_ordered,
+        }
+
     @property
     def signatures(self) -> Dict[Union[int, str], TaskSignature]:
         """Dict of all task signatures, keyed by task_id."""
