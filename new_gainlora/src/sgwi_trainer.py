@@ -40,9 +40,7 @@ class SGWI_DualFisher_Trainer(SRT_Trainer):
         sgwi_mode: str = 'sgwi',        # 'sgwi', 'inflora', 'random', 'sgwi+inflora'
         lambda_emb: float = 0.0,         # Dual Fisher λ (0 = disabled)
         # SRT params (passed to SRT_Trainer)
-        srt_metric_mode='hard',
-        srt_shrink=True,
-        srt_shrink_factor=0.1,
+        srt_shrinkage='ridge',
         srt_max_emb_samples=500,
         srt_load_path=None,
         srt_skip_forward=False,
@@ -63,9 +61,7 @@ class SGWI_DualFisher_Trainer(SRT_Trainer):
             train_dataset=train_dataset,
             cur_task_id=cur_task_id,
             task_order=task_order,
-            srt_metric_mode=srt_metric_mode,
-            srt_shrink=srt_shrink,
-            srt_shrink_factor=srt_shrink_factor,
+            srt_shrinkage=srt_shrinkage,
             srt_max_emb_samples=srt_max_emb_samples,
             srt_load_path=srt_load_path,
             srt_skip_forward=srt_skip_forward,
@@ -84,7 +80,7 @@ class SGWI_DualFisher_Trainer(SRT_Trainer):
         self.theta_stars: Dict[int, Dict[str, torch.Tensor]] = {}
         self._current_task_mu = None  # cached for Dual Fisher
 
-        logger.info(f"[SGWI] mode={sgwi_mode}, lambda_emb={lambda_emb}, task_id={cur_task_id}")
+        logger.info(f"[SGWI] mode={sgwi_mode}, lambda_emb={lambda_emb}, srt_shrinkage={srt_shrinkage}, task_id={cur_task_id}")
 
     # =========================================================================
     # SGWI: Override get_reg_matrix

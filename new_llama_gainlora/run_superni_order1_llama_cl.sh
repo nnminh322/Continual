@@ -45,7 +45,7 @@ MAX_SOURCE_LENGTH=${MAX_SOURCE_LENGTH:-1024}
 MAX_TARGET_LENGTH=${MAX_TARGET_LENGTH:-50}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-50}
 MAX_TRAIN_SAMPLES=${MAX_TRAIN_SAMPLES:-}     # default: no cap; set e.g. 500 for quick runs
-SRT_METRIC_MODE=${SRT_METRIC_MODE:-"hard"}
+SRT_SHRINKAGE=${SRT_SHRINKAGE:-"ridge"}    # PooledMahalanobis shrinkage method
 SRT_MAX_EMB_SAMPLES=${SRT_MAX_EMB_SAMPLES:-200}  # 32GB VRAM safe (reduced from 500)
 
 # Parse extra flags (e.g. --no_sgwi)
@@ -139,7 +139,7 @@ for ((TASK_ID=0; TASK_ID<NUM_TASKS; TASK_ID++)); do
         --max_source_length      ${MAX_SOURCE_LENGTH} \
         --max_target_length      ${MAX_TARGET_LENGTH} \
         --max_new_tokens         ${MAX_NEW_TOKENS} \
-        --srt_metric_mode        ${SRT_METRIC_MODE} \
+        --srt_shrinkage          ${SRT_SHRINKAGE} \
         --srt_max_emb_samples    ${SRT_MAX_EMB_SAMPLES} \
         --use_srt_router \
         --bf16 \

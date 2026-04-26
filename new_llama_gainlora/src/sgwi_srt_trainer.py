@@ -82,22 +82,20 @@ class SRTSGWITrainer(Trainer):
     Trainer with SRT routing + optional SGWI warm-initialization.
 
     Extra constructor args vs Trainer:
-        cur_task_id       (int)   : 0-based index of current task in task_order
-        task_order        (list)  : full CL task sequence ['task1572_...', ...]
-        sgwi              (bool)  : enable SGWI warm-init (default False = full_lora)
-        srt_metric_mode   (str)   : 'hard' or 'dynamics'  (default 'hard')
-        srt_shrink        (bool)  : Ledoit-Wolf shrinkage  (default False)
-        srt_shrink_factor (float) : shrinkage intensity    (default 0.1)
-        srt_max_emb_samples (int) : max batches for embedding extraction (default 500)
-        srt_load_path     (str)   : dir containing srt_signatures.npz to load
-        srt_skip_forward  (bool)  : load pre-extracted embeddings from disk
+        cur_task_id         (int)  : 0-based index of current task in task_order
+        task_order          (list) : full CL task sequence ['task1572_...', ...]
+        sgwi                (bool) : enable SGWI warm-init (default False = full_lora)
+        srt_shrinkage       (str)  : 'ridge' | 'oas' | 'lw' | 'none'  (default 'ridge')
+        srt_max_emb_samples (int)  : max batches for embedding extraction (default 500)
+        srt_load_path       (str)  : dir containing srt_signatures.npz to load
+        srt_skip_forward    (bool) : load pre-extracted embeddings from disk
 
         # In-training evaluation (mirrors T5 load_best_model_at_end):
-        dev_samples       (list)  : raw dev sample dicts for RougeL eval during training
-        tokenizer                 : tokenizer for encoding prompts + decoding preds
-        max_source_length (int)   : truncation length for prompts
-        max_new_tokens    (int)   : max tokens to generate per example
-        eval_batch_size   (int)   : batch size for generation during evaluate()
+        dev_samples         (list) : raw dev sample dicts for RougeL eval during training
+        tokenizer                   : tokenizer for encoding prompts + decoding preds
+        max_source_length   (int)  : truncation length for prompts
+        max_new_tokens      (int)  : max tokens to generate per example
+        eval_batch_size     (int)  : batch size for generation during evaluate()
     """
 
     def __init__(
@@ -108,9 +106,7 @@ class SRTSGWITrainer(Trainer):
         cur_task_id: int,
         task_order: List[str],
         sgwi: bool = False,
-        srt_metric_mode: str = "hard",
-        srt_shrink: bool = False,
-        srt_shrink_factor: float = 0.1,
+        srt_shrinkage: str = "ridge",
         srt_max_emb_samples: int = 500,
         srt_load_path: Optional[str] = None,
         srt_skip_forward: bool = False,
@@ -126,9 +122,7 @@ class SRTSGWITrainer(Trainer):
         self.cur_task_id = cur_task_id
         self.task_order = task_order
         self.sgwi = sgwi
-        self.srt_metric_mode = srt_metric_mode
-        self.srt_shrink = srt_shrink
-        self.srt_shrink_factor = srt_shrink_factor
+        self.srt_shrinkage = srt_shrinkage
         self.srt_max_emb_samples = srt_max_emb_samples
         self.srt_load_path = srt_load_path
         self.srt_skip_forward = srt_skip_forward
@@ -302,11 +296,7 @@ class SRTSGWITrainer(Trainer):
     def _srt_init(self):
         if self.srt_router is not None:
             return
-        self.srt_router = SRTRouter(
-            srt_metric_mode=self.srt_metric_mode,
-            use_shrink=self.srt_shrink,
-            shrink_factor=self.srt_shrink_factor,
-        )
+        self.srt_router = SRTRouter(shrinkage=self.srt_shrinkage)
         if self.srt_load_path is not None:
             self.load_srt_signatures(self.srt_load_path, wire_model=True)
 
@@ -501,23 +491,22 @@ class SRTSGWITrainer(Trainer):
         current_mu = h_train.mean(dim=0).cpu().numpy()
 
         distances: Dict = {}
+        # Use PooledMahalanobis Sinv for SGWI weight computation
+        # _impl._Sigma_inv_t holds the shrunk pooled covariance inverse
+        impl = getattr(self.srt_router, "_impl", None)
+        Sinv_np = None
+        if impl is not None:
+            Sinv_t = getattr(impl, "_Sigma_inv_t", None)
+            if Sinv_t is not None:
+                Sinv_np = Sinv_t.cpu().numpy()
+
         for task_id, sig in self.srt_router.signatures.items():
             diff = current_mu - sig.mu
-            # Use pooled inverse covariance if available, else L2
-            # Use _Sigma_pool (the actual attr on SRTRouter, not the non-existent pooled_cov).
-            # NOTE: T5 sgwi_trainer.py also checks hasattr(srt_router,'pooled_cov') which is
-            # always False → both T5 and LLaMA fall back to L2. Accessing _Sigma_pool directly
-            # here is the correct fix for both.
-            sigma_pool = getattr(self.srt_router, "_Sigma_pool", None)
-            if sigma_pool is not None:
-                try:
-                    cov_inv = np.linalg.inv(
-                        sigma_pool + 1e-6 * np.eye(len(diff))
-                    )
-                    d = float(diff @ cov_inv @ diff)
-                except np.linalg.LinAlgError:
-                    d = float(np.sum(diff ** 2))
+            if Sinv_np is not None:
+                # Pooled Mahalanobis distance
+                d = float(diff @ Sinv_np @ diff)
             else:
+                # Fallback: L2 distance
                 d = float(np.sum(diff ** 2))
             distances[task_id] = d
 

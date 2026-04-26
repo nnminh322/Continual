@@ -314,21 +314,15 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         default=True,
         metadata={"help": "Enable SRT router: non-parametric routing via {μ_t, Σ_t} signatures."},
     )
-    srt_metric_mode: Optional[str] = field(
-        default='hard',
+    srt_shrinkage: Optional[str] = field(
+        default='ridge',
         metadata={
-            "help": "SRT routing mode: "
-                    "'hard'     = ZCA whitening + L2 (matches routing_analysis experiment), "
-                    "'dynamics' = SRM metric selection (matches contribution_UNIFIED)."
+            "help": "PooledMahalanobis shrinkage method: "
+                    "'ridge' = analytical δ*=d/(n+d) (recommended), "
+                    "'oas'   = Oracle-Approximating (Chen et al., 2010), "
+                    "'lw'    = Ledoit-Wolf (2004), "
+                    "'none'  = no shrinkage."
         },
-    )
-    srt_shrink: Optional[bool] = field(
-        default=False,   # FALSE for hard mode: raw covariance matches routing_analysis experiment
-        metadata={"help": "Apply Ledoit-Wolf shrinkage to covariance estimation."},
-    )
-    srt_shrink_factor: Optional[float] = field(
-        default=0.1,
-        metadata={"help": "Ledoit-Wolf shrinkage intensity."},
     )
     srt_max_emb_samples: Optional[int] = field(
         default=500,
@@ -938,9 +932,7 @@ def main():
             data_collator=data_collator,
             compute_metrics=compute_rouge_metrics,
             callbacks=[DenserEvalCallback] if training_args.denser_evaluation else None,
-            srt_metric_mode=training_args.srt_metric_mode,
-            srt_shrink=training_args.srt_shrink,
-            srt_shrink_factor=training_args.srt_shrink_factor,
+            srt_shrinkage=training_args.srt_shrinkage,
             srt_max_emb_samples=training_args.srt_max_emb_samples,
             srt_load_path=training_args.srt_load_path,
             srt_skip_forward=training_args.srt_skip_forward,

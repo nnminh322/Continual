@@ -602,16 +602,11 @@ def parse_args() -> argparse.Namespace:
     # ── SRT ────────────────────────────────────────────────────────────────
     parser.add_argument("--use_srt_router",     action="store_true", default=True)
     parser.add_argument("--no_srt_router",      dest="use_srt_router", action="store_false")
-    parser.add_argument("--srt_metric_mode",    type=str, default="hard",
-                        choices=["hard", "dynamics"])
-    parser.add_argument("--srt_shrink",         action="store_true", default=True,
-                        help="Apply Ledoit-Wolf shrinkage to individual task covariances (default: True, matching Shrinkage_ReWhiten reference)")
-    parser.add_argument("--no_srt_shrink",      dest="srt_shrink", action="store_false",
-                        help="Disable Ledoit-Wolf shrinkage")
-    parser.add_argument("--srt_shrink_factor",  type=float, default=0.1)
+    parser.add_argument("--srt_shrinkage",      type=str, default="ridge",
+                        choices=["ridge", "oas", "lw", "none"],
+                        help="PooledMahalanobis shrinkage method (default: ridge)")
     parser.add_argument("--srt_max_emb_samples",type=int,   default=500)
     parser.add_argument("--srt_skip_forward",   action="store_true", default=False)
-    parser.add_argument("--srt_zca_buffer_size", type=int, default=800)
 
     # ── SGWI ───────────────────────────────────────────────────────────────
     parser.add_argument("--sgwi", action="store_true", default=True,
@@ -862,13 +857,10 @@ def main() -> None:
         cur_task_id        = cur_task_id,
         task_order         = task_order,
         sgwi               = args.sgwi,
-        srt_metric_mode    = args.srt_metric_mode,
-        srt_shrink         = args.srt_shrink,
-        srt_shrink_factor  = args.srt_shrink_factor,
+        srt_shrinkage      = args.srt_shrinkage,
         srt_max_emb_samples= args.srt_max_emb_samples,
         srt_load_path      = args.srt_load_path,
         srt_skip_forward   = args.srt_skip_forward,
-        srt_zca_buffer_size=args.srt_zca_buffer_size,
         # in-training eval for best-model selection (mirrors T5 load_best_model_at_end)
         dev_samples        = dev_samples,
         tokenizer          = tokenizer,

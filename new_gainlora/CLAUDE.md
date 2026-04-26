@@ -15,11 +15,15 @@ This is a Continual Learning (CL) research project implementing **GainLoRA + SRT
 - **CRITICAL BUG**: `reset_parameters()` is bypassed by `no_init_weights=True` in `from_pretrained()` → `lora_A` stays zeros. Fix at run_t5.py lines 550–555.
 
 ### SRT Router (srt_router.py)
-- Non-parametric router using {μ_t, Σ_t} signatures from **frozen backbone** embeddings
-- Two modes: `hard` (ZCA whitening + L2, ~99.996% accuracy) and `dynamics` (SRM metric selection)
-- ZCA is fitted **ONCE** on pooled covariance — never refitted incrementally
-- `SRTRouter.add_task()` → computes stats, re-shrinks previous tasks, whitens all tasks
-- `SRTRouter.route()` → applies whitening, L2 distance to each centroid, returns argmin
+- **PooledMahalanobis_RIDGE** (default): d_t(h) = (h-μ_t)ᵀ Σ_pool⁻¹ (h-μ_t)
+  - Welford-Hart incremental pooled covariance (zero-rehearsal compliant)
+  - Ridge shrinkage: δ* = d/(n+d) — analytical optimal for n≈d regime
+  - GPU-accelerated via torch.linalg.eigh on CUDA
+  - Achieves 97.51% final / 97.17% avg routing accuracy on SuperNI
+- Alternative shrinkage: `--srt_shrinkage ridge|oas|lw|none`
+- All tasks share the same Σ_pool⁻¹ (SRT Theorem 4: shared-covariance Gaussians → pooled Mahalanobis is Bayes-optimal)
+- `SRTRouter.add_task()` → Welford-Hart update → Ridge shrink → eigendecomposition → store
+- `SRTRouter.route()` → Pooled Mahalanobis distance to each centroid → argmin
 
 ### Train-Inference Mismatch Bug
 **Location**: `t5_gainlora_inflora.py` lines 1335–1393
@@ -44,8 +48,8 @@ yelp → amazon → mnli → cb → copa → qqp → rte → imdb → sst2 → d
 
 ### Run SRT LLaMA training (HPC)
 ```bash
-# Auto-detect GPU, use fp16 + grad_ckpt for 32GB cards
-bash gen_script_superni_order1_llama_srt.sh meta-llama/Llama-2-7b-hf
+# LLaMA: SRT with PooledMahalanobis_RIDGE (default, --srt_shrinkage ridge)
+cd new_llama_gainlora && bash run_superni_order1_llama_cl.sh
 
 # Explicit GPU override (use before MODEL_PATH)
 bash gen_script_superni_order1_llama_srt.sh --gpu 5090 meta-llama/Llama-2-7b-hf   # 32GB → fp16 + grad_ckpt, BSZ=2 GA=8
@@ -58,8 +62,10 @@ bash gen_script_superni_order1_llama_srt.sh --gpu 5090 --dual_fisher True --lamb
 
 ### Run SRT T5 training (HPC)
 ```bash
-# generates gen_script_long_order3_t5_srt_hard.sh
-python generate_srt_order3.py hard
+# generates gen_script_long_order3_t5_srt_ridge.sh (PooledMahalanobis_RIDGE)
+python generate_srt_order3.py ridge
+# all modes: ridge, oas, lw, none
+python generate_srt_order3.py all
 ```
 
 ### Run Contri2 isolated tests
@@ -104,5 +110,8 @@ new_gainlora/
 | SRT routing override | `t5_gainlora_inflora.py` | 1335–1393 |
 | cal_attention (soft routing) | `t5_gainlora_inflora.py` | 1201–1230 |
 | agg_lora_states (blending) | `t5_gainlora_inflora.py` | 639–658 |
-| SRT signature extraction | `cl_trainer_srt.py` | 198–256 |
+| SRT PooledMahalanobis core | `srt_router.py` | PooledMahalanobisRouter class |
+| Ridge shrinkage (δ*=d/(n+d)) | `srt_router.py` | `_shrink_ridge()` |
+| Welford-Hart pooled update | `srt_router.py` | `welford_pooled_update()` |
+| SRT signature extraction | `cl_trainer_srt.py` | `_extract_task_embeddings()` |
 | SGWI init (NTI/SFI) | `contri2_analysis/contri2_utils.py` | _init_nti, _init_sfi |

@@ -49,9 +49,7 @@ class SGWI_DualFisher_LLaMA_Trainer(GainLoRA_OLoRA_Trainer):
         sgwi_mode: str = 'full_lora',
         lambda_emb: float = 0.0,
         # SRT params
-        srt_metric_mode: str = 'hard',
-        srt_shrink: bool = True,
-        srt_shrink_factor: float = 0.1,
+        srt_shrinkage: str = "ridge",
         srt_max_emb_samples: int = 500,
         srt_load_path: Optional[str] = None,
         srt_skip_forward: bool = False,
@@ -73,9 +71,7 @@ class SGWI_DualFisher_LLaMA_Trainer(GainLoRA_OLoRA_Trainer):
         )
 
         # ── SRT state ──
-        self.srt_metric_mode = srt_metric_mode
-        self.srt_shrink = srt_shrink
-        self.srt_shrink_factor = srt_shrink_factor
+        self.srt_shrinkage = srt_shrinkage
         self.srt_max_emb_samples = srt_max_emb_samples
         self.srt_load_path = srt_load_path
         self.srt_skip_forward = srt_skip_forward
@@ -95,7 +91,7 @@ class SGWI_DualFisher_LLaMA_Trainer(GainLoRA_OLoRA_Trainer):
             self._load_theta_stars(self.srt_load_path)
 
         print(f"[SGWI-LLaMA] mode={sgwi_mode}, lambda_emb={lambda_emb}, "
-              f"srt_mode={srt_metric_mode}, cur_task={cur_task_id}")
+              f"srt_shrinkage={srt_shrinkage}, cur_task={cur_task_id}")
 
     # ─────────────────────────────────────────────────────────────────────────
     #  MODEL CORE ACCESSOR (LLaMA = self.model.model)
@@ -111,11 +107,7 @@ class SGWI_DualFisher_LLaMA_Trainer(GainLoRA_OLoRA_Trainer):
     def _srt_init(self):
         if self.srt_router is not None:
             return
-        self.srt_router = SRTRouter(
-            srt_metric_mode=self.srt_metric_mode,
-            use_shrink=self.srt_shrink,
-            shrink_factor=self.srt_shrink_factor,
-        )
+        self.srt_router = SRTRouter(shrinkage=self.srt_shrinkage)
         if self.srt_load_path is not None:
             self.load_srt_signatures(self.srt_load_path, wire_model=True)
 

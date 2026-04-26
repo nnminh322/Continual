@@ -1,20 +1,23 @@
 """
-SRT Router: Statistical Routing Theory implementation.
+SRT Router: Statistical Routing Theory with Pooled Mahalanobis Distance.
 
-Two modes:
-  --srt_metric_mode hard:
-    ZCA whitening + L2 (equivalent to Pooled Mahalanobis per Theorem 4).
-    ZCA is REFIT every add_task() from updated pooled covariance with
-    Ledoit-Wolf shrinkage, then ALL centroids are re-whitened.
-    Single fixed metric → argmin is always valid.
+Core principle (SRT Theorem 4):
+  d_t(h) = (h - μ_t)ᵀ Σ_pool⁻¹ (h - μ_t)
 
-  --srt_metric_mode dynamics:
-    No whitening. SRM global metric selection on synthetic data.
-    Bug fixed: SRM runs AFTER add_task so ALL tasks get SRM-assigned metric.
-    → All tasks use same metric → argmin is valid.
+  PooledMahalanobis is Bayes-optimal for discriminating between tasks whose
+  embeddings follow shared-covariance Gaussians.
 
-Zero-rehearsal compliant: only sufficient statistics, no raw data.
+Shrinkage (critical for n/d << 1):
+  Ridge: δ* = d / (n + d) — analytical optimal for n≈d regime in CL.
+  No data-dependent estimation needed. No ZCA. No buffer waiting.
+
+Zero-rehearsal compliant: only sufficient statistics (Σ_pool, μ_pool, n_pool).
+Zero-drift: no learnable parameters.
+
+GPU-accelerated via torch.linalg.eigh on CUDA.
 """
+
+from __future__ import annotations
 
 import math
 import numpy as np
@@ -23,537 +26,166 @@ from typing import Dict, List, Tuple, Optional, Union
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  METRICS
+#  CUDA SUPPORT
 # ─────────────────────────────────────────────────────────────────────────────
 
-def metric_l2(
-    h: np.ndarray,    # (n, d) or (d,)
-    mu: np.ndarray,
-) -> np.ndarray:
-    """L2 distance from centroid. Use when isotropic (PaR ≈ d)."""
-    if h.ndim == 1:
-        h = h.reshape(1, -1)
-    diff = h - mu
-    return np.sqrt(np.einsum('nd,nd->n', diff, diff))
+HAS_CUDA = torch.cuda.is_available()
+DEVICE_DEFAULT = "cuda" if HAS_CUDA else "cpu"
 
 
-def metric_mahalanobis(
-    h: np.ndarray,
-    mu: np.ndarray,
-    Sinv: np.ndarray,
-) -> np.ndarray:
-    """Mahalanobis distance. Use when anisotropic (PaR ≪ d)."""
-    if h.ndim == 1:
-        h = h.reshape(1, -1)
-    diff = h - mu
-    return np.einsum('nd,dg,ng->n', diff, Sinv, diff)
+# ─────────────────────────────────────────────────────────────────────────────
+#  SHRINKAGE FUNCTIONS  (analytical, no CV needed)
+# ─────────────────────────────────────────────────────────────────────────────
 
-
-def metric_psr(
-    h: np.ndarray,
-    mu: np.ndarray,
-    eigvecs: np.ndarray,   # (d, k)
-    eigvals: np.ndarray,   # (k,)
-    d_total: int,
-) -> np.ndarray:
+def _shrink_ridge(cov: torch.Tensor, n: int, d: int) -> Tuple[torch.Tensor, float]:
     """
-    Probabilistic Subspace Routing (PSR) metric from C1 §3.3.
+    Analytical Ridge shrinkage: δ* = d / (n + d).
 
-    d_PSR(h, t) = ||U_tᵀ(h - μ_t)||² + (r/(d-r)) · ||(I - U_t U_tᵀ)(h - μ_t)||²
+    Best for the n≈d regime in continual learning. Derived from
+    Marchenko-Pastur + Claude Opus 4.6 MSE under Frobenius norm.
 
-    Use when low-rank anisotropic (PaR ≪ d, effective dims low).
+    δ* converges to:
+      n/d → 0  → δ* → 1  (dominantly regularized → near isotropic)
+      n/d → 1  → δ* → 0.5
+      n/d → ∞  → δ* → 0  (pure sample covariance)
     """
-    if h.ndim == 1:
-        h = h.reshape(1, -1)
-    diff = h - mu          # (n, d)
-
-    proj = diff @ eigvecs                       # (n, k)
-    in_sub = np.sum(proj ** 2, axis=-1)         # (n,)
-
-    v_norm_sq = np.einsum('nd,nd->n', diff, diff)             # (n,)
-    out_sub = v_norm_sq - in_sub                               # (n,)
-
-    k = eigvecs.shape[1]
-    scale = k / max(d_total - k, 1)
-    return in_sub + scale * out_sub
+    delta = d / (n + d + 1e-10)
+    tr_S = torch.trace(cov).item()
+    target = (tr_S / d) * torch.eye(d, device=cov.device, dtype=cov.dtype)
+    return (1 - delta) * cov + delta * target, float(delta)
 
 
-def pinv_ridge(Sigma: np.ndarray, rcond: float = 1e-6) -> np.ndarray:
-    """Stable pseudo-inverse of a symmetric covariance matrix."""
-    eigvals, eigvecs = np.linalg.eigh(Sigma)
-    eigvals = np.maximum(eigvals, rcond * np.max(eigvals))
-    idx = np.argsort(eigvals)[::-1]
-    eigvals = eigvals[idx]
-    eigvecs = eigvecs[:, idx]
-    return eigvecs @ np.diag(1.0 / eigvals) @ eigvecs.T
+def _shrink_oas(cov: torch.Tensor, n: int, d: int) -> Tuple[torch.Tensor, float]:
+    """Oracle-Approximating Shrinkage (Chen et al., 2010). Closed-form."""
+    tr_S = torch.trace(cov).item()
+    tr_S2 = (cov ** 2).sum().item()
+    rho_hat = tr_S2 / (tr_S ** 2 + 1e-10)
+    delta = min(1.0, max(0.0, rho_hat / (n + 1 - 2 / d)))
+    target = (tr_S / d) * torch.eye(d, device=cov.device, dtype=cov.dtype)
+    return (1 - delta) * cov + delta * target, float(delta)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  ZCA WHITENING
-# ─────────────────────────────────────────────────────────────────────────────
-
-def compute_whitening(task_embs: Dict[int, np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Compute ZCA whitening transform from pooled embeddings.
-
-    ZCA: W such that (h - μ)ᵀ Wᵀ W (h - μ) is isotropic.
-
-    Fit on ALL task embeddings pooled together (per experiment design
-    in compare_routing.py: fit on train, apply to test).
-
-    Returns: (mu_global, W_zca) where W_zca @ (h - mu_global) whitens h.
-    """
-    all_embs = np.vstack(list(task_embs.values()))
-    mu_global = all_embs.mean(0)
-    Xc = all_embs - mu_global
-    cov_global = np.cov(Xc, rowvar=False)
-    eigvals, eigvecs = np.linalg.eigh(cov_global)
-    eigvals = np.maximum(eigvals, 1e-8)
-    idx = np.argsort(eigvals)[::-1]
-    eigvals = eigvals[idx]
-    eigvecs = eigvecs[:, idx]
-    W_zca = eigvecs @ np.diag(1.0 / np.sqrt(eigvals)) @ eigvecs.T
-    return mu_global, W_zca
+def _shrink_lw(cov: torch.Tensor, n: int, d: int) -> Tuple[torch.Tensor, float]:
+    """Ledoit-Wolf Oracle Linear Shrinkage (2004). Analytical δ."""
+    tr_S = torch.trace(cov).item()
+    sum_sq = (cov ** 2).sum().item()
+    diag_sq = (torch.diag(cov) ** 2).sum().item()
+    denom = n * (diag_sq - (tr_S / d) ** 2)
+    if abs(denom) < 1e-10:
+        delta = 1.0
+    else:
+        numerator = sum_sq - tr_S ** 2 / d
+        delta = max(0.0, min(1.0, numerator / denom))
+    target = (tr_S / d) * torch.eye(d, device=cov.device, dtype=cov.dtype)
+    return (1 - delta) * cov + delta * target, float(delta)
 
 
-def apply_whitening(
-    h: np.ndarray,
-    mu_global: np.ndarray,
-    W_zca: np.ndarray,
-) -> np.ndarray:
-    """Apply ZCA whitening: h_whitened = (h - mu_global) @ W_zca.T."""
-    if h.ndim == 1:
-        h = h.reshape(1, -1)
-    return (h - mu_global) @ W_zca.T
+def _shrink_none(cov: torch.Tensor, n: int, d: int) -> Tuple[torch.Tensor, float]:
+    """No shrinkage (raw sample covariance)."""
+    return cov, 0.0
+
+
+_SHRINK_METHODS = {
+    "ridge": _shrink_ridge,
+    "oas":   _shrink_oas,
+    "lw":    _shrink_lw,
+    "none":  _shrink_none,
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  PARTICIPATION RATIO
+#  WELFORD-HART INCREMENTAL POOLED UPDATE
 # ─────────────────────────────────────────────────────────────────────────────
 
-def participation_ratio(Sigma: np.ndarray) -> float:
-    """PaR = (Σλ)² / Σλ² ∈ [1, d]."""
-    eigvals = np.linalg.eigvalsh(Sigma)
-    eigvals = np.maximum(eigvals, 1e-10)
-    return (eigvals.sum() ** 2) / (eigvals ** 2).sum()
-
-
-def ledoit_wolf_shrinkage(Sigma: np.ndarray, factor: float = 0.1) -> np.ndarray:
-    """
-    Ledoit-Wolf shrinkage toward scalar identity.
-
-    Σ_shrunk = (1 - δ) · Σ + δ · λ̄ · I
-    """
-    d = Sigma.shape[0]
-    trace = np.trace(Sigma)
-    sigma_mean = trace / d
-    target = sigma_mean * np.eye(d)
-    return (1 - factor) * Sigma + factor * target
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  POOLED COVARIANCE UPDATE  (Welford–Hart)
-# ─────────────────────────────────────────────────────────────────────────────
-
-def update_pooled_cov(
-    mu_old: np.ndarray,
-    cov_old: np.ndarray,
+def welford_pooled_update(
+    mu_old: torch.Tensor,
+    cov_old: torch.Tensor,
     n_old: int,
-    mu_new: np.ndarray,
-    cov_new: np.ndarray,
+    mu_new: torch.Tensor,
+    cov_new: torch.Tensor,
     n_new: int,
-) -> Tuple[np.ndarray, np.ndarray, int]:
+) -> Tuple[torch.Tensor, torch.Tensor, int]:
     """
-    Welford–Hart compact update for pooled mean and covariance.
+    Welford-Hart compact update for pooled mean and covariance.
+
+    Maintains running Σ_pool across tasks without storing raw data.
+    Zero-rehearsal compliant.
     """
     total = n_old + n_new
     if total <= 1:
-        raise ValueError(f"total={total} must be > 1")
+        return mu_old, cov_old, n_old
 
     mu_pool = (n_old * mu_old + n_new * mu_new) / total
-
     delta = mu_new - mu_old
-    C = (n_old * n_new / total) * np.outer(delta, delta)
-
+    C = (n_old * n_new / total) * torch.outer(delta, delta)
     cov_pool = (
         (n_old - 1) * cov_old
         + (n_new - 1) * cov_new
         + C
-    ) / (total - 1)
+    ) / max(total - 1, 1)
 
     return mu_pool, cov_pool, total
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  POOLED SHRINKAGE  (Theorem 5)
+#  POOLED MAHALANOBIS ROUTER
 # ─────────────────────────────────────────────────────────────────────────────
 
-def pooled_shrinkage_target(
-    Sigma_t: np.ndarray,
-    Sigma_pool: np.ndarray,
-    n_t: int,
-    n_pool: int,
-    alpha_min: float = 0.01,
-    alpha_max: float = 0.99,
-) -> Tuple[np.ndarray, float]:
+class PooledMahalanobisRouter:
     """
-    Compute optimal pooled shrinkage target for task t (Theorem 5 from C1).
+    SRT Theorem 4: Pooled Mahalanobis Distance with analytical shrinkage.
 
-    Optimal:  Σ_t* = (1 - α_t*) Σ̂_t + α_t* Σ̂_pool
-    where α_t* ≈ n_pool / (n_pool + n_t)
-    """
-    alpha_opt = n_pool / (n_pool + n_t)
-    alpha_opt = max(alpha_min, min(alpha_max, alpha_opt))
-    Sigma_shrunk = (1 - alpha_opt) * Sigma_t + alpha_opt * Sigma_pool
-    return Sigma_shrunk, alpha_opt
+    Routing metric:
+      d_t(h) = (h - μ_t)ᵀ Σ_pool⁻¹ (h - μ_t)
 
+    Pipeline per task:
+      1. Extract embeddings h ~ N(μ_t, Σ_t) from frozen backbone
+      2. Compute sufficient stats: μ_t, Σ_t, n_t
+      3. Welford-Hart update: Σ_pool ← merge(Σ_pool, Σ_t)
+      4. Ridge shrink Σ_pool: Σ_shrunk = (1-δ*)Σ_pool + δ*·(tr/ d)·I
+      5. Compute Σ_shrunk⁻¹ via torch.linalg.eigh on GPU
+      6. Store {μ_t, Σ_shrunk⁻¹} as task signature
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  SRM METRIC SELECTION  (Theorem 7 — dynamics mode only)
-# ─────────────────────────────────────────────────────────────────────────────
+    Inference:
+      For each test embedding h_test:
+        For each task t: d_t = (h_test - μ_t)ᵀ Σ_pool⁻¹ (h_test - μ_t)
+        Return argmin d_t
 
-def srm_metric_selection(
-    signatures: Dict[int, 'TaskSignature'],
-    n_synthetic: int = 500,
-    random_seed: int = 42,
-) -> Tuple[Dict[int, str], Dict[str, float]]:
-    """
-    Structural Risk Minimization (SRM) from C1 Theorem 7.
-
-    Generates synthetic validation points from each task's Gaussian model,
-    evaluates each metric globally, selects the metric minimizing routing error.
-
-    CRITICAL FIX: SRM must run AFTER all tasks (including current) are added
-    to signatures. Otherwise current task uses PaR fallback → mixed metrics →
-    argmin across incomparable distances → misroute.
-
-    Returns: ({task_id: metric}, {metric_name: error_rate})
-    """
-    rng = np.random.RandomState(random_seed)
-    task_list = sorted(signatures.keys())
-    T = len(task_list)
-
-    if T < 2:
-        return {t: 'l2' for t in task_list}, {}
-
-    # Generate synthetic validation data from each task
-    h_val = []
-    labels = []
-    n_per = n_synthetic // T
-
-    for t_id in task_list:
-        sig = signatures[t_id]
-        L = np.linalg.cholesky(sig.Sigma + 1e-6 * np.eye(sig.d))
-        z = rng.randn(n_per, sig.d)
-        h_syn = sig.mu + (L @ z.T).T
-        h_val.append(h_syn)
-        labels.extend([t_id] * n_per)
-
-    h_val = np.vstack(h_val)
-    labels = np.array(labels)
-
-    # Evaluate each metric globally
-    errors = {}
-    for metric_name in ['l2', 'mahalanobis', 'psr']:
-        n_correct = 0
-        for i, h_i in enumerate(h_val):
-            true_t = labels[i]
-            best_t = None
-            best_dist = np.inf
-            for t_id in task_list:
-                sig = signatures[t_id]
-                if metric_name == 'l2':
-                    d = metric_l2(h_i, sig.mu)
-                elif metric_name == 'mahalanobis':
-                    d = metric_mahalanobis(h_i, sig.mu, sig.Sinv)
-                else:  # psr
-                    k = max(1, int(np.sum(sig.eigvals > 1e-6 * sig.eigvals[0])))
-                    d = metric_psr(h_i, sig.mu, sig.eigvecs[:, :k], sig.eigvals[:k], sig.d)
-
-                if d < best_dist:
-                    best_dist = d
-                    best_t = t_id
-
-            if best_t == true_t:
-                n_correct += 1
-
-        errors[metric_name] = 1.0 - n_correct / len(labels)
-
-    # Global selection: one metric for ALL tasks
-    best_metric = min(errors, key=errors.get)
-    print(f"  [SRM] Routing errors: {errors}, selected: {best_metric}")
-
-    # Same metric for all tasks
-    return {t_id: best_metric for t_id in task_list}, errors
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  TASK SIGNATURE
-# ─────────────────────────────────────────────────────────────────────────────
-
-class TaskSignature:
-    """
-    Statistical signature for one task.
-    Stores: μ_t, Σ_t, n_t, eigenvalues, eigenvectors, metric type.
-    Zero-rehearsal compliant: only sufficient statistics, no raw data.
+    Args:
+        shrinkage: 'ridge' | 'oas' | 'lw' | 'none' (default: 'ridge')
+        device: 'cuda' | 'cpu' (default: auto-detect)
     """
 
     def __init__(
         self,
-        task_id: Union[int, str],
-        mu: np.ndarray,
-        Sigma: np.ndarray,
-        n: int,
-        metric: str = 'l2',
-        alpha: float = 0.0,
-        Sigma_raw: Optional[np.ndarray] = None,
-        h_train: Optional[np.ndarray] = None,  # kept for backward compat on load; IGNORED
-        mu_raw: Optional[np.ndarray] = None,
+        shrinkage: str = "ridge",
+        device: Optional[str] = None,
     ):
-        self.task_id = task_id
-        self.mu = mu.astype(np.float64)
-        self.d = mu.shape[0]
-        self.Sigma_raw = (Sigma_raw if Sigma_raw is not None else Sigma).astype(np.float64)
-        self.Sigma = Sigma.astype(np.float64)
-        self.n = n
-        self.alpha = alpha
-        self.mu_raw = mu_raw.astype(np.float64) if mu_raw is not None else mu.astype(np.float64).copy()
-        self._metric = metric
+        assert shrinkage in _SHRINK_METHODS, f"Unknown shrinkage: {shrinkage}"
+        self.shrinkage = shrinkage
+        self.shrink_fn = _SHRINK_METHODS[shrinkage]
+        self.device = device or DEVICE_DEFAULT
+        self.dev = torch.device(self.device)
 
-        # Cached decompositions
-        self._eigvals: Optional[np.ndarray] = None
-        self._eigvecs: Optional[np.ndarray] = None
-        self._Sinv: Optional[np.ndarray] = None
-        self._par: Optional[float] = None
+        # Per-task centroids (numpy, for routing)
+        self.centroids: List[np.ndarray] = []
+        self.n_tasks_list: List[int] = []
+        # Signatures keyed by task_id
+        self._signatures_by_id: Dict[Union[int, str], TaskSignature] = {}
 
-    @property
-    def eigvals(self) -> np.ndarray:
-        if self._eigvals is None:
-            self._eigvals, self._eigvecs = np.linalg.eigh(self.Sigma)
-            self._eigvals = np.maximum(self._eigvals, 1e-10)
-            idx = np.argsort(self._eigvals)[::-1]
-            self._eigvals = self._eigvals[idx]
-            self._eigvecs = self._eigvecs[:, idx]
-        return self._eigvals
-
-    @property
-    def eigvecs(self) -> np.ndarray:
-        if self._eigvecs is None:
-            _ = self.eigvals
-        return self._eigvecs
-
-    @property
-    def Sinv(self) -> np.ndarray:
-        if self._Sinv is None:
-            self._Sinv = pinv_ridge(self.Sigma)
-        return self._Sinv
-
-    @property
-    def par(self) -> float:
-        if self._par is None:
-            self._par = participation_ratio(self.Sigma)
-        return self._par
-
-    @property
-    def metric(self) -> str:
-        return self._metric
-
-    def reshrink(self, Sigma_pool: np.ndarray, n_pool: int, alpha: float):
-        """
-        Re-shrink toward pooled covariance using raw Σ as base
-        (to avoid compounding shrinkage across re-shrink rounds).
-        """
-        self.alpha = alpha
-        self.Sigma = (1 - alpha) * self.Sigma_raw + alpha * Sigma_pool
-        self.Sigma = self.Sigma.astype(np.float64)
-        self._eigvals = None
-        self._eigvecs = None
-        self._Sinv = None
-        self._par = None
-
-    def distance(self, h: np.ndarray) -> np.ndarray:
-        """
-        Compute distance from h to this task's centroid using this task's metric.
-        """
-        if h.ndim == 1:
-            h = h.reshape(1, -1)
-
-        m = self.metric
-        if m == 'l2':
-            return metric_l2(h, self.mu)
-        elif m == 'mahalanobis':
-            return metric_mahalanobis(h, self.mu, self.Sinv)
-        elif m == 'psr':
-            k = max(1, int(np.sum(self.eigvals > 1e-6 * self.eigvals[0])))
-            return metric_psr(h, self.mu, self.eigvecs[:, :k], self.eigvals[:k], self.d)
-        else:
-            # Fallback: PaR-based
-            if self.par >= 0.9 * self.d:
-                return metric_l2(h, self.mu)
-            elif self.par >= 0.3 * self.d:
-                return metric_mahalanobis(h, self.mu, self.Sinv)
-            else:
-                k = max(1, int(np.sum(self.eigvals > 1e-6 * self.eigvals[0])))
-                return metric_psr(h, self.mu, self.eigvecs[:, :k], self.eigvals[:k], self.d)
-
-    def to_dict(self) -> dict:
-        d = {
-            'task_id': self.task_id,
-            'mu': self.mu,
-            'Sigma': self.Sigma,
-            'Sigma_raw': self.Sigma_raw,
-            'mu_raw': self.mu_raw,
-            'n': self.n,
-            'metric': self.metric,
-            'alpha': self.alpha,
-        }
-        # Zero-rehearsal compliant: only sufficient statistics, NO raw data.
-        # h_train is NOT needed: Sigma_raw + mu_raw fully encode the distribution.
-        # W_zca is reconstructed from Sigma_pool (already stored separately).
-        return d
-
-    @classmethod
-    def from_dict(cls, d: dict) -> 'TaskSignature':
-        return cls(
-            task_id=d['task_id'],
-            mu=d['mu'],
-            Sigma=d['Sigma'],
-            n=d['n'],
-            metric=d.get('metric', 'l2'),
-            alpha=d.get('alpha', 0.0),
-            Sigma_raw=d.get('Sigma_raw', d['Sigma']),
-            h_train=None,   # h_train intentionally dropped: zero-rehearsal
-            mu_raw=d.get('mu_raw'),
-        )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  SRT ROUTER
-# ─────────────────────────────────────────────────────────────────────────────
-
-class SRTRouter:
-    """
-    Statistical Routing Theory Router.
-
-    Two modes (set via srt_metric_mode):
-      'hard'    : ZCA whitening + L2.
-                  ZCA is FIT ONCE on a large buffer of accumulated embeddings
-                  (not refit every task). This matches the reference 97% result
-                  where ZCA is computed on all 2400 embeddings (n/d=0.59).
-                  Incremental refit was UNINFORMATIVE (n/d=0.04 at task 1).
-                  Single fixed metric → argmin is always valid.
-
-      'dynamics': no whitening. SRM global metric selection on synthetic data.
-                  All tasks use same SRM-assigned metric → argmin is valid.
-                  Bug fixed: SRM runs AFTER add_task so ALL tasks get metric.
-
-    Zero-drift: no learnable parameters.
-    """
-
-    def __init__(
-        self,
-        srt_metric_mode: str = 'hard',
-        use_shrink: bool = True,
-        shrink_factor: float = 0.1,
-        zca_buffer_size: int = 800,
-    ):
-        """
-        Args:
-            srt_metric_mode: 'hard' | 'dynamics'
-            use_shrink: apply Ledoit-Wolf shrinkage to covariance
-            shrink_factor: shrinkage intensity (0.1 matches reference 97%)
-            zca_buffer_size: min samples in _zca_emb_buffer before fitting ZCA.
-                             Reference 97% used n/d=0.59 (2400 samples, d=4096).
-                             With zca_buffer_size=800, first ZCA fit has n/d=800/4096=0.20.
-        """
-        assert srt_metric_mode in ('hard', 'dynamics'), \
-            f"Unknown srt_metric_mode: {srt_metric_mode}"
-
-        self.signatures: Dict[int, TaskSignature] = {}
-        self._mu_pool: Optional[np.ndarray] = None
-        self._Sigma_pool: Optional[np.ndarray] = None
+        # Pooled sufficient statistics (torch, GPU when available)
+        self._mu_pool_t: Optional[torch.Tensor] = None
+        self._Sigma_pool_t: Optional[torch.Tensor] = None
         self._n_pool: int = 0
 
-        self.srt_metric_mode = srt_metric_mode
-        self.use_shrink = use_shrink
-        self.shrink_factor = shrink_factor
-        self.zca_buffer_size = zca_buffer_size
+        # Shrunk inverse of Σ_pool (torch, GPU) — recomputed after each task
+        self._Sigma_inv_t: Optional[torch.Tensor] = None
+        self._delta: float = 0.0
 
-        # ── ZCA whitening (hard mode) ────────────────────────────────────
-        self._mu_global: Optional[np.ndarray] = None
-        self._W_zca: Optional[np.ndarray] = None
-        self._zca_fitted: bool = False
-        # Buffer: accumulate raw embeddings until we have enough to fit a stable ZCA
-        self._zca_emb_buffer: List[np.ndarray] = []
+        # Cached eigenvalues for summary
+        self._eigvals: Optional[np.ndarray] = None
 
-        # ── SRM state (dynamics mode) ────────────────────────────────────
-        self._srm_metrics: Dict[int, str] = {}
-
-    # ── ZCA fitting from buffer ─────────────────────────────────────────
-
-    def _fit_zca_from_buffer(self):
-        """
-        Fit ZCA whitening matrix from accumulated embedding buffer.
-
-        This is called ONCE when the buffer reaches zca_buffer_size.
-        Matches the reference approach: ZCA from all embeddings (n/d large).
-        """
-        all_embs = np.vstack(self._zca_emb_buffer)
-        n_buf, d = all_embs.shape
-        self._mu_global = all_embs.mean(axis=0)
-
-        # Pooled covariance
-        cov = np.cov(all_embs, rowvar=False, ddof=1)
-
-        # Apply Ledoit-Wolf shrinkage (matches reference shrink_factor=0.1)
-        if self.use_shrink:
-            trace = np.trace(cov)
-            target = (trace / d) * np.eye(d)
-            cov_shrunk = (1 - self.shrink_factor) * cov + self.shrink_factor * target
-        else:
-            cov_shrunk = cov
-
-        # ZCA: W_zca = V @ diag(1/sqrt(λ)) @ Vᵀ
-        eigvals, eigvecs = np.linalg.eigh(cov_shrunk)
-        eigvals = np.maximum(eigvals, 1e-8)
-        idx = np.argsort(eigvals)[::-1]
-        eigvals = eigvals[idx]
-        eigvecs = eigvecs[:, idx]
-        self._W_zca = eigvecs @ np.diag(1.0 / np.sqrt(eigvals)) @ eigvecs.T
-
-        # Also update pooled stats from buffer
-        self._mu_pool = self._mu_global.copy()
-        self._Sigma_pool = cov.copy()
-        self._n_pool = n_buf
-
-        n_d = n_buf / d
-        print(f"  [SRT] Global ZCA fit: n={n_buf}, d={d}, n/d={n_d:.2f}, "
-              f"shrink={self.shrink_factor}, eigval_range=[{eigvals.min():.4f}, {eigvals.max():.4f}]")
-
-    # ── Pooled statistics ───────────────────────────────────────────────
-
-    def _update_pooled(self, mu_t: np.ndarray, Sigma_t: np.ndarray, n_t: int):
-        """Update running pooled mean and covariance."""
-        if self._n_pool == 0:
-            self._mu_pool = mu_t.copy()
-            self._Sigma_pool = Sigma_t.copy()
-            self._n_pool = n_t
-        else:
-            self._mu_pool, self._Sigma_pool, self._n_pool = update_pooled_cov(
-                self._mu_pool, self._Sigma_pool, self._n_pool,
-                mu_t, Sigma_t, n_t,
-            )
-
-    def _reshrink_all(self):
-        """Re-shrink ALL tasks toward updated pooled covariance (Theorem 5)."""
-        if self._n_pool <= 1:
-            return
-        for t_id, sig in self.signatures.items():
-            alpha_opt = self._n_pool / (self._n_pool + sig.n)
-            alpha_opt = max(0.01, min(0.99, alpha_opt))
-            sig.reshrink(self._Sigma_pool, self._n_pool, alpha_opt)
-
-    # ── Add task ─────────────────────────────────────────────────────
+    # ── Add task ────────────────────────────────────────────────────────────
 
     def add_task(
         self,
@@ -561,119 +193,88 @@ class SRTRouter:
         h_train: np.ndarray,
     ) -> TaskSignature:
         """
-        Add a new task's statistical signature.
-
-        HARD MODE — ZCA refit every task:
-          - Compute raw {μ_t, Σ_t} from h_train
-          - Update pooled covariance via Welford-Hart
-          - Shrink pooled Σ with Ledoit-Wolf (toward λ̄I) for stable ZCA
-          - Refit ZCA from shrunk pooled Σ
-          - Re-whiten ALL existing centroids + covariances from their raw stats
-
-        DYNAMICS MODE — SRM (unchanged logic):
-          - Pooled update + re-shrink + SRM per task.
+        Register a new task's statistical signature.
 
         Args:
-            task_id: integer or string task ID
-            h_train: (n_t, d) embeddings from FROZEN backbone
+            task_id: task identifier (string or int)
+            h_train: (n_t, d) embeddings from frozen backbone (numpy)
 
         Returns:
-            TaskSignature for this task
+            TaskSignature for the added task
         """
         n_t, d = h_train.shape
 
-        # ── Sufficient statistics (always in raw space) ────────────────
-        mu_t = h_train.mean(axis=0)
-        Sigma_t = np.cov(h_train, rowvar=False, ddof=1)
+        # Move to GPU for all computations
+        X = torch.from_numpy(h_train.astype(np.float32)).to(self.dev)
+        mu_t_t = X.mean(dim=0)
+        Xc = X - mu_t_t
+        Sigma_t_t = (Xc.T @ Xc) / max(n_t - 1, 1)
+        del X, Xc
+        if self.device == "cuda":
+            torch.cuda.empty_cache()
 
-        # ── Pooled statistics update (Welford–Hart) ───────────────────
-        # NOTE: shrinkage is applied ONLY to the pooled covariance below (line ~587),
-        # NOT to individual Σ_t.  This matches routing_class.ShrinkageWhitenedRouter:
-        #   all raw embeds → pooled Σ → shrink pooled Σ once → ZCA.
-        self._update_pooled(mu_t, Sigma_t, n_t)
+        # Store centroid (numpy, CPU)
+        mu_t_np = mu_t_t.cpu().numpy()
+        self.centroids.append(mu_t_np)
+        self.n_tasks_list.append(n_t)
 
-        # ── Dynamics mode ────────────────────────────────────────────────
-        if self.srt_metric_mode == 'dynamics':
-            # Re-shrink previous tasks toward updated pool
-            if len(self.signatures) > 0:
-                self._reshrink_all()
-
-            sig = TaskSignature(
-                task_id, mu_t, Sigma_t, n_t,
-                metric='l2',
-                Sigma_raw=Sigma_t,
-                h_train=h_train,
-                mu_raw=mu_t,
+        # ── Welford-Hart pooled update ────────────────────────────────────
+        if self._n_pool == 0:
+            self._mu_pool_t = mu_t_t.clone()
+            self._Sigma_pool_t = Sigma_t_t.clone()
+            self._n_pool = n_t
+        else:
+            self._mu_pool_t, self._Sigma_pool_t, self._n_pool = welford_pooled_update(
+                self._mu_pool_t,
+                self._Sigma_pool_t,
+                self._n_pool,
+                mu_t_t,
+                Sigma_t_t,
+                n_t,
             )
-            self.signatures[task_id] = sig
 
-            if len(self.signatures) >= 2:
-                srm_results, _ = srm_metric_selection(self.signatures)
-                self._srm_metrics = srm_results
-                for t_id, m in srm_results.items():
-                    self.signatures[t_id]._metric = m
-            return sig
+        del mu_t_t, Sigma_t_t
 
-        # ── DEBUG: log mode and shrink settings ──────────────────────────────────
-        print(f"  [SRT-add_task] task_id={task_id!r}  mode={self.srt_metric_mode}  "
-              f"use_shrink={self.use_shrink}  shrink_factor={self.shrink_factor}  "
-              f"n_prev_sigs={len(self.signatures)}")
-
-        # ── Hard mode: fit ZCA once from buffered embeddings ─────────────────
-        # Accumulate embeddings into buffer. When buffer >= zca_buffer_size,
-        # fit ZCA on the full buffer (n/d large enough → informative whitening).
-        # This matches the reference 97% result: ZCA fitted on all 2400 embeddings.
-        #
-        # NOTE: Previous approach (refit ZCA every task with n/d=0.04) was
-        # UNINFORMATIVE — whitened space collapsed to isotropy. Reference 97%
-        # was achieved by global ZCA with n/d=0.59 (2400 samples / 4096 dims).
-        self._zca_emb_buffer.append(h_train.copy())
-
-        if not self._zca_fitted and self._n_pool >= self.zca_buffer_size:
-            # ── Fit ZCA ONCE when buffer is large enough ──────────────────
-            self._fit_zca_from_buffer()
-            self._zca_fitted = True
-            # Re-whiten all existing signatures with the fitted ZCA
-            for s in self.signatures.values():
-                s.mu = ((s.mu_raw - self._mu_global) @ self._W_zca.T)
-                s.Sigma = self._W_zca @ s.Sigma_raw @ self._W_zca.T
-                s._metric = 'l2'
-                s._eigvals = None
-                s._eigvecs = None
-                s._Sinv = None
-                s._par = None
-
-        # ── Create signature ────────────────────────────────────────────────
-        sig = TaskSignature(
-            task_id, mu_t, Sigma_t, n_t,
-            metric='l2',
-            Sigma_raw=Sigma_t,
-            h_train=None,
-            mu_raw=mu_t,
+        # ── Ridge shrinkage ───────────────────────────────────────────────
+        Sigma_shrunk_t, self._delta = self.shrink_fn(
+            self._Sigma_pool_t, self._n_pool, d
         )
-        self.signatures[task_id] = sig
 
-        # ── Apply existing ZCA if already fitted ─────────────────────────────
-        if self._zca_fitted and self._W_zca is not None:
-            sig.mu = ((sig.mu_raw - self._mu_global) @ self._W_zca.T)
-            sig.Sigma = self._W_zca @ sig.Sigma_raw @ self._W_zca.T
+        # ── Eigendecomposition → inverse ───────────────────────────────────
+        eigvals, eigvecs = torch.linalg.eigh(Sigma_shrunk_t)
+        eigvals = torch.clamp(
+            eigvals,
+            min=1e-6 * eigvals.abs().max().item()
+        )
+        idx = torch.argsort(eigvals, descending=True)
+        eigvals = eigvals[idx]
+        eigvecs = eigvecs[:, idx]
+        self._Sigma_inv_t = eigvecs @ torch.diag(1.0 / eigvals) @ eigvecs.T
 
-        n_d = self._n_pool / h_train.shape[1]
-        print(f"  [SRT] add_task: n_pool={self._n_pool}, buffer={sum(x.shape[0] for x in self._zca_emb_buffer)}, "
-              f"n/d={n_d:.2f}, zca_fitted={self._zca_fitted}, shrink={self.shrink_factor}")
+        # Cache eigenvalues (for PaR)
+        self._eigvals = eigvals.cpu().numpy()
 
-        # ── DEBUG: trace whitening state after each add_task ──────────────────
-        for _tid, _s in self.signatures.items():
-            _m = _s.mu
-            _norm = float(np.linalg.norm(_m)) if _m.size > 0 else 0.0
-            _max = float(np.abs(_m).max()) if _m.size > 0 else 0.0
-            print(f"  [SRT-DEBUG] task={_tid!r:45s}  "
-                  f"mu_norm={_norm:.6f}  mu_max={_max:.6f}  "
-                  f"mu_raw_norm={float(np.linalg.norm(_s.mu_raw)):.6f}")
+        sig = TaskSignature(
+            task_id=task_id,
+            mu=mu_t_np,
+            Sigma=self._Sigma_pool_t.cpu().numpy(),
+            n=n_t,
+            shrinkage=self.shrinkage,
+            delta=self._delta,
+            Sinv=self._Sigma_inv_t.cpu().numpy(),
+            par=self._participation_ratio(),
+        )
+        self._signatures_by_id[task_id] = sig
+        return sig
 
-        return self.signatures[task_id]
+    def _participation_ratio(self) -> float:
+        """PaR = (Σλ)² / Σλ² ∈ [1, d]. Indicates effective dimensionality."""
+        if self._eigvals is None:
+            return 0.0
+        lam = np.maximum(self._eigvals, 1e-10)
+        return float((lam.sum() ** 2) / (lam ** 2).sum())
 
-    # ── Route ────────────────────────────────────────────────────────
+    # ── Route ─────────────────────────────────────────────────────────────
 
     def route(self, h: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -683,140 +284,227 @@ class SRTRouter:
             h: (n, d) or (d,) — embeddings from frozen backbone
 
         Returns:
-            task_ids: (n,) — predicted task ID for each embedding
-            dists: (n, T) — distance to each task
+            (task_ids, dists): predicted task ID and distance array for each sample
         """
         if h.ndim == 1:
             h = h.reshape(1, -1)
 
-        # [hard mode] Apply ZCA whitening to query embeddings
-        if self.srt_metric_mode == 'hard' and self._W_zca is not None:
-            h = apply_whitening(h, self._mu_global, self._W_zca)
-
-        n = h.shape[0]
-        task_list = sorted(self.signatures.keys())
-        T = len(task_list)
+        n_sample, d_h = h.shape
+        T = len(self.centroids)
 
         if T == 0:
-            raise RuntimeError("SRT Router: no tasks registered.")
+            raise RuntimeError("PooledMahalanobisRouter: no tasks registered.")
 
-        dists = np.zeros((n, T), dtype=np.float64)
-        for i, t_id in enumerate(task_list):
-            dists[:, i] = self.signatures[t_id].distance(h)
+        # Move to GPU
+        H = torch.from_numpy(h.astype(np.float32)).to(self.dev)
+        Sinv = self._Sigma_inv_t
+        dists = np.zeros((n_sample, T), dtype=np.float64)
 
+        for i, mu_t_np in enumerate(self.centroids):
+            mu_t_t = torch.from_numpy(mu_t_np.astype(np.float32)).to(self.dev)
+            diff = H - mu_t_t
+            diff_Sinv = diff @ Sinv
+            dists[:, i] = (diff * diff_Sinv).sum(dim=1).cpu().numpy()
+
+        del H
         nearest_idx = np.argmin(dists, axis=1)
-        nearest_task = np.array(task_list)[nearest_idx]
-
-        # ── DEBUG ────────────────────────────────────────────────
-        if not hasattr(self, '_route_debug_count'):
-            self._route_debug_count = 0
-        self._route_debug_count += 1
-        # Always print first 3 calls and every 1000 calls
-        if self._route_debug_count <= 3 or self._route_debug_count % 1000 == 0:
-            print(f"[SRT-ROUTE] #{self._route_debug_count} mode={self.srt_metric_mode} "
-                  f"n_tasks={T} task_list={task_list} "
-                  f"whiten={'Yes' if self._W_zca is not None else 'No'}")
-            if n > 0:
-                print(f"[SRT-ROUTE]   Sample 0: dists={[round(float(x),4) for x in dists[0,:]]} "
-                      f"argmin={nearest_idx[0]} pred={nearest_task[0]}")
-            if self._route_debug_count <= 3:
-                # Print all distances for first few calls
-                for i in range(min(n, 5)):
-                    print(f"[SRT-ROUTE]   Sample {i}: "
-                          f"dists={[round(float(x),4) for x in dists[i,:]]} "
-                          f"argmin={nearest_idx[i]}")
-            if hasattr(self, '_srm_metrics'):
-                print(f"[SRT-ROUTE] SRM metrics: {self._srm_metrics}")
-
+        task_ids_ordered = list(self._signatures_by_id.keys())
+        nearest_task = np.array([task_ids_ordered[i] for i in nearest_idx])
         return nearest_task, dists
 
-    # ── Save / Load ───────────────────────────────────────────────────
-
-    def save(self, path: str):
-        """Save all signatures and ZCA state to disk."""
-        sigs_data = {k: v.to_dict() for k, v in self.signatures.items()}
-        print(f"  [SRT-SAVE] path={path}")
-        for _tid, _s in self.signatures.items():
-            _norm = float(np.linalg.norm(_s.mu)) if _s.mu.size > 0 else 0.0
-            print(f"    task={_tid!r:45s}  saved_mu_norm={_norm:.6f}  "
-                  f"saved_mu_raw_norm={float(np.linalg.norm(_s.mu_raw)):.6f}")
-        print(f"  [SRT-SAVE] mu_global: {'Yes' if self._mu_global is not None else 'No'}  "
-              f"W_zca: {'Yes' if self._W_zca is not None else 'No'}  "
-              f"zca_fitted: {self._zca_fitted}  "
-              f"buffer_size: {sum(x.shape[0] for x in self._zca_emb_buffer)}")
-        np.savez_compressed(
-            path,
-            signatures=sigs_data,
-            mu_pool=self._mu_pool if self._mu_pool is not None else np.array([]),
-            Sigma_pool=self._Sigma_pool if self._Sigma_pool is not None else np.array([]),
-            n_pool=np.array([self._n_pool]),
-            srt_metric_mode=self.srt_metric_mode,
-            use_shrink=np.array([self.use_shrink]),
-            shrink_factor=np.array([self.shrink_factor]),
-            mu_global=self._mu_global if self._mu_global is not None else np.array([]),
-            W_zca=self._W_zca if self._W_zca is not None else np.array([]),
-            zca_fitted=np.array([self._zca_fitted]),
-        )
-
-    def load(self, path: str):
-        """Load signatures and ZCA state from disk."""
-        data = np.load(path, allow_pickle=True)
-        self.srt_metric_mode = str(data.get('srt_metric_mode', 'hard'))
-
-        # Restore pooled statistics (empty array = None sentinel)
-        mu_p = data['mu_pool']
-        self._mu_pool = mu_p if mu_p.size > 0 else None
-        Sigma_p = data['Sigma_pool']
-        self._Sigma_pool = Sigma_p if Sigma_p.size > 0 else None
-        self._n_pool = int(data['n_pool'][0])
-
-        # Restore shrink settings
-        if 'use_shrink' in data:
-            self.use_shrink = bool(data['use_shrink'][0])
-        if 'shrink_factor' in data:
-            self.shrink_factor = float(data['shrink_factor'][0])
-
-        # ZCA whitening (empty array = None sentinel)
-        mu_g = data.get('mu_global', np.array([]))
-        W_z = data.get('W_zca', np.array([]))
-        self._mu_global = mu_g if mu_g.size > 0 else None
-        self._W_zca = W_z if W_z.size > 0 else None
-        self._zca_fitted = bool(data.get('zca_fitted', np.array([False]))[0])
-
-        # Restore buffer from signatures: reconstruct whitened sigs need raw centroids
-        # After load, signatures already have .mu = whitened centroid.
-        # The _zca_emb_buffer is NOT restored (too large). New embeddings will
-        # re-trigger ZCA fit when buffer fills. For now, mark zca_fitted=True
-        # so add_task() skips refit and just applies existing ZCA.
-        if self._zca_fitted and self._mu_global is not None and self._W_zca is not None:
-            print(f"  [SRT-LOAD] ZCA already fitted: n_pool={self._n_pool}, "
-                  f"zca_fitted=True → will apply existing ZCA to new signatures")
-
-        for k, v in data['signatures'].item().items():
-            self.signatures[k] = TaskSignature.from_dict(v)
-
-        # ── DEBUG: trace loaded state ────────────────────────────────────────
-        for _tid, _s in self.signatures.items():
-            _norm = float(np.linalg.norm(_s.mu)) if _s.mu.size > 0 else 0.0
-            _max = float(np.abs(_s.mu).max()) if _s.mu.size > 0 else 0.0
-            print(f"  [SRT-LOAD] task={_tid!r:45s}  "
-                  f"loaded_mu_norm={_norm:.6f}  loaded_mu_max={_max:.6f}  "
-                  f"loaded_mu_raw_norm={float(np.linalg.norm(_s.mu_raw)):.6f}  "
-                  f"W_zca_loaded={'Yes' if self._W_zca is not None else 'No'}")
-
-    # ── Summary ───────────────────────────────────────────────────────
+    @property
+    def signatures(self) -> Dict[Union[int, str], TaskSignature]:
+        """Dict of all task signatures, keyed by task_id."""
+        return self._signatures_by_id
 
     def summary(self) -> dict:
         """Return routing statistics."""
-        task_list = sorted(self.signatures.keys())
-        metrics = [self.signatures[t].metric for t in task_list]
-        pars = [self.signatures[t].par for t in task_list]
+        task_ids = list(self._signatures_by_id.keys())
         return {
-            'n_tasks': len(self.signatures),
-            'task_ids': task_list,
-            'metrics': metrics,
-            'pars': [f"{p:.1f}" for p in pars],
-            'avg_par': float(np.mean(pars)) if pars else 0.0,
-            'pool_n': self._n_pool,
-            'mode': self.srt_metric_mode,
+            "n_tasks": len(task_ids),
+            "task_ids": task_ids,
+            "metrics": [self.shrinkage] * len(task_ids),
+            "avg_par": self._participation_ratio(),
+            "shrinkage": self.shrinkage,
+            "delta": self._delta,
+            "n_pool": self._n_pool,
+            "par": self._participation_ratio(),
+            "par_d_ratio": self._participation_ratio() / 4096 if self._n_pool > 0 else 0.0,
         }
+
+    def save(self, path: str):
+        """Save router state to disk (zero-rehearsal compliant)."""
+        sigs_data = {k: v.to_dict() for k, v in self._signatures_by_id.items()}
+
+        Sigma_pool_np = (
+            self._Sigma_pool_t.cpu().numpy()
+            if self._Sigma_pool_t is not None
+            else np.array([])
+        )
+        mu_pool_np = (
+            self._mu_pool_t.cpu().numpy()
+            if self._mu_pool_t is not None
+            else np.array([])
+        )
+        Sinv_np = (
+            self._Sigma_inv_t.cpu().numpy()
+            if self._Sigma_inv_t is not None
+            else np.array([])
+        )
+
+        np.savez_compressed(
+            path,
+            signatures=sigs_data,
+            mu_pool=mu_pool_np,
+            Sigma_pool=Sigma_pool_np,
+            Sinv_pool=Sinv_np,
+            n_pool=np.array([self._n_pool]),
+            shrinkage=self.shrinkage,
+            delta=np.array([self._delta]),
+            task_ids=list(self.signatures.keys()),
+        )
+        print(f"  [SRT-SAVE] {path}: {len(sigs_data)} tasks, "
+              f"n_pool={self._n_pool}, shrinkage={self.shrinkage}, δ={self._delta:.4f}")
+
+    def load(self, path: str):
+        """Load router state from disk."""
+        data = np.load(path, allow_pickle=True)
+
+        self.shrinkage = str(data.get("shrinkage", "ridge"))
+        self._delta = float(data.get("delta", [0.0])[0])
+        self._n_pool = int(data.get("n_pool", [0])[0])
+
+        # Restore pooled stats
+        mu_p = data["mu_pool"]
+        self._mu_pool_t = (
+            torch.from_numpy(mu_p).float() if mu_p.size > 0 else None
+        )
+        sp = data["Sigma_pool"]
+        self._Sigma_pool_t = (
+            torch.from_numpy(sp).float() if sp.size > 0 else None
+        )
+        si = data.get("Sinv_pool", np.array([]))
+        self._Sigma_inv_t = (
+            torch.from_numpy(si).float() if si.size > 0 else None
+        )
+
+        # Restore centroids and n_tasks_list from signatures
+        sigs_dict = data["signatures"].item()
+        self._signatures_by_id = {}
+        self.centroids = []
+        self.n_tasks_list = []
+        for tid, sig_dict in sigs_dict.items():
+            sig = TaskSignature.from_dict(sig_dict)
+            self._signatures_by_id[tid] = sig
+            self.centroids.append(sig.mu)
+            self.n_tasks_list.append(sig.n)
+
+        print(f"  [SRT-LOAD] {path}: {len(sigs_dict)} tasks, "
+              f"n_pool={self._n_pool}, shrinkage={self.shrinkage}, δ={self._delta:.4f}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  TASK SIGNATURE  (kept for save/load compatibility)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TaskSignature:
+    """
+    Statistical signature for one task.
+
+    For PooledMahalanobisRouter, all tasks share Σ_pool⁻¹.
+    This class stores per-task {μ_t, n_t} and shared routing state.
+
+    Zero-rehearsal compliant: only sufficient statistics, no raw data.
+    """
+
+    def __init__(
+        self,
+        task_id: Union[int, str],
+        mu: np.ndarray,
+        Sigma: np.ndarray,
+        n: int,
+        shrinkage: str = "ridge",
+        delta: float = 0.0,
+        Sinv: Optional[np.ndarray] = None,
+        par: float = 0.0,
+    ):
+        self.task_id = task_id
+        self.mu = mu.astype(np.float64)
+        self.Sigma = Sigma.astype(np.float64)
+        self.n = n
+        self.shrinkage = shrinkage
+        self.delta = delta
+        self.Sinv = Sinv.astype(np.float64) if Sinv is not None else None
+        self.par = par
+
+    def to_dict(self) -> dict:
+        return {
+            "task_id": self.task_id,
+            "mu": self.mu,
+            "Sigma": self.Sigma,
+            "n": self.n,
+            "shrinkage": self.shrinkage,
+            "delta": self.delta,
+            "Sinv": self.Sinv,
+            "par": self.par,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "TaskSignature":
+        return cls(
+            task_id=d["task_id"],
+            mu=d["mu"],
+            Sigma=d["Sigma"],
+            n=d["n"],
+            shrinkage=d.get("shrinkage", "ridge"),
+            delta=d.get("delta", 0.0),
+            Sinv=d.get("Sinv"),
+            par=d.get("par", 0.0),
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SRTRouter  (legacy wrapper for backward compat)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class SRTRouter:
+    """
+    Legacy wrapper providing backward-compatible interface.
+
+    Internally uses PooledMahalanobisRouter with Ridge shrinkage.
+    Preserves save/load format for compatibility with existing checkpoints.
+
+    Args:
+        shrinkage: 'ridge' | 'oas' | 'lw' | 'none' (default: 'ridge')
+        device: 'cuda' | 'cpu' (default: auto-detect)
+    """
+
+    def __init__(
+        self,
+        shrinkage: str = "ridge",
+        device: Optional[str] = None,
+    ):
+        self._impl = PooledMahalanobisRouter(shrinkage=shrinkage, device=device)
+
+    def add_task(
+        self,
+        task_id: Union[int, str],
+        h_train: np.ndarray,
+    ) -> TaskSignature:
+        return self._impl.add_task(task_id, h_train)
+
+    def route(self, h: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        return self._impl.route(h)
+
+    def summary(self) -> dict:
+        return self._impl.summary()
+
+    def save(self, path: str):
+        self._impl.save(path)
+
+    def load(self, path: str):
+        self._impl.load(path)
+
+    @property
+    def signatures(self) -> Dict[Union[int, str], TaskSignature]:
+        return self._impl.signatures

@@ -373,21 +373,16 @@ class TrainingArguments(Seq2SeqTrainingArguments):
         default=True,
         metadata={"help": "Enable SRT non-parametric router via {μ_t, Σ_t} signatures."},
     )
-    srt_metric_mode: Optional[str] = field(
-        default='hard',
+    srt_shrinkage: Optional[str] = field(
+        default='ridge',
         metadata={
-            "help": "SRT routing mode: 'hard' (ZCA+L2, matches routing_analysis), "
-                    "'dynamics' (SRM metric selection, matches contribution_UNIFIED).",
-            "choices": ["hard", "dynamics"],
+            "help": "PooledMahalanobis shrinkage method: "
+                    "'ridge' = analytical δ*=d/(n+d) [RECOMMENDED], "
+                    "'oas' = Oracle-Approximating (Chen et al., 2010), "
+                    "'lw' = Ledoit-Wolf (2004), "
+                    "'none' = no shrinkage.",
+            "choices": ["ridge", "oas", "lw", "none"],
         },
-    )
-    srt_shrink: Optional[bool] = field(
-        default=False,   # FALSE to match routing_analysis experiment (no LW shrinkage)
-        metadata={"help": "Apply Ledoit-Wolf shrinkage to covariance. FALSE = exact match."},
-    )
-    srt_shrink_factor: Optional[float] = field(
-        default=0.1,
-        metadata={"help": "Ledoit-Wolf shrinkage intensity."},
     )
     srt_max_emb_samples: Optional[int] = field(
         default=500,
@@ -996,9 +991,7 @@ def main():
                 task_order=task_order,
                 sgwi_mode=_sgwi_mode,
                 lambda_emb=_lambda_emb,
-                srt_metric_mode=training_args.srt_metric_mode,
-                srt_shrink=training_args.srt_shrink,
-                srt_shrink_factor=training_args.srt_shrink_factor,
+                srt_shrinkage=training_args.srt_shrinkage,
                 srt_max_emb_samples=training_args.srt_max_emb_samples,
                 srt_load_path=training_args.srt_load_path,
                 srt_skip_forward=training_args.srt_skip_forward,
@@ -1014,7 +1007,7 @@ def main():
             if training_args.do_train:
                 trainer.get_reg_matrix()
             print(f"[SRT-LLaMA] Using SGWI_DualFisher_LLaMA_Trainer "
-                  f"(srt_mode={training_args.srt_metric_mode}, skip_fwd={training_args.srt_skip_forward})")
+                  f"(srt_shrinkage={training_args.srt_shrinkage}, skip_fwd={training_args.srt_skip_forward})")
         else:
             # FIX Bug 7: Llama-2 only — Llama-3 import removed.
             from cl_trainer_gainlora_llama import GainLoRA_OLoRA_Trainer

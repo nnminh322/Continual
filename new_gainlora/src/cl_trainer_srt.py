@@ -6,9 +6,9 @@ Implements CONTRIBUTION_1 (SRT) routing within GainLoRA architecture.
   - Uses SRT metrics for routing at inference
   - Replaces learned MLP router with non-parametric SRT router
 
-Two modes:
-  --srt_metric_mode hard    : ZCA whitening + L2 (matches routing_analysis experiment)
-  --srt_metric_mode dynamics: SRM metric selection (matches contribution_UNIFIED)
+Key shrinkage modes (--srt_shrinkage):
+  ridge (default): Pooled Mahalanobis with analytical Ridge δ*=d/(n+d)
+  oas/lw/none  : Alternative shrinkage methods
 
 Key SRT features:
   - Zero-drift: no learnable parameters in router
@@ -149,8 +149,10 @@ class SRT_Trainer(GainLoRATrainer):
       4. SRT router persists across tasks (no drift)
 
     SRT modes:
-      srt_metric_mode='hard'     : ZCA whitening + L2 (matches routing_analysis)
-      srt_metric_mode='dynamics': SRM metric selection (matches contribution_UNIFIED)
+      srt_shrinkage='ridge' (default): Pooled Mahalanobis with Ridge δ*=d/(n+d)
+      srt_shrinkage='oas'   : Oracle-Approximating Shrinkage (Chen et al., 2010)
+      srt_shrinkage='lw'    : Ledoit-Wolf (2004)
+      srt_shrinkage='none'  : No shrinkage (raw covariance)
     """
 
     def __init__(
@@ -169,13 +171,10 @@ class SRT_Trainer(GainLoRATrainer):
         compute_metrics=None,
         callbacks=None,
         # ── SRT-specific ────────────────────────────────────────────────
-        srt_metric_mode: str = 'hard',
-        srt_shrink: bool = True,
-        srt_shrink_factor: float = 0.1,
+        srt_shrinkage: str = 'ridge',
         srt_max_emb_samples: int = 500,
         srt_load_path: Optional[str] = None,
         srt_skip_forward: bool = False,
-        srt_zca_buffer_size: int = 800,
     ):
         super().__init__(
             model, args, train_dataset, cur_task_id, task_order,
@@ -183,13 +182,10 @@ class SRT_Trainer(GainLoRATrainer):
             eval_dataset, tokenizer, data_collator, compute_metrics, callbacks,
         )
 
-        self.srt_metric_mode = srt_metric_mode
-        self.srt_shrink = srt_shrink
-        self.srt_shrink_factor = srt_shrink_factor
+        self.srt_shrinkage = srt_shrinkage
         self.srt_max_emb_samples = srt_max_emb_samples
         self.srt_load_path = srt_load_path
         self.srt_skip_forward = srt_skip_forward
-        self.srt_zca_buffer_size = srt_zca_buffer_size
 
         self.srt_router: Optional[SRTRouter] = None
         self._srt_init()
@@ -198,12 +194,7 @@ class SRT_Trainer(GainLoRATrainer):
         """Initialize SRT router (idempotent — safe to call multiple times)."""
         if self.srt_router is not None:
             return
-        self.srt_router = SRTRouter(
-            srt_metric_mode=self.srt_metric_mode,
-            use_shrink=self.srt_shrink,
-            shrink_factor=self.srt_shrink_factor,
-            zca_buffer_size=self.srt_zca_buffer_size,
-        )
+        self.srt_router = SRTRouter(shrinkage=self.srt_shrinkage)
         if self.srt_load_path is not None:
             self.load_srt_signatures(self.srt_load_path, wire_model=True)
 

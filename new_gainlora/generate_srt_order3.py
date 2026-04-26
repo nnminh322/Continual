@@ -132,14 +132,19 @@ sleep 5"""
 
 
 def generate_script(mode):
+    # Mode maps to PooledMahalanobis shrinkage method
     srt_flags = {
-        "hard":     "--use_srt_router --srt_metric_mode hard --srt_shrink --srt_shrink_factor 0.1 --srt_max_emb_samples 500",
-        "dynamics": "--use_srt_router --srt_metric_mode dynamics --srt_shrink --srt_shrink_factor 0.1 --srt_max_emb_samples 500",
+        "ridge":    "--use_srt_router --srt_shrinkage ridge --srt_max_emb_samples 500",
+        "oas":      "--use_srt_router --srt_shrinkage oas --srt_max_emb_samples 500",
+        "lw":       "--use_srt_router --srt_shrinkage lw --srt_max_emb_samples 500",
+        "none":     "--use_srt_router --srt_shrinkage none --srt_max_emb_samples 500",
     }[mode]
 
     mode_desc = {
-        "hard":     "ZCA whitening + L2 (matches routing_analysis experiment)",
-        "dynamics": "SRM global metric selection (matches contribution_UNIFIED)",
+        "ridge":    "PooledMahalanobis + Ridge δ*=d/(n+d) (recommended)",
+        "oas":      "PooledMahalanobis + OAS shrinkage (Chen et al., 2010)",
+        "lw":       "PooledMahalanobis + Ledoit-Wolf (2004)",
+        "none":     "PooledMahalanobis + no shrinkage",
     }[mode]
 
     script = f'''#!/bin/bash
@@ -193,14 +198,16 @@ python score.py long_order3_t5_srt_{mode} long_order3_t5_srt_{mode}
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2 or sys.argv[1] not in ("hard", "dynamics", "all"):
-        print("Usage: python generate_srt_order3.py <hard|dynamics|all>")
-        print("  hard     → ZCA whitening + L2 (matches routing_analysis experiment)")
-        print("  dynamics → SRM global metric selection (matches contribution_UNIFIED)")
-        print("  all      → generate both scripts")
+    if len(sys.argv) < 2 or sys.argv[1] not in ("ridge", "oas", "lw", "none", "all"):
+        print("Usage: python generate_srt_order3.py <ridge|oas|lw|none|all>")
+        print("  ridge → PooledMahalanobis + Ridge δ*=d/(n+d) [RECOMMENDED]")
+        print("  oas   → PooledMahalanobis + Oracle-Approximating Shrinkage")
+        print("  lw    → PooledMahalanobis + Ledoit-Wolf")
+        print("  none  → PooledMahalanobis + no shrinkage")
+        print("  all   → generate all four scripts")
         sys.exit(1)
 
-    modes = ["hard", "dynamics"] if sys.argv[1] == "all" else [sys.argv[1]]
+    modes = ["ridge", "oas", "lw", "none"] if sys.argv[1] == "all" else [sys.argv[1]]
 
     for mode in modes:
         script = generate_script(mode)
