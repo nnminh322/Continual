@@ -560,6 +560,9 @@ class SRTRouter:
     def route(self, h: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         return self._impl.route(h)
 
+    def route_debug(self, h: np.ndarray) -> dict:
+        return self._impl.route_debug(h)
+
     def summary(self) -> dict:
         return self._impl.summary()
 
