@@ -106,7 +106,7 @@ def fit_zca_torch(embs_list, device="cuda", rcond=1e-6):
     cov_t = (Xc.T @ Xc) / max(N - 1, 1)       # (d, d)
 
     del all_t, Xc, tensors
-    if device == "cuda":
+    if device == "cuda" and HAS_CUDA:
         torch.cuda.empty_cache()
 
     # Eigendecomposition on GPU
@@ -629,7 +629,7 @@ class PSRRouter:
     def add_task(self, embs, task_name=None):
         n, d = embs.shape
         X = torch.from_numpy(embs.astype(np.float32)).to(self.dev)
-        mu_t = X.mean(dim=0).cpu().numpy()
+        mu_t = X.mean(dim=0)
         Xc = X - mu_t
         cov_t = (Xc.T @ Xc) / max(n - 1, 1)
         del X, Xc
@@ -646,7 +646,8 @@ class PSRRouter:
         V = eigvecs[:, :k_eff]
         lam = np.maximum(eigvals[:k_eff], 1e-12)
         sigma2 = max(eigvals[k_eff:].mean() if k_eff < d else 1e-12, 1e-12)
-        self.sigs.append((mu_t, V, lam, sigma2, d))
+        mu_t_np = mu_t.cpu().numpy()
+        self.sigs.append((mu_t_np, V, lam, sigma2, d))
 
     def route(self, h_batch):
         T = len(self.sigs)
