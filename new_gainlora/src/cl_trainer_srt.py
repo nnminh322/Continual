@@ -175,6 +175,7 @@ class SRT_Trainer(GainLoRATrainer):
         srt_max_emb_samples: int = 500,
         srt_load_path: Optional[str] = None,
         srt_skip_forward: bool = False,
+        srt_zca_buffer_size: int = 800,
     ):
         super().__init__(
             model, args, train_dataset, cur_task_id, task_order,
@@ -188,6 +189,7 @@ class SRT_Trainer(GainLoRATrainer):
         self.srt_max_emb_samples = srt_max_emb_samples
         self.srt_load_path = srt_load_path
         self.srt_skip_forward = srt_skip_forward
+        self.srt_zca_buffer_size = srt_zca_buffer_size
 
         self.srt_router: Optional[SRTRouter] = None
         self._srt_init()
@@ -200,6 +202,7 @@ class SRT_Trainer(GainLoRATrainer):
             srt_metric_mode=self.srt_metric_mode,
             use_shrink=self.srt_shrink,
             shrink_factor=self.srt_shrink_factor,
+            zca_buffer_size=self.srt_zca_buffer_size,
         )
         if self.srt_load_path is not None:
             self.load_srt_signatures(self.srt_load_path, wire_model=True)

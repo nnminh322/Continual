@@ -604,10 +604,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no_srt_router",      dest="use_srt_router", action="store_false")
     parser.add_argument("--srt_metric_mode",    type=str, default="hard",
                         choices=["hard", "dynamics"])
-    parser.add_argument("--srt_shrink",         action="store_true", default=False)
+    parser.add_argument("--srt_shrink",         action="store_true", default=True,
+                        help="Apply Ledoit-Wolf shrinkage to individual task covariances (default: True, matching Shrinkage_ReWhiten reference)")
+    parser.add_argument("--no_srt_shrink",      dest="srt_shrink", action="store_false",
+                        help="Disable Ledoit-Wolf shrinkage")
     parser.add_argument("--srt_shrink_factor",  type=float, default=0.1)
     parser.add_argument("--srt_max_emb_samples",type=int,   default=500)
     parser.add_argument("--srt_skip_forward",   action="store_true", default=False)
+    parser.add_argument("--srt_zca_buffer_size", type=int, default=800)
 
     # ── SGWI ───────────────────────────────────────────────────────────────
     parser.add_argument("--sgwi", action="store_true", default=True,
@@ -864,6 +868,7 @@ def main() -> None:
         srt_max_emb_samples= args.srt_max_emb_samples,
         srt_load_path      = args.srt_load_path,
         srt_skip_forward   = args.srt_skip_forward,
+        srt_zca_buffer_size=args.srt_zca_buffer_size,
         # in-training eval for best-model selection (mirrors T5 load_best_model_at_end)
         dev_samples        = dev_samples,
         tokenizer          = tokenizer,
