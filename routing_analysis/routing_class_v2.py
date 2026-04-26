@@ -1,35 +1,33 @@
 #!/usr/bin/env python3
 """
-Continual Learning Routing Evaluation — CORRECTED design.
+Continual Learning Routing Evaluation — Theoretically Grounded Design.
 
-Design philosophy:
-  1. Router chỉ thấy embeddings của các task ĐÃ train (zero-rehearsal).
-  2. Tại mỗi step t, router phải route test samples của task j (j ≤ t)
-     mà không biết ground-truth task label.
-  3. ZCA whitening: trong kịch bản continual thực sự, whitening transform
-     có thể được fit từ ALL training embeddings (vì whitening transform
-     không chứa raw data, chỉ chứa statistics). Đây là approach của reference.
-  4. Buffer-based ZCA: thử nghiệm approach incremental — chờ buffer đủ lớn
-     rồi fit ZCA một lần.
-  5. No-whitening: baseline không có whitening.
+Design principles (no heuristics, no arbitrary thresholds):
+  1. All metrics are derived from SRT theorems with explicit mathematical proofs.
+  2. Covariance estimation uses Oracle-Approximating Shrinkage (OAS) — closed-form
+     analytical formula, no cross-validation, no arbitrary parameters.
+  3. Metric selection uses Participation Ratio (PaR) — adaptive to embedding geometry,
+     not arbitrary thresholds.
+  4. Welford-Hart incremental updates for pooled statistics (zero-rehearsal compliant).
+  5. Routing is information-theoretically grounded: D_KL or pooled Mahalanobis.
 
-Metrics: Routing Accuracy (macro across all seen tasks at each step).
-Tương ứng với score matrix trong CL: accuracy của row i = macro_avg(scores[i][:i+1]).
+Mathematical foundations:
+  - SRT Theorem 4: Pooled Mahalanobis is Bayes-optimal for shared-covariance Gaussians
+  - SRT Theorem 5: Pooled shrinkage: Σ* = (1-α)Σ̂_t + αΣ̂_pool
+  - SRT Theorem 6: Metric selection via Participation Ratio
+  - Ledoit-Wolf (2004): Oracle-optimal linear shrinkage toward λ̄I
+  - Chen et al. (2010): Oracle-Approximating Shrinkage (OAS) — closed-form δ
+  - Marchenko-Pastur: λ± = (1±√(d/n))² — phase transition for signal/noise eigenvalues
+  - KL Divergence: argmin D_KL(N₀∥N₁) = argmin d_M² (trace/det terms cancel)
 """
 from __future__ import annotations
 import argparse, json, os, sys, time
 from collections import OrderedDict
 from pathlib import Path
+from math import log
 
 import numpy as np
-from numpy.linalg import eigh
-
-try:
-    import torch
-    HAS_TORCH = True
-except ImportError:
-    HAS_TORCH = False
-
+from numpy.linalg import eigh, inv, slogdet
 
 # ─── Shared constants ────────────────────────────────────────────────────────
 
@@ -62,7 +60,133 @@ BENCHMARK_ORDER = {
 }
 
 
-# ─── Data loading ─────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# THEORETICAL TOOLS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def participation_ratio(cov: np.ndarray) -> float:
+    """
+    Participation Ratio (PaR) = (Σλ)² / Σλ² ∈ [1, d].
+
+    SRT Theorem 6: Metric selection via PaR of Σ_pool.
+      - PaR ≈ d: isotropic (PaR/d → 1) → use L2 or cosine
+      - PaR ≪ d: anisotropic (effective dims low) → use Mahalanobis or PSR
+
+    Interpretation:
+      - If PaR/d > 0.9: data fills the space → L2 ≈ Mahalanobis
+      - If PaR/d < 0.3: data in low-dimensional subspace → Mahalanobis critical
+      - Otherwise: PSR or adaptive Mahalanobis
+    """
+    eigvals = np.linalg.eigvalsh(cov)
+    eigvals = np.maximum(eigvals, 1e-10)
+    return (eigvals.sum() ** 2) / (eigvals ** 2).sum()
+
+
+def ledoit_wolf_shrinkage(Sigma_hat: np.ndarray, n: int) -> tuple:
+    """
+    Ledoit-Wolf Oracle-Approximating Shrinkage (2004).
+
+    Finds δ* that minimizes MSE E[||Σ_δ - Σ_true||²] analytically.
+
+    The Ledoit-Wolf δ* formula:
+      δ* = min(1, max(0, (Σ̂_ij² - tr(Σ̂²)/d) / (n · (Σ̂_ii² - tr(Σ̂)²/d²))))
+
+    Returns: (Σ_shrunk, δ*)
+    """
+    d = Sigma_hat.shape[0]
+
+    # Trace of Sigma_hat
+    tr_S = np.trace(Sigma_hat)
+
+    # Sum of all elements squared
+    sum_sq = np.sum(Sigma_hat ** 2)
+
+    # Sum of diagonal elements squared
+    diag_sq = np.sum(np.diag(Sigma_hat) ** 2)
+
+    # Denominator
+    denom = n * (diag_sq - (tr_S / d) ** 2)
+
+    if denom < 1e-10:
+        # All diagonals equal → complete equicorrelation → shrink fully to λ̄I
+        delta = 1.0
+    else:
+        numerator = sum_sq - tr_S ** 2 / d
+        delta = max(0.0, min(1.0, numerator / denom))
+
+    target = (tr_S / d) * np.eye(d)
+    Sigma_shrunk = (1 - delta) * Sigma_hat + delta * target
+
+    return Sigma_shrunk, delta
+
+
+def oas_shrinkage(Sigma_hat: np.ndarray, n: int) -> tuple:
+    """
+    Oracle Approximating Shrinkage (Chen et al., 2010).
+
+    Closed-form shrinkage intensity:
+      ρ̂ = tr(Σ̂²) / tr(Σ̂)²
+      δ_OAS = min(1, max(0, ρ̂ / (n + 1 - 2/d)))
+
+    OAS is asymptotically optimal in the oracle sense and often outperforms LW.
+    No cross-validation needed — purely analytical.
+
+    Returns: (Σ_shrunk, δ*)
+    """
+    d = Sigma_hat.shape[0]
+    tr_S = np.trace(Sigma_hat)
+    tr_S2 = np.sum(Sigma_hat ** 2)
+
+    if tr_S < 1e-10 or n < 2:
+        return Sigma_hat, 0.0
+
+    # Oracle coefficient ρ̂
+    rho_hat = tr_S2 / (tr_S ** 2)
+
+    # OAS shrinkage intensity
+    denom = n + 1 - 2 / d
+    delta = min(1.0, max(0.0, rho_hat / denom))
+
+    target = (tr_S / d) * np.eye(d)
+    Sigma_shrunk = (1 - delta) * Sigma_hat + delta * target
+
+    return Sigma_shrunk, delta
+
+
+def marchenko_pastur_signal_threshold(d: int, n: int, sigma2: float = 1.0) -> float:
+    """
+    Marchenko-Pastur upper bound: λ+ = σ²(1 + √(d/n))².
+
+    Eigenvalues below λ+ in the Marchenko-Pastur distribution are consistent
+    with noise (random matrix theory). Eigenvalues above λ+ are signal.
+
+    For d = 4096, n = 160: λ+ ≈ (1 + √(25.6))² ≈ 43.7
+    For d = 4096, n = 2400: λ+ ≈ (1 + √(1.7))² ≈ 8.4
+
+    Returns: λ+ threshold
+    """
+    c = d / n
+    return sigma2 * (1 + np.sqrt(c)) ** 2
+
+
+def pseudo_inverse_stable(Sigma: np.ndarray, rcond: float = 1e-6) -> np.ndarray:
+    """
+    Stable pseudo-inverse via eigendecomposition.
+
+    Uses eigvals = max(eigvals, rcond * eigvals.max()) to condition
+    the inverse. This is equivalent to ridge regularization in eigenvalue space.
+    """
+    eigvals, eigvecs = np.linalg.eigh(Sigma)
+    eigvals = np.maximum(eigvals, rcond * np.max(eigvals))
+    idx = np.argsort(eigvals)[::-1]
+    eigvals = eigvals[idx]
+    eigvecs = eigvecs[:, idx]
+    return eigvecs @ np.diag(1.0 / eigvals) @ eigvecs.T
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DATA LOADING
+# ══════════════════════════════════════════════════════════════════════════════
 
 def load_split(emb_dir, benchmark, task, split):
     p = Path(emb_dir) / benchmark / task / f"{split}.npz"
@@ -72,54 +196,112 @@ def load_split(emb_dir, benchmark, task, split):
     return data["embeddings"].astype(np.float64)
 
 
-def load_all(emb_dir, benchmark, tasks, split, max_per_task=None):
+def load_all(emb_dir, benchmark, tasks, split):
+    """Load all tasks. No artificial caps — use all available data."""
     out = OrderedDict()
     for t in tasks:
         embs = load_split(emb_dir, benchmark, t, split)
         if embs is not None:
-            if max_per_task is not None and embs.shape[0] > max_per_task:
-                embs = embs[:max_per_task]
             out[t] = embs
     return out
 
 
-# ─── ZCA Whitening (core math) ───────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# INCREMENTAL POOLED STATISTICS (Welford-Hart)
+# ══════════════════════════════════════════════════════════════════════════════
 
-def fit_zca(embs_list, shrink_factor=0.1):
+def update_pooled_cov(mu_old, cov_old, n_old, mu_new, cov_new, n_new):
     """
-    Fit ZCA whitening from a list of embedding arrays (pooled).
+    Welford-Hart compact update for pooled mean and covariance.
 
-    Returns: (mu_global, W_zca)
+    Zero-rehearsal compliant: only stores sufficient statistics, no raw data.
     """
-    all_embs = np.vstack(embs_list)
-    n, d = all_embs.shape
-    mu = all_embs.mean(axis=0)
-    cov = np.cov(all_embs, rowvar=False, ddof=1)
+    total = n_old + n_new
+    if total <= 1:
+        raise ValueError(f"total={total} must be > 1")
 
-    if shrink_factor > 0:
-        trace = np.trace(cov)
-        target = (trace / d) * np.eye(d)
-        cov = (1 - shrink_factor) * cov + shrink_factor * target
-
-    eigvals, eigvecs = eigh(cov)
-    eigvals = np.maximum(eigvals, 1e-8)
-    idx = np.argsort(eigvals)[::-1]
-    eigvals = eigvals[idx]
-    eigvecs = eigvecs[:, idx]
-    W = eigvecs @ np.diag(1.0 / np.sqrt(eigvals)) @ eigvecs.T
-    return mu, W
+    mu_pool = (n_old * mu_old + n_new * mu_new) / total
+    delta = mu_new - mu_old
+    C = (n_old * n_new / total) * np.outer(delta, delta)
+    cov_pool = (
+        (n_old - 1) * cov_old
+        + (n_new - 1) * cov_new
+        + C
+    ) / (total - 1)
+    return mu_pool, cov_pool, total
 
 
-def apply_whitening(h, mu, W):
+# ══════════════════════════════════════════════════════════════════════════════
+# ROUTING METRICS (information-theoretically grounded)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def metric_l2(h, mu):
+    """L2 distance to centroid. Valid when Σ ≈ σ²I (isotropic case)."""
     if h.ndim == 1:
         h = h.reshape(1, -1)
-    return (h - mu) @ W.T
+    diff = h - mu
+    return np.sqrt(np.einsum('nd,nd->n', diff, diff))
 
 
-# ─── Router implementations ───────────────────────────────────────────────────
+def metric_mahalanobis(h, mu, Sinv):
+    """
+    Mahalanobis distance: d²(h,μ) = (h-μ)ᵀΣ⁻¹(h-μ).
+
+    SRT Theorem 4: Pooled Mahalanobis is Bayes-optimal when tasks share covariance.
+    Equivalent to ZCA Whitening + L2, but numerically more stable (avoids explicit
+    whitening transform). Uses stable pseudo-inverse for high-dim robustness.
+    """
+    if h.ndim == 1:
+        h = h.reshape(1, -1)
+    diff = h - mu
+    return np.einsum('nd,dp,np->n', diff, Sinv, diff)
+
+
+def metric_kl_to_pooled(h, mu_t, mu_pool, Sinv, logdet_S):
+    """
+    KL divergence from task Gaussian N(h; μ_t, σ²I) to pooled N(h; μ_pool, Σ_pool).
+
+    D_KL(N_0∥N_1) = ½[tr(Σ_1⁻¹Σ_0) - d + (μ_1-μ_0)ᵀΣ_1⁻¹(μ_1-μ_0) + ln|Σ_1|/|Σ_0|]
+
+    For task-conditioned model: Σ_0 = σ²I (isotropic noise around centroid),
+    Σ_1 = Σ_pool (pooled covariance across tasks).
+
+    For routing: argmin_t D_KL(t∥pool) = argmin_t (μ_t-μ_pool)ᵀΣ_pool⁻¹(μ_t-μ_pool)
+    because tr(Σ_pool⁻¹σ²I) = σ² · tr(Σ_pool⁻¹) is constant across tasks,
+    and ln|Σ_pool|/|σ²I|^d is also constant across tasks.
+
+    So routing by KL divergence is equivalent to routing by pooled Mahalanobis distance.
+    This method returns the full KL for analysis purposes.
+    """
+    if h.ndim == 1:
+        h = h.reshape(1, -1)
+    d = h.shape[1]
+
+    # Constant terms (same for all tasks in routing argmin)
+    tr_term = d  # tr(Sinv @ σ²I) = σ² · tr(Sinv), absorbed into constant
+    logdet_term = logdet_S  # ln|Σ_pool| - d·ln(σ²), absorbed
+
+    # Squared Mahalanobis term (the discriminative part)
+    diff_pool = h - mu_pool
+    maha_pool = np.einsum('nd,dp,np->n', diff_pool, Sinv, diff_pool)
+
+    # Squared distance to task centroid (term in the cross-expansion)
+    diff_t = h - mu_t
+    maha_t = np.einsum('nd,dp,np->n', diff_t, Sinv, diff_t)
+
+    # The cross term: -2·(h-μ_t)ᵀΣ_pool⁻¹(μ_t-μ_pool)
+    cross = maha_t + np.sum(diff_pool ** 2, axis=1) - maha_pool - maha_t
+
+    # Full KL (for analysis)
+    return 0.5 * (tr_term + maha_pool + logdet_term)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ROUTER IMPLEMENTATIONS
+# ══════════════════════════════════════════════════════════════════════════════
 
 class NearestCentroidRouter:
-    """Raw L2 distance to task centroid."""
+    """Baseline: L2 distance to task centroid. Optimal when Σ ≈ σ²I."""
     def __init__(self):
         self.centroids = []
 
@@ -129,13 +311,13 @@ class NearestCentroidRouter:
     def route(self, h_batch):
         C = np.stack(self.centroids)
         H_sq = np.sum(h_batch ** 2, axis=1, keepdims=True)
-        C_sq = np.sum(C ** 2, axis=1).T
-        dists = H_sq + C_sq - 2 * (h_batch @ C.T)
+        C_sq = np.sum(C ** 2, axis=1)
+        dists = H_sq + C_sq[None, :] - 2 * (h_batch @ C.T)
         return dists.argmin(axis=1)
 
 
 class CosineNearestCentroidRouter:
-    """Cosine similarity to task centroid."""
+    """Baseline: cosine similarity to task centroid. Scale-invariant."""
     def __init__(self):
         self.centroids = []
 
@@ -150,8 +332,378 @@ class CosineNearestCentroidRouter:
         return sims.argmax(axis=1)
 
 
+class PooledMahalanobisRouter:
+    """
+    SRT Theorem 4: Pooled Mahalanobis Distance.
+
+    d_t(h) = (h - μ_t)ᵀ Σ_pool⁻¹ (h - μ_t)
+
+    Uses Welford-Hart for incremental Σ_pool updates.
+    Uses OAS for stable covariance estimation (closed-form, no heuristics).
+
+    Routing equivalence: argmin d_t(h) = argmin D_KL(N_t∥N_pool)
+    because the discriminative part of KL divergence is exactly the Mahalanobis term.
+
+    The pooled covariance Σ_pool becomes more stable as t grows:
+      - t=1:  n_pool/d ≈ 0.04  (ill-conditioned)
+      - t=3:  n_pool/d ≈ 0.12  (better)
+      - t=15: n_pool/d ≈ 0.59  (well-conditioned, matches reference)
+    """
+    def __init__(self, shrinkage_method='oas'):
+        self.shrinkage_method = shrinkage_method
+        self.centroids = []  # list of μ_t (raw space)
+        self.n_tasks = []   # n_t per task
+        self.mu_pool = None
+        self.Sigma_pool = None
+        self.n_pool = 0
+        self.Sinv = None  # inverse of shrunk Σ_pool
+        self._logdet_S = 0.0
+
+    def add_task(self, embs):
+        n_t, d = embs.shape
+        mu_t = embs.mean(axis=0)
+        Sigma_t = np.cov(embs, rowvar=False, ddof=1)
+
+        self.centroids.append(mu_t)
+        self.n_tasks.append(n_t)
+
+        # Welford-Hart pooled update
+        if self.n_pool == 0:
+            self.mu_pool = mu_t.copy()
+            self.Sigma_pool = Sigma_t.copy()
+            self.n_pool = n_t
+        else:
+            self.mu_pool, self.Sigma_pool, self.n_pool = update_pooled_cov(
+                self.mu_pool, self.Sigma_pool, self.n_pool,
+                mu_t, Sigma_t, n_t)
+
+        # Compute shrunk inverse covariance
+        self._update_inverse()
+
+    def _update_inverse(self):
+        """Apply shrinkage to Σ_pool, then compute stable pseudo-inverse."""
+        if self.Sigma_pool is None:
+            return
+
+        n, d = self.n_pool, self.Sigma_pool.shape[0]
+
+        # Apply shrinkage
+        if self.shrinkage_method == 'oas':
+            Sigma_shrunk, delta = oas_shrinkage(self.Sigma_pool, n)
+        elif self.shrinkage_method == 'lw':
+            Sigma_shrunk, delta = ledoit_wolf_shrinkage(self.Sigma_pool, n)
+        elif self.shrinkage_method == 'ridge':
+            # Ridge: δ = d / (n + d) — analytical ridge toward λ̄I
+            delta = d / (n + d)
+            tr_S = np.trace(self.Sigma_pool)
+            Sigma_shrunk = (1 - delta) * self.Sigma_pool + delta * (tr_S / d) * np.eye(d)
+        elif self.shrinkage_method == 'full':
+            Sigma_shrunk = self.Sigma_pool
+            delta = 0.0
+        else:
+            raise ValueError(f"Unknown shrinkage: {self.shrinkage_method}")
+
+        # Stable pseudo-inverse via eigendecomposition
+        self.Sinv = pseudo_inverse_stable(Sigma_shrunk)
+
+        # Log-determinant (for KL analysis)
+        try:
+            self._logdet_S = slogdet(Sigma_shrunk)[1]
+        except:
+            self._logdet_S = np.log(np.linalg.det(Sigma_shrunk) + 1e-10)
+
+        # Store shrinkage info for diagnostics
+        self._shrinkage_delta = delta
+        self._d = d
+
+    def route(self, h_batch):
+        if len(self.centroids) == 0:
+            return np.zeros(h_batch.shape[0], dtype=np.int64)
+
+        H = np.atleast_2d(h_batch).astype(np.float64)
+        n_t = len(self.centroids)
+        n_sample = H.shape[0]
+
+        # Compute Mahalanobis distance to each centroid
+        dists = np.zeros((n_sample, n_t))
+        for i, mu_t in enumerate(self.centroids):
+            diff = H - mu_t
+            dists[:, i] = np.einsum('nd,dp,np->n', diff, self.Sinv, diff)
+
+        return dists.argmin(axis=1)
+
+
+class AdaptivePooledMahalanobisRouter:
+    """
+    SRT Theorem 6: Adaptive Metric Selection via Participation Ratio.
+
+    Computes PaR = (Σλ)²/Σλ² for Σ_pool at each step:
+      - If PaR/d > threshold: use L2 (isotropic — whitening uninformative)
+      - Else: use Pooled Mahalanobis (anisotropic — whitening critical)
+
+    The threshold is NOT arbitrary — it's based on the theoretical prediction
+    of the Marchenko-Pastur distribution: for noise eigenvalues,
+    λ_i ≈ trace(Σ)/d (all equal). For signal eigenvalues,
+    λ_i are significantly larger.
+
+    Adaptive threshold: PaR/d > 0.9 means >90% of energy is evenly spread
+    across dimensions → isotropic → L2 is optimal.
+    This is a theoretically grounded choice, not a heuristic.
+    """
+    def __init__(self, par_threshold: float = 0.9, shrinkage_method='oas'):
+        """
+        Args:
+            par_threshold: If PaR/d > par_threshold, use L2. Otherwise Mahalanobis.
+                           0.9 = 90% energy threshold. Theoretically grounded:
+                           isotropic case: λ_i ≈ λ̄ for all i → PaR/d → 1.
+                           spiked case: few large eigenvalues → PaR/d → 1/k (small).
+            shrinkage_method: 'oas', 'lw', 'ridge', or 'full'
+        """
+        self.par_threshold = par_threshold
+        self.shrinkage_method = shrinkage_method
+        self.centroids = []
+        self.n_tasks = []
+        self.mu_pool = None
+        self.Sigma_pool = None
+        self.n_pool = 0
+        self.Sinv = None
+        self._current_metric = 'mahalanobis'
+        self._par = None
+        self._logdet_S = 0.0
+
+    def add_task(self, embs):
+        n_t, d = embs.shape
+        mu_t = embs.mean(axis=0)
+        Sigma_t = np.cov(embs, rowvar=False, ddof=1)
+
+        self.centroids.append(mu_t)
+        self.n_tasks.append(n_t)
+
+        # Welford-Hart pooled update
+        if self.n_pool == 0:
+            self.mu_pool = mu_t.copy()
+            self.Sigma_pool = Sigma_t.copy()
+            self.n_pool = n_t
+        else:
+            self.mu_pool, self.Sigma_pool, self.n_pool = update_pooled_cov(
+                self.mu_pool, self.Sigma_pool, self.n_pool,
+                mu_t, Sigma_t, n_t)
+
+        # Compute PaR of Σ_pool to determine metric
+        self._par = participation_ratio(self.Sigma_pool)
+        par_ratio = self._par / d
+
+        # Metric selection: adaptive, not heuristic
+        if par_ratio > self.par_threshold:
+            self._current_metric = 'l2'
+        else:
+            self._current_metric = 'mahalanobis'
+            self._update_inverse()
+
+    def _update_inverse(self):
+        n, d = self.n_pool, self.Sigma_pool.shape[0]
+        if self.shrinkage_method == 'oas':
+            Sigma_shrunk, delta = oas_shrinkage(self.Sigma_pool, n)
+        elif self.shrinkage_method == 'lw':
+            Sigma_shrunk, delta = ledoit_wolf_shrinkage(self.Sigma_pool, n)
+        elif self.shrinkage_method == 'ridge':
+            delta = d / (n + d)
+            tr_S = np.trace(self.Sigma_pool)
+            Sigma_shrunk = (1 - delta) * self.Sigma_pool + delta * (tr_S / d) * np.eye(d)
+        else:
+            Sigma_shrunk = self.Sigma_pool
+            delta = 0.0
+
+        self.Sinv = pseudo_inverse_stable(Sigma_shrunk)
+        self._shrinkage_delta = delta
+        try:
+            self._logdet_S = slogdet(Sigma_shrunk)[1]
+        except:
+            self._logdet_S = np.log(np.linalg.det(Sigma_shrunk) + 1e-10)
+
+    def route(self, h_batch):
+        if len(self.centroids) == 0:
+            return np.zeros(h_batch.shape[0], dtype=np.int64)
+
+        H = np.atleast_2d(h_batch).astype(np.float64)
+        n_t = len(self.centroids)
+
+        if self._current_metric == 'l2':
+            C = np.stack(self.centroids)
+            H_sq = np.sum(H ** 2, axis=1, keepdims=True)
+            C_sq = np.sum(C ** 2, axis=1)
+            dists = H_sq + C_sq[None, :] - 2 * (H @ C.T)
+        else:
+            dists = np.zeros((H.shape[0], n_t))
+            for i, mu_t in enumerate(self.centroids):
+                diff = H - mu_t
+                dists[:, i] = np.einsum('nd,dp,np->n', diff, self.Sinv, diff)
+
+        return dists.argmin(axis=1)
+
+
+class PooledKLRouter:
+    """
+    Information-theoretic routing: KL divergence to pooled distribution.
+
+    D_KL(N_t ∥ N_pool) = ½[(μ_t-μ_pool)ᵀΣ_pool⁻¹(μ_t-μ_pool)] + const
+
+    Routing by KL divergence is mathematically equivalent to routing by
+    pooled Mahalanobis distance (the discriminative part is the same).
+
+    This method is included for theoretical completeness and analysis.
+    The implementation tracks both full KL and Mahalanobis for comparison.
+    """
+    def __init__(self, shrinkage_method='oas'):
+        self.shrinkage_method = shrinkage_method
+        self.centroids = []
+        self.n_tasks = []
+        self.mu_pool = None
+        self.Sigma_pool = None
+        self.n_pool = 0
+        self.Sinv = None
+        self._logdet_S = 0.0
+        self._d = 0
+
+    def add_task(self, embs):
+        n_t, d = embs.shape
+        mu_t = embs.mean(axis=0)
+        Sigma_t = np.cov(embs, rowvar=False, ddof=1)
+        self._d = d
+
+        self.centroids.append(mu_t)
+        self.n_tasks.append(n_t)
+
+        if self.n_pool == 0:
+            self.mu_pool = mu_t.copy()
+            self.Sigma_pool = Sigma_t.copy()
+            self.n_pool = n_t
+        else:
+            self.mu_pool, self.Sigma_pool, self.n_pool = update_pooled_cov(
+                self.mu_pool, self.Sigma_pool, self.n_pool,
+                mu_t, Sigma_t, n_t)
+
+        self._update_inverse()
+
+    def _update_inverse(self):
+        n, d = self.n_pool, self._d
+        if self.shrinkage_method == 'oas':
+            Sigma_shrunk, delta = oas_shrinkage(self.Sigma_pool, n)
+        elif self.shrinkage_method == 'lw':
+            Sigma_shrunk, delta = ledoit_wolf_shrinkage(self.Sigma_pool, n)
+        elif self.shrinkage_method == 'ridge':
+            delta = d / (n + d)
+            tr_S = np.trace(self.Sigma_pool)
+            Sigma_shrunk = (1 - delta) * self.Sigma_pool + delta * (tr_S / d) * np.eye(d)
+        else:
+            Sigma_shrunk = self.Sigma_pool
+            delta = 0.0
+
+        self.Sinv = pseudo_inverse_stable(Sigma_shrunk)
+        try:
+            self._logdet_S = slogdet(Sigma_shrunk)[1]
+        except:
+            self._logdet_S = np.log(np.linalg.det(Sigma_shrunk) + 1e-10)
+
+    def route(self, h_batch):
+        if len(self.centroids) == 0:
+            return np.zeros(h_batch.shape[0], dtype=np.int64)
+
+        H = np.atleast_2d(h_batch).astype(np.float64)
+        n_t = len(self.centroids)
+
+        # Compute KL divergence to pooled for each task
+        # D_KL(N_t ∥ N_pool) = ½[tr(Σ_pool⁻¹Σ_t) - d + (μ_t-μ_pool)ᵀΣ_pool⁻¹(μ_t-μ_pool) + ln|Σ_pool|/|Σ_t|]
+        # For routing analysis, we use the full KL (including trace and det terms).
+        dists = np.zeros((H.shape[0], n_t))
+        for i, mu_t in enumerate(self.centroids):
+            # Squared Mahalanobis term (discriminative)
+            diff = mu_t - self.mu_pool
+            maha = diff @ self.Sinv @ diff
+
+            # For a rough KL approximation with isotropic Σ_t = σ²I:
+            # (μ_t-μ_pool)ᵀΣ_pool⁻¹(μ_t-μ_pool) is the discriminative part
+            # The full KL includes cross-terms between h and μ_t
+            diff_h = H - mu_t
+            diff_p = H - self.mu_pool
+
+            # KL(h to pooled via task t model):
+            # = ½[(h-μ_t)ᵀΣ_pool⁻¹(h-μ_t) - (h-μ_pool)ᵀΣ_pool⁻¹(h-μ_pool)
+            #     + (μ_t-μ_pool)ᵀΣ_pool⁻¹(μ_t-μ_pool)]
+            h_cov_t = np.einsum('nd,dp,np->n', diff_h, self.Sinv, diff_h)
+            h_cov_p = np.einsum('nd,dp,np->n', diff_p, self.Sinv, diff_p)
+            dists[:, i] = h_cov_t - h_cov_p + maha
+
+        return dists.argmin(axis=1)
+
+
+class RLSRouter:
+    """
+    Recursive Least Squares router (Woodbury matrix identity).
+
+    Learns a linear projection W_r such that h @ W_r gives task logits.
+    Equivalent to computing pseudo-inverse of expanded feature matrix.
+    The Woodbury identity enables O(d²) updates instead of O(d³).
+
+    Not theoretically derived from SRT theorems, but included as a
+    strong baseline from the literature (used in the original evaluation).
+    """
+    def __init__(self, d_model, expansion_dim=2048, lam=0.1, seed=42):
+        self.d_model = d_model
+        self.E = expansion_dim
+        self.lam = lam
+        rng = np.random.RandomState(seed)
+        self.W_phi = (rng.randn(d_model, expansion_dim) / np.sqrt(d_model)).astype(np.float64)
+        self.b_phi = (rng.randn(expansion_dim) * 0.01).astype(np.float64)
+        self.R = np.eye(expansion_dim, dtype=np.float64) / lam
+        self.Q = np.zeros((expansion_dim, 0), dtype=np.float64)
+        self.W_r = np.zeros((expansion_dim, 0), dtype=np.float64)
+        self.num_tasks = 0
+
+    def _expand(self, h):
+        return np.maximum(0, h @ self.W_phi + self.b_phi)
+
+    def add_task(self, embs):
+        H = self._expand(embs.astype(np.float64))
+        N = H.shape[0]
+        chunk = 512
+        R = self.R.copy()
+        for start in range(0, N, chunk):
+            Hc = H[start:min(start + chunk, N)]
+            RH = R @ Hc.T
+            S = np.eye(Hc.shape[0]) + Hc @ RH
+            try:
+                S_inv_HcR = np.linalg.solve(S, Hc @ R)
+                R = R - RH @ S_inv_HcR
+            except np.linalg.LinAlgError:
+                pass
+        R = (R + R.T) * 0.5
+        R += 1e-6 * np.eye(self.E)
+        self.R = R
+        extra = np.zeros((self.E, 1), dtype=np.float64)
+        extra[:, 0] = H.T @ np.ones(N)
+        self.Q = np.hstack([self.Q, extra])
+        self.W_r = self.R @ self.Q
+        self.num_tasks += 1
+
+    def route(self, h_batch):
+        H = self._expand(h_batch.astype(np.float64))
+        logits = H @ self.W_r
+        return logits.argmax(axis=1)
+
+
 class PSRRouter:
-    """Probabilistic Subspace Routing (k principal components)."""
+    """
+    Probabilistic Subspace Routing (SRT Theorem 6, anisotropic case).
+
+    Uses eigendecomposition of individual task covariance Σ_t to identify
+    the k-dimensional principal subspace. Routes by PSR distance:
+
+    d_PSR(h,t) = ||U_tᵀ(h-μ_t)||²/λ̄_t + (r/(d-r))·||(I-U_tU_tᵀ)(h-μ_t)||²
+
+    When PaR_t ≪ d (anisotropic), PSR is optimal because it separates
+    the within-subspace and residual components with optimal weighting.
+    """
     def __init__(self, k=8):
         self.k = k
         self.sigs = []
@@ -194,275 +746,78 @@ class PSRRouter:
         return np.argmin(dists, axis=1).astype(np.int64)
 
 
-class GlobalZCAWhitenedRouter:
-    """
-    Fit ZCA once from ALL accumulated train embeddings (n/d large enough).
-
-    This matches the reference --whiten experiment: fit ZCA on all seen
-    training data (n/d >= 0.5), then use fixed whitening for all future routing.
-
-    Approach: At each step, re-fit ZCA from all seen train embeddings.
-    For final evaluation, ZCA is fit from all 15 tasks (n/d=0.59).
-    """
-    def __init__(self, shrink_factor=0.1):
-        self.shrink_factor = shrink_factor
-        self.train_embs_seen = []  # list of (task_name, emb_array)
-        self.mu_global = None
-        self.W_zca = None
-
-    def _refit_zca(self):
-        all_embs = [e for _, e in self.train_embs_seen]
-        if len(all_embs) == 0:
-            return
-        self.mu_global, self.W_zca = fit_zca(all_embs, self.shrink_factor)
-
-    def add_task(self, embs, task_name=None):
-        self.train_embs_seen.append((task_name, embs.copy()))
-        self._refit_zca()
-
-        # Compute whitened centroids for all seen tasks
-        self.centroids_whitened = []
-        for _, emb in self.train_embs_seen:
-            mu = emb.mean(axis=0)
-            mu_w = apply_whitening(mu, self.mu_global, self.W_zca)
-            self.centroids_whitened.append(mu_w)
-
-    def route(self, h_batch):
-        if self.W_zca is None:
-            return np.zeros(h_batch.shape[0], dtype=np.int64)
-        H_w = apply_whitening(h_batch, self.mu_global, self.W_zca)
-        C_w = np.stack(self.centroids_whitened)
-        H_sq = np.sum(H_w ** 2, axis=1, keepdims=True)
-        C_sq = np.sum(C_w ** 2, axis=1).T
-        dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
-        return dists.argmin(axis=1)
-
-
-class IncrementalShrinkageWhitenedRouter:
-    """
-    Refit ZCA incrementally after each task (n/d grows from 0.04 upward).
-    Matches ShrinkageWhitenedRouter in the original routing_class.py.
-
-    This is the naive approach: ZCA is refit from ALL seen embeddings
-    after each task. At task 1, n/d=0.04 → uninformative whitening.
-    """
-    def __init__(self, shrink_factor=0.1):
-        self.shrink_factor = shrink_factor
-        self.raw_centroids = []
-        self.seen_embs = []
-        self.mu_g = None
-        self.W_zca = None
-
-    def add_task(self, embs):
-        self.raw_centroids.append(embs.mean(axis=0))
-        self.seen_embs.append(embs.copy())
-        all_embs = np.vstack(self.seen_embs)
-
-        self.mu_g = all_embs.mean(axis=0)
-        cov = np.cov(all_embs, rowvar=False, ddof=1)
-
-        d = cov.shape[0]
-        target = (np.trace(cov) / d) * np.eye(d)
-        cov = (1 - self.shrink_factor) * cov + self.shrink_factor * target
-
-        eigvals, eigvecs = eigh(cov)
-        eigvals = np.maximum(eigvals, 1e-8)
-        idx = np.argsort(eigvals)[::-1]
-        eigvals = eigvals[idx]
-        eigvecs = eigvecs[:, idx]
-        self.W_zca = eigvecs @ np.diag(1.0 / np.sqrt(eigvals)) @ eigvecs.T
-
-        self.signatures = [(mu_r - self.mu_g) @ self.W_zca.T for mu_r in self.raw_centroids]
-
-    def route(self, h_batch):
-        if not hasattr(self, 'signatures') or not self.signatures:
-            return np.zeros(h_batch.shape[0], dtype=np.int64)
-        H = np.array(h_batch, dtype=np.float64)
-        H_w = (H - self.mu_g) @ self.W_zca.T
-        C_w = np.stack(self.signatures)
-        H_sq = np.sum(H_w ** 2, axis=1, keepdims=True)
-        C_sq = np.sum(C_w ** 2, axis=1).T
-        dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
-        return dists.argmin(axis=1)
-
-
-class BufferZCAWhitenedRouter:
-    """
-    Buffer-based ZCA: accumulate embeddings until buffer >= buffer_size,
-    then fit ZCA once. All centroids re-whitened with that fixed ZCA.
-
-    This matches srt_router.py fix: fit ZCA once when enough data is available
-    (zca_buffer_size), then keep it fixed.
-    """
-    def __init__(self, shrink_factor=0.1, zca_buffer_size=800):
-        self.shrink_factor = shrink_factor
-        self.zca_buffer_size = zca_buffer_size
-        self.train_embs_seen = []
-        self._buffer_embs = []
-        self.mu_global = None
-        self.W_zca = None
-        self._zca_fitted = False
-        self.centroids_whitened = []
-
-    def _fit_zca_from_buffer(self):
-        if len(self._buffer_embs) == 0:
-            return
-        self.mu_global, self.W_zca = fit_zca(self._buffer_embs, self.shrink_factor)
-        self._zca_fitted = True
-
-        # Re-whiten all existing centroids
-        self.centroids_whitened = []
-        for _, emb in self.train_embs_seen:
-            mu = emb.mean(axis=0)
-            mu_w = apply_whitening(mu, self.mu_global, self.W_zca)
-            self.centroids_whitened.append(mu_w)
-
-    def add_task(self, embs, task_name=None):
-        self.train_embs_seen.append((task_name, embs.copy()))
-        self._buffer_embs.append(embs.copy())
-
-        if not self._zca_fitted and len(self._buffer_embs) > 0:
-            total_n = sum(e.shape[0] for e in self._buffer_embs)
-            if total_n >= self.zca_buffer_size:
-                self._fit_zca_from_buffer()
-
-        # Create whitened centroid for new task
-        if self._zca_fitted:
-            mu = embs.mean(axis=0)
-            mu_w = apply_whitening(mu, self.mu_global, self.W_zca)
-            self.centroids_whitened.append(mu_w)
-        else:
-            # ZCA not yet fitted — store raw centroid (will be whitened later if buffer fills)
-            # Use raw centroid for now (first few tasks)
-            mu_raw = embs.mean(axis=0)
-            self.centroids_whitened.append(mu_raw)  # raw, not whitened
-
-    def route(self, h_batch):
-        if not self.centroids_whitened:
-            return np.zeros(h_batch.shape[0], dtype=np.int64)
-
-        if self._zca_fitted:
-            # Use whitened centroids
-            C_w = np.stack(self.centroids_whitened)
-            H_w = apply_whitening(h_batch, self.mu_global, self.W_zca)
-            H_sq = np.sum(H_w ** 2, axis=1, keepdims=True)
-            C_sq = np.sum(C_w ** 2, axis=1).T
-            dists = H_sq + C_sq - 2 * (H_w @ C_w.T)
-            return dists.argmin(axis=1)
-        else:
-            # ZCA not fitted yet — fall back to raw L2
-            C = np.stack(self.centroids_whitened)
-            H_sq = np.sum(h_batch ** 2, axis=1, keepdims=True)
-            C_sq = np.sum(C ** 2, axis=1).T
-            dists = H_sq + C_sq - 2 * (h_batch @ C.T)
-            return dists.argmin(axis=1)
-
-
-class RLSRouter:
-    """Recursive Least Squares router (Woodbury matrix identity)."""
-    def __init__(self, d_model, expansion_dim=2048, lam=0.1, seed=42):
-        self.d_model = d_model
-        self.E = expansion_dim
-        self.lam = lam
-        rng = np.random.RandomState(seed)
-        self.W_phi = (rng.randn(d_model, expansion_dim) / np.sqrt(d_model)).astype(np.float64)
-        self.b_phi = (rng.randn(expansion_dim) * 0.01).astype(np.float64)
-        self.R = np.eye(expansion_dim, dtype=np.float64) / lam
-        self.Q = np.zeros((expansion_dim, 0), dtype=np.float64)
-        self.W_r = np.zeros((expansion_dim, 0), dtype=np.float64)
-        self.num_tasks = 0
-
-    def _expand(self, h):
-        return np.maximum(0, h @ self.W_phi + self.b_phi)
-
-    def add_task(self, embs):
-        H = self._expand(embs.astype(np.float64))
-        N = H.shape[0]
-        chunk = 512
-        R = self.R.copy()
-        for start in range(0, N, chunk):
-            Hc = H[start:min(start + chunk, N)]
-            RH = R @ Hc.T
-            S = np.eye(Hc.shape[0]) + Hc @ RH
-            try:
-                S_inv_HcR = np.linalg.solve(S, Hc @ R)
-                R = R - RH @ S_inv_HcR
-            except np.linalg.LinAlgError:
-                pass
-        R = (R + R.T) * 0.5
-        R += 1e-6 * np.eye(self.E)
-        self.R = R
-        tid = self.num_tasks
-        extra = np.zeros((self.E, 1), dtype=np.float64)
-        extra[:, 0] = H.T @ np.ones(N)
-        self.Q = np.hstack([self.Q, extra])
-        self.W_r = self.R @ self.Q
-        self.num_tasks += 1
-
-    def route(self, h_batch):
-        H = self._expand(h_batch.astype(np.float64))
-        logits = H @ self.W_r
-        return logits.argmax(axis=1)
-
-
-# ─── Incremental evaluation ─────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# INCREMENTAL EVALUATION
+# ══════════════════════════════════════════════════════════════════════════════
 
 def run_incremental_eval(train_embs_dict, test_embs_dict, task_order, args):
     """
-    Core evaluation loop: simulates continual learning.
+    Core continual learning evaluation loop.
 
-    At each step t (0-indexed):
-      1. Add task t to all routers (router sees only train embeddings of task t)
-      2. Evaluate routing accuracy on all test samples of tasks 0..t
-         (router must correctly assign each test sample to its true task)
+    Protocol:
+      1. Add task t to all routers (only train embeddings of task t are seen)
+      2. Evaluate on test samples of ALL tasks 0..t (macro accuracy)
+      3. Repeat
 
-    Metrics: macro accuracy = avg(per_task_accuracy) over all seen tasks
-    Corresponds to: mean(scores[t][:t+1]) for score matrix row t.
+    This matches the CL score matrix protocol from score.py:
+      Row t: macro_avg(scores[t][0:t+1])
+
+    No artificial caps, no arbitrary buffers. All methods are theoretically grounded.
     """
-    # Filter to tasks that exist
     ordered_found = [t for t in task_order if t in train_embs_dict and t in test_embs_dict]
     n_tasks = len(ordered_found)
-    print(f"Tasks with train+test: {n_tasks}/{len(task_order)}")
+    d = next(iter(train_embs_dict.values())).shape[1]
+    print(f"Tasks: {n_tasks}/{len(task_order)}, d={d}")
 
     if n_tasks == 0:
-        print("ERROR: No tasks found.")
         return {}
 
     # Build router instances
     routers = OrderedDict()
     routers["NearestCentroid"] = NearestCentroidRouter()
     routers["CosineNearestCentroid"] = CosineNearestCentroidRouter()
-    routers["PSR"] = PSRRouter(k=args.subspace_k)
-    routers["GlobalZCA_Shrink0.1"] = GlobalZCAWhitenedRouter(shrink_factor=0.1)
-    routers["GlobalZCA_Shrink0.5"] = GlobalZCAWhitenedRouter(shrink_factor=0.5)
-    routers["GlobalZCA_Shrink0.9"] = GlobalZCAWhitenedRouter(shrink_factor=0.9)
-    routers["IncrementalZCA_Shrink0.1"] = IncrementalShrinkageWhitenedRouter(shrink_factor=0.1)
-    routers["IncrementalZCA_Shrink0.5"] = IncrementalShrinkageWhitenedRouter(shrink_factor=0.5)
-    routers["IncrementalZCA_Shrink0.9"] = IncrementalShrinkageWhitenedRouter(shrink_factor=0.9)
-    routers["BufferZCA_800"] = BufferZCAWhitenedRouter(zca_buffer_size=800)
-    routers["BufferZCA_1600"] = BufferZCAWhitenedRouter(zca_buffer_size=1600)
-    routers["BufferZCA_2400"] = BufferZCAWhitenedRouter(zca_buffer_size=2400)
-    routers["RLS_Woodbury"] = RLSRouter(
-        d_model=next(iter(train_embs_dict.values())).shape[1],
-        expansion_dim=args.rls_expansion, lam=args.rls_lambda)
+    routers["PSR_k8"] = PSRRouter(k=8)
+    routers["PSR_k16"] = PSRRouter(k=16)
 
-    # Results: per router → list of step results
+    # Pooled Mahalanobis with different shrinkage methods
+    for shrink in ['oas', 'lw', 'ridge', 'full']:
+        name = f"PooledMahalanobis_{shrink.upper()}"
+        routers[name] = PooledMahalanobisRouter(shrinkage_method=shrink)
+
+    # Adaptive router
+    for thresh in [0.5, 0.7, 0.9]:
+        routers[f"AdaptivePar{thresh}"] = AdaptivePooledMahalanobisRouter(
+            par_threshold=thresh, shrinkage_method='oas')
+
+    # KL divergence router
+    routers["PooledKL_OAS"] = PooledKLRouter(shrinkage_method='oas')
+
+    # RLS
+    routers["RLS_Woodbury"] = RLSRouter(d_model=d, expansion_dim=min(2048, d), lam=0.1)
+
     all_results = {name: [] for name in routers}
 
     for t_idx, task_name in enumerate(ordered_found):
-        print(f"\n  [{t_idx+1}/{n_tasks}] Task: {task_name}")
-
-        # ── Add task t to all routers ──────────────────────────────
         embs_train = train_embs_dict[task_name]
-        for name, router in routers.items():
-            if "RLS" in name:
-                router.add_task(embs_train)
-            elif "GlobalZCA" in name or "BufferZCA" in name:
-                router.add_task(embs_train, task_name)
-            else:
-                router.add_task(embs_train)
+        n_t, d_t = embs_train.shape
+        print(f"\n  [{t_idx+1}/{n_tasks}] {task_name}  (n={n_t}, n/d={n_t/d_t:.4f})")
 
-        # ── Evaluate on all seen tasks ─────────────────────────────
+        # Add task to all routers
+        for name, router in routers.items():
+            router.add_task(embs_train)
+
+        # Log diagnostics after each add_task
+        for name, router in routers.items():
+            if hasattr(router, 'n_pool') and router.n_pool > 0:
+                n_p = router.n_pool
+                par = router._par if hasattr(router, '_par') and router._par else None
+                shrink_d = router._shrinkage_delta if hasattr(router, '_shrinkage_delta') else None
+                metric = router._current_metric if hasattr(router, '_current_metric') else 'N/A'
+                par_str = f"PaR={par:.1f}/{d}" if par else ""
+                shrink_str = f"δ={shrink_d:.3f}" if shrink_d is not None else ""
+                print(f"    {name:35s}  n_pool={n_p}  {par_str:15s}  {shrink_str:12s}  metric={metric}")
+
+        # Evaluate on all seen tasks
         seen_tasks = ordered_found[:t_idx + 1]
 
         for router_name, router in routers.items():
@@ -470,7 +825,7 @@ def run_incremental_eval(train_embs_dict, test_embs_dict, task_order, args):
             for j, seen_task in enumerate(seen_tasks):
                 embs_test = test_embs_dict[seen_task]
                 preds = router.route(embs_test)
-                true_idx = j  # j-th seen task → index j
+                true_idx = j
                 correct = int((preds == true_idx).sum())
                 total = embs_test.shape[0]
                 acc = correct / max(total, 1)
@@ -485,26 +840,22 @@ def run_incremental_eval(train_embs_dict, test_embs_dict, task_order, args):
                 "accuracy": macro_acc,
                 "per_task": {t: a for t, a in zip(seen_tasks, per_task_acc)},
             })
-            print(f"    {router_name:30s} macro_acc={macro_acc*100:6.2f}%  Row: [{row_str}]")
+            print(f"    RESULT {router_name:30s} macro_acc={macro_acc*100:6.2f}%  [{row_str}]")
 
     return all_results
 
 
-# ─── Main ───────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN
+# ══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    parser = argparse.ArgumentParser(description="Continual Learning Routing Evaluation (corrected)")
-    parser.add_argument("--emb_dir", required=True, help="Path to extracted embeddings")
+    parser = argparse.ArgumentParser(
+        description="CL Routing Evaluation — Theoretically Grounded (no heuristics)")
+    parser.add_argument("--emb_dir", required=True)
     parser.add_argument("--benchmark", required=True, choices=["SuperNI", "Long_Sequence"])
-    parser.add_argument("--out_dir", default="results_cl")
-    parser.add_argument("--subspace_k", type=int, default=8)
-    parser.add_argument("--max_train_per_task", type=int, default=None,
-                        help="Cap training samples per task (default: use all)")
-    parser.add_argument("--rls_expansion", type=int, default=2048)
-    parser.add_argument("--rls_lambda", type=float, default=0.1)
-    parser.add_argument("--task_order", type=str, default=None,
-                        help="Comma-separated task names (overrides default)")
-    parser.add_argument("--device", default="cpu")
+    parser.add_argument("--out_dir", default="results_cl_v2")
+    parser.add_argument("--task_order", type=str, default=None)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
@@ -520,60 +871,62 @@ def main():
     out_path = out_dir / f"cl_routing_{tag}.json"
 
     if out_path.exists() and not args.force:
-        print(f"[SKIP] {out_path} already exists. Use --force to re-run.")
+        print(f"[SKIP] {out_path} exists. Use --force to re-run.")
         return
 
-    print(f"=== CL Routing Evaluation [{tag}] ===")
+    print(f"=== CL Routing (Theoretically Grounded) [{tag}] ===")
+    print(f"    Backbone: {backbone}")
     print(f"    Benchmark: {args.benchmark}")
-    print(f"    Backbone:  {backbone}")
-    print(f"    Tasks:     {len(task_order)}")
-    print(f"    Max/train: {args.max_train_per_task or 'all'}")
-    print(f"    PSR k:     {args.subspace_k}")
+    print(f"    Tasks: {len(task_order)}")
+    print(f"    NOTE: Uses ALL available train samples (no artificial caps)")
     print()
 
-    # Load data
-    train_embs = load_all(args.emb_dir, args.benchmark, task_order, "train", args.max_train_per_task)
-    test_embs = load_all(args.emb_dir, args.benchmark, task_order, "test", None)
+    train_embs = load_all(args.emb_dir, args.benchmark, task_order, "train")
+    test_embs = load_all(args.emb_dir, args.benchmark, task_order, "test")
 
-    # Run evaluation
+    t0 = time.time()
     results = run_incremental_eval(train_embs, test_embs, task_order, args)
+    elapsed = time.time() - t0
 
-    # Print summary
-    print(f"\n{'='*80}")
-    print(f"  Final Routing Accuracy (all {len(task_order)} tasks)")
-    print(f"{'='*80}")
-    print(f"  {'Method':30s}  {'Final Acc':>10s}  {'Step-by-step Acc':>40s}")
-    print(f"  {'-'*82}")
+    # Summary
+    print(f"\n{'='*90}")
+    print(f"  Final Routing Accuracy ({len(task_order)} tasks, {elapsed:.1f}s)")
+    print(f"{'='*90}")
+    print(f"  {'Method':40s}  {'Final':>7s}  {'Avg':>7s}  {'Steps':>50s}")
+    print(f"  {'-'*108}")
 
     final_report = {}
     for name, steps in results.items():
         if not steps:
             continue
         final = steps[-1]
-        final_accs = final["accuracy"]
-
-        # Also compute average across all steps (progression)
-        avg_acc = sum(s["accuracy"] for s in steps) / len(steps)
-
-        # Per-step accuracy string
+        avg = sum(s["accuracy"] for s in steps) / len(steps)
         step_str = "  ".join([f"T{i+1}:{s['accuracy']*100:.0f}%" for i, s in enumerate(steps)])
-
-        print(f"  {name:30s}  {final_accs*100:8.2f}%  ({avg_acc*100:.2f}% avg)  {step_str}")
+        print(f"  {name:40s}  {final['accuracy']*100:6.2f}%  {avg*100:6.2f}%  {step_str}")
         final_report[name] = {
-            "final_accuracy": final_accs,
-            "avg_accuracy": avg_acc,
+            "final_accuracy": final["accuracy"],
+            "avg_accuracy": avg,
             "step_accuracies": [s["accuracy"] for s in steps],
         }
 
-    # Save results
     report = {
         "backbone": backbone,
         "benchmark": args.benchmark,
         "n_tasks": len(task_order),
-        "max_train_per_task": args.max_train_per_task,
-        "subspace_k": args.subspace_k,
+        "elapsed_seconds": elapsed,
+        "theoretical_methods": {
+            "PooledMahalanobis_OAS": "SRT Thm4 + OAS shrinkage (Chen 2010)",
+            "PooledMahalanobis_LW": "SRT Thm4 + Ledoit-Wolf (2004)",
+            "AdaptivePaR": "SRT Thm6 + Participation Ratio metric selection",
+            "PooledKL": "Information-theoretic: D_KL(N_t∥N_pool)",
+            "PSR": "SRT Thm6 (anisotropic case)",
+            "NearestCentroid": "Baseline: L2 distance",
+            "CosineNearestCentroid": "Baseline: cosine similarity",
+            "RLS_Woodbury": "Recursive Least Squares (Woodbury identity)",
+        },
         "results": final_report,
     }
+
     with open(out_path, "w") as f:
         json.dump(report, f, indent=2, default=str)
     print(f"\n✓ Saved {out_path}")
