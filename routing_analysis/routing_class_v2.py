@@ -492,7 +492,7 @@ class AdaptivePooledMahalanobisRouter:
         Sigma_t_t = (Xc.T @ Xc) / max(n_t - 1, 1)
 
         del X, Xc
-        if self.device == "cuda":
+        if self.device == "cuda" and HAS_CUDA:
             torch.cuda.empty_cache()
 
         self.centroids.append(mu_t_t.cpu().numpy())
@@ -558,6 +558,144 @@ class AdaptivePooledMahalanobisRouter:
 
             del H
 
+        return dists.argmin(axis=1)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  POOLED MAHALANOBIS ROUTER  (SRT Thm 4 — multiple shrinkage variants)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _shrink_oas(cov, n, d):
+    """Oracle-Approximating Shrinkage (Chen et al., 2010). Closed-form, no CV."""
+    tr_S = torch.trace(cov).item()
+    tr_S2 = (cov ** 2).sum().item()
+    rho_hat = tr_S2 / (tr_S ** 2 + 1e-10)
+    delta = min(1.0, max(0.0, rho_hat / (n + 1 - 2 / d)))
+    target = (tr_S / d) * torch.eye(d, device=cov.device, dtype=cov.dtype)
+    return (1 - delta) * cov + delta * target, delta
+
+
+def _shrink_lw(cov, n, d):
+    """Ledoit-Wolf Oracle Linear Shrinkage (2004). Analytical optimal δ."""
+    tr_S = torch.trace(cov).item()
+    sum_sq = (cov ** 2).sum().item()
+    diag_sq = (torch.diag(cov) ** 2).sum().item()
+    denom = n * (diag_sq - (tr_S / d) ** 2)
+    if abs(denom) < 1e-10:
+        delta = 1.0
+    else:
+        numerator = sum_sq - tr_S ** 2 / d
+        delta = max(0.0, min(1.0, numerator / denom))
+    target = (tr_S / d) * torch.eye(d, device=cov.device, dtype=cov.dtype)
+    return (1 - delta) * cov + delta * target, delta
+
+
+def _shrink_ridge(cov, n, d):
+    """Analytical ridge: δ = d/(n+d). No CV needed."""
+    delta = d / (n + d + 1e-10)
+    tr_S = torch.trace(cov).item()
+    target = (tr_S / d) * torch.eye(d, device=cov.device, dtype=cov.dtype)
+    return (1 - delta) * cov + delta * target, delta
+
+
+def _shrink_none(cov, n, d):
+    """No shrinkage (raw sample covariance)."""
+    return cov, 0.0
+
+
+_SHRINK_METHODS = {
+    'oas':   _shrink_oas,
+    'lw':    _shrink_lw,
+    'ridge': _shrink_ridge,
+    'none':  _shrink_none,
+}
+
+
+class PooledMahalanobisRouter:
+    """
+    SRT Theorem 4: Pooled Mahalanobis Distance with analytical shrinkage.
+
+    d_t(h) = (h - μ_t)ᵀ Σ_pool⁻¹ (h - μ_t)
+
+    Uses Welford-Hart for incremental Σ_pool updates.
+    Shrinkage method (passed via `shrinkage`):
+      - 'oas'   : Oracle-Approximating Shrinkage (Chen et al., 2010) — recommended
+      - 'lw'    : Ledoit-Wolf (2004)
+      - 'ridge' : Analytical ridge δ = d/(n+d)
+      - 'none'  : no shrinkage (raw covariance)
+
+    After each add_task: Σ_pool is updated, shrunk, inverted.
+    """
+    def __init__(self, shrinkage='oas', device="cuda"):
+        assert shrinkage in _SHRINK_METHODS, f"Unknown shrinkage: {shrinkage}"
+        self.shrinkage = shrinkage
+        self.shrink_fn = _SHRINK_METHODS[shrinkage]
+        self.device = device
+        self.dev = torch.device(device)
+
+        self.centroids = []    # list of (d,) numpy
+        self.n_tasks_list = []
+        self.mu_pool_t = None  # torch
+        self.Sigma_pool_t = None
+        self.n_pool = 0
+        self.Sinv = None       # torch (shrunk inverse)
+        self._delta = 0.0
+
+    def add_task(self, embs, task_name=None):
+        n_t, d = embs.shape
+
+        X = torch.from_numpy(embs.astype(np.float32)).to(self.dev)
+        mu_t_t = X.mean(dim=0)
+        Xc = X - mu_t_t
+        Sigma_t_t = (Xc.T @ Xc) / max(n_t - 1, 1)
+        del X, Xc
+
+        self.centroids.append(mu_t_t.cpu().numpy())
+        self.n_tasks_list.append(n_t)
+
+        # Welford-Hart pooled update
+        if self.n_pool == 0:
+            self.mu_pool_t = mu_t_t.clone()
+            self.Sigma_pool_t = Sigma_t_t.clone()
+            self.n_pool = n_t
+        else:
+            mu_old = self.mu_pool_t
+            cov_old = self.Sigma_pool_t
+            self.mu_pool_t, self.Sigma_pool_t, self.n_pool = welford_pooled_update(
+                mu_old, cov_old, self.n_pool, mu_t_t, Sigma_t_t, n_t)
+
+        del mu_t_t, Sigma_t_t
+
+        # Shrink + invert pooled covariance
+        Sigma_shrunk, self._delta = self.shrink_fn(self.Sigma_pool_t, self.n_pool, d)
+
+        # Pseudo-inverse via eigendecomposition
+        eigvals, eigvecs = torch.linalg.eigh(Sigma_shrunk)
+        eigvals = torch.clamp(eigvals, min=1e-6 * eigvals.abs().max().item())
+        idx = torch.argsort(eigvals, descending=True)
+        eigvals = eigvals[idx]; eigvecs = eigvecs[:, idx]
+        self.Sinv = eigvecs @ torch.diag(1.0 / eigvals) @ eigvecs.T
+
+    def route(self, h_batch):
+        if len(self.centroids) == 0:
+            return np.zeros(h_batch.shape[0], dtype=np.int64)
+
+        dev = self.dev
+        H = torch.from_numpy(h_batch.astype(np.float32)).to(dev)
+        C = np.stack(self.centroids)
+        n_t = len(self.centroids)
+        n_sample = H.shape[0]
+
+        Sinv = self.Sinv
+        dists = np.zeros((n_sample, n_t), dtype=np.float64)
+
+        for i, mu_t_np in enumerate(C):
+            mu_t_t = torch.from_numpy(mu_t_np.astype(np.float32)).to(dev)
+            diff = H - mu_t_t
+            diff_Sinv = diff @ Sinv
+            dists[:, i] = (diff * diff_Sinv).sum(dim=1).cpu().numpy()
+
+        del H
         return dists.argmin(axis=1)
 
 
@@ -717,6 +855,11 @@ def run_incremental_eval(train_embs_dict, test_embs_dict, task_order, args):
     routers["AdaptivePar_0.5"] = AdaptivePooledMahalanobisRouter(
         par_threshold=0.5, device=DEVICE)
 
+    # ── Pooled Mahalanobis (SRT Thm 4) — multiple shrinkage variants ─────────────────────
+    for shrink in ['oas', 'lw', 'ridge', 'none']:
+        routers[f"PooledMahalanobis_{shrink.upper()}"] = PooledMahalanobisRouter(
+            shrinkage=shrink, device=DEVICE)
+
     # ── PSR ──────────────────────────────────────────────────────────────────
     routers["PSR_k8"] = PSRRouter(k=8, device=DEVICE)
 
@@ -863,6 +1006,10 @@ def main():
             "AdaptivePar_θ": "SRT Thm6: PaR metric selection. PaR/d>θ→L2 else→Mahalanobis.",
             "NearestCentroid": "Baseline: raw L2.",
             "CosineNearestCentroid": "Baseline: raw cosine.",
+            "PooledMahalanobis_OAS": "SRT Thm4 + Oracle-Approximating Shrinkage (Chen 2010).",
+            "PooledMahalanobis_LW": "SRT Thm4 + Ledoit-Wolf (2004).",
+            "PooledMahalanobis_RIDGE": "SRT Thm4 + analytical ridge δ=d/(n+d).",
+            "PooledMahalanobis_NONE": "SRT Thm4 + no shrinkage (raw pooled covariance).",
             "PSR_k8": "Probabilistic Subspace Routing.",
             "RLS_Woodbury": "Recursive Least Squares.",
         },
