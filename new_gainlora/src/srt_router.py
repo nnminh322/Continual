@@ -356,19 +356,26 @@ class PooledMahalanobisRouter:
         # Confidence: ratio of 2nd-best distance to best distance
         sorted_idx = np.argsort(dists, axis=1)
         best_idx = sorted_idx[:, 0]
-        second_idx = sorted_idx[:, 1]
         best_d = dists[np.arange(n_sample), best_idx]
-        second_d = dists[np.arange(n_sample), second_idx]
-        # Confidence = (second - first) / first = margin / nearest distance
-        with np.errstate(divide='ignore', invalid='ignore'):
-            conf = (second_d - best_d) / (best_d + 1e-10)
-            conf = np.where(np.isfinite(conf), conf, 999.0)
+
+        if T >= 2:
+            second_idx = sorted_idx[:, 1]
+            second_d = dists[np.arange(n_sample), second_idx]
+            second_task = np.array([task_ids_ordered[i] for i in second_idx])
+            with np.errstate(divide='ignore', invalid='ignore'):
+                conf = (second_d - best_d) / (best_d + 1e-10)
+                conf = np.where(np.isfinite(conf), conf, 999.0)
+        else:
+            # Only 1 task: no second-best exists
+            second_d = np.full_like(best_d, np.inf)
+            second_task = np.full(n_sample, -1, dtype=nearest_task.dtype)
+            conf = np.full(n_sample, 999.0)
 
         return {
             "task_ids": nearest_task,
             "dists": dists,
             "nearest_task": nearest_task,
-            "second_task": np.array([task_ids_ordered[i] for i in second_idx]),
+            "second_task": second_task,
             "best_dist": best_d,
             "second_dist": second_d,
             "confidence_ratio": conf,
