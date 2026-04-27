@@ -21,6 +21,25 @@ fi
 
 echo "[Env] Detected: ${ENV_TYPE}"
 
+GPU_NAME=""
+if command -v nvidia-smi >/dev/null 2>&1; then
+  GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1 | tr -d '\r')
+fi
+
+if [[ "${GPU_NAME}" == *"P100"* ]]; then
+  TORCH_VERSION="2.1.2"
+  TORCHVISION_VERSION="0.16.2"
+  TORCHAUDIO_VERSION="2.1.2"
+  TORCH_INDEX_URL="https://download.pytorch.org/whl/cu118"
+  echo "[Install] Detected P100 (${GPU_NAME}) -> using PyTorch ${TORCH_VERSION} + cu118"
+else
+  TORCH_VERSION="2.5.1"
+  TORCHVISION_VERSION="0.20.1"
+  TORCHAUDIO_VERSION="2.5.1"
+  TORCH_INDEX_URL="https://download.pytorch.org/whl/cu121"
+  echo "[Install] Defaulting to PyTorch ${TORCH_VERSION} + cu121"
+fi
+
 # Optional conda mode: USE_CONDA=1 bash setup_kaggle_colab.sh
 USE_CONDA="${USE_CONDA:-0}"
 if command -v conda >/dev/null 2>&1 && [[ "${USE_CONDA}" == "1" ]]; then
@@ -66,7 +85,7 @@ ${PIP_CMD} uninstall -y \
   2>/dev/null || true
 
 echo ""
-echo "[Install] Core CUDA stack (PyTorch cu121)..."
+echo "[Install] Core CUDA stack (${TORCH_VERSION} via ${TORCH_INDEX_URL##*/})..."
 # 1) Pre-pin numpy+protobuf so torch install doesn't drag in wrong versions.
 # 2) No --force-reinstall: that flag reinstalls ALL deps (including numpy) → disaster.
 #    Since torch was uninstalled above, pip will install 2.5.1 fresh.
@@ -76,22 +95,27 @@ echo "[Install] Core CUDA stack (PyTorch cu121)..."
 ${PIP_CMD} install --no-cache-dir -q \
   "numpy==1.26.4" "protobuf==5.29.3" 2>&1 | grep -v "which is not installed\|which is incompatible\|dependency resolver" || true
 ${PIP_CMD} install --no-cache-dir -q \
-  torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
-  --index-url https://download.pytorch.org/whl/cu121 2>&1 | grep -v "which is not installed\|which is incompatible\|dependency resolver" || true
+  torch==${TORCH_VERSION} torchvision==${TORCHVISION_VERSION} torchaudio==${TORCHAUDIO_VERSION} \
+  --index-url ${TORCH_INDEX_URL} 2>&1 | grep -v "which is not installed\|which is incompatible\|dependency resolver" || true
 
 # Sanity-check: abort early if wrong torch survived
 TORCH_VER=$(${PY_CMD} -c "import torch; print(torch.__version__)" 2>/dev/null || echo "NONE")
 echo "[Check] torch version after install: ${TORCH_VER}"
-if [[ "${TORCH_VER}" != 2.5.1* ]]; then
-  echo "[WARN] torch ${TORCH_VER} != 2.5.1 — forcing pip uninstall+reinstall..."
+if [[ "${TORCH_VERSION}" == "2.1.2" ]]; then
+  EXPECTED_TORCH_PREFIX="2.1.2"
+else
+  EXPECTED_TORCH_PREFIX="2.5.1"
+fi
+if [[ "${TORCH_VER}" != ${EXPECTED_TORCH_PREFIX}* ]]; then
+  echo "[WARN] torch ${TORCH_VER} != ${EXPECTED_TORCH_PREFIX} — forcing pip uninstall+reinstall..."
   ${PIP_CMD} uninstall -y torch torchvision torchaudio 2>/dev/null || true
   ${PIP_CMD} install --no-cache-dir -q --no-deps \
-    torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
-    --index-url https://download.pytorch.org/whl/cu121
+    torch==${TORCH_VERSION} torchvision==${TORCHVISION_VERSION} torchaudio==${TORCHAUDIO_VERSION} \
+    --index-url ${TORCH_INDEX_URL}
   TORCH_VER=$(${PY_CMD} -c "import torch; print(torch.__version__)" 2>/dev/null || echo "NONE")
   echo "[Check] torch version after force: ${TORCH_VER}"
-  if [[ "${TORCH_VER}" != 2.5.1* ]]; then
-    echo "[ERROR] Cannot install torch 2.5.1. Aborting."
+  if [[ "${TORCH_VER}" != ${EXPECTED_TORCH_PREFIX}* ]]; then
+    echo "[ERROR] Cannot install torch ${EXPECTED_TORCH_PREFIX}. Aborting."
     exit 1
   fi
 fi
