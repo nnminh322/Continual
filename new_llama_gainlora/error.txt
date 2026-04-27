@@ -1,0 +1,32 @@
+ama_gainlora/run_llama_gainlora_cl.py', '--local_rank=0', '--model_name_or_path', '/kaggle/input/datasets/natmin322/llama-2-7b-hf-weights', '--data_dir', '/kaggle/working/vantee-code/root_gainlora/CL_Benchmark', '--task_config_dir', '/kaggle/working/vantee-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task1572_samsum_summary', '--output_dir', '/kaggle/working/vantee-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary', '--cur_task_id', '0', '--task_order', 'task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification', '--lora_r', '4', '--lora_alpha', '32', '--lora_dropout', '0.0', '--per_device_train_batch_size', '1', '--per_device_eval_batch_size', '2', '--gradient_accumulation_steps', '32', '--learning_rate', '5e-5', '--num_train_epochs', '15', '--max_source_length', '1024', '--max_target_length', '50', '--max_new_tokens', '50', '--srt_shrinkage', 'ridge', '--srt_max_emb_samples', '2000', '--srt_pca_components', '--use_srt_router', '--bf16', '--deepspeed', '/kaggle/working/vantee-code/new_gainlora/configs/ds_configs/stage2.config', '--logging_steps', '10', '--seed', '42', '--srt_shrinkage', 'ridge']
+usage: run_llama_gainlora_cl.py [-h] [--model_name_or_path MODEL_NAME_OR_PATH]
+                                [--lora_r LORA_R] [--lora_alpha LORA_ALPHA]
+                                [--lora_dropout LORA_DROPOUT]
+                                [--data_dir DATA_DIR] --task_config_dir
+                                TASK_CONFIG_DIR [--output_dir OUTPUT_DIR]
+                                --cur_task_id CUR_TASK_ID --task_order
+                                TASK_ORDER
+                                [--previous_lora_path PREVIOUS_LORA_PATH]
+                                [--srt_load_path SRT_LOAD_PATH]
+                                [--use_srt_router] [--no_srt_router]
+                                [--srt_shrinkage {ridge,oas,lw,none}]
+                                [--srt_max_emb_samples SRT_MAX_EMB_SAMPLES]
+                                [--srt_skip_forward] [--sgwi] [--no_sgwi]
+                                [--max_train_samples MAX_TRAIN_SAMPLES]
+                                [--max_eval_samples MAX_EVAL_SAMPLES]
+                                [--max_source_length MAX_SOURCE_LENGTH]
+                                [--max_target_length MAX_TARGET_LENGTH]
+                                [--max_new_tokens MAX_NEW_TOKENS]
+                                [--per_device_train_batch_size PER_DEVICE_TRAIN_BATCH_SIZE]
+                                [--per_device_eval_batch_size PER_DEVICE_EVAL_BATCH_SIZE]
+                                [--gradient_accumulation_steps GRADIENT_ACCUMULATION_STEPS]
+                                [--learning_rate LEARNING_RATE]
+                                [--num_train_epochs NUM_TRAIN_EPOCHS]
+                                [--warmup_steps WARMUP_STEPS]
+                                [--logging_steps LOGGING_STEPS] [--seed SEED]
+                                [--bf16] [--gradient_checkpointing]
+                                [--deepspeed DEEPSPEED] [--use_auth_token]
+                                [--local_rank LOCAL_RANK]
+run_llama_gainlora_cl.py: error: unrecognized arguments: --srt_pca_components
+[2026-04-27 09:19:11,786] [INFO] [launch.py:335:sigkill_handler] Killing subprocess 527
+[2026-04-27 09:19:11,786] [ERROR] [launch.py:341:sigkill_handler] ['/usr/bin/python3', '-u', '/kaggle/working/vantee-code/new_llama_gainlora/run_llama_gainlora_cl.py', '--local_rank=0', '--model_name_or_path', '/kaggle/input/datasets/natmin322/llama-2-7b-hf-weights', '--data_dir', '/kaggle/working/vantee-code/root_gainlora/CL_Benchmark', '--task_config_dir', '/kaggle/working/vantee-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task1572_samsum_summary', '--output_dir', '/kaggle/working/vantee-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary', '--cur_task_id', '0', '--task_order', 'task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification', '--lora_r', '4', '--lora_alpha', '32', '--lora_dropout', '0.0', '--per_device_train_batch_size', '1', '--per_device_eval_batch_size', '2', '--gradient_accumulation_steps', '32', '--learning_rate', '5e-5', '--num_train_epochs', '15', '--max_source_length', '1024', '--max_target_length', '50', '--max_new_tokens', '50', '--srt_shrinkage', 'ridge', '--srt_max_emb_samples', '2000', '--srt_pca_components', '--use_srt_router', '--bf16', '--deepspeed', '/kaggle/working/vantee-code/new_gainlora/configs/ds_configs/stage2.config', '--logging_steps', '10', '--seed', '42', '--srt_shrinkage', 'ridge'] exits with return code = 2
