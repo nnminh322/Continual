@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-Continual Learning Routing Evaluation — Theoretically Grounded + CUDA-accelerated.
+Continual Learning Routing Evaluation on frozen LLaMA embeddings.
 
-Design principles:
-  1. ZCA whitening: fit ONCE from accumulated embeddings, then frozen.
-     → WhitenedNearestCentroid: ZCA + L2
-     → WhitenedCosine: ZCA + cosine
-     No shrinkage. Simple. The whitening transform is fit once when buffer ≥ min_samples.
-  2. All routers support CUDA via PyTorch (eigendecomposition on GPU).
-  3. Adaptive metric via Participation Ratio (SRT Thm 6).
+Expected SuperNI input profile for deployment-faithful evaluation:
+    1. Prompt text matches the runtime CL zero-shot instruction template.
+    2. Tokenization uses add_special_tokens=False.
+    3. Embeddings come from the final hidden state at the last non-padding token.
 
-Mathematical foundation:
-  - ZCA: W_zca = V @ diag(1/√λ) @ Vᵀ such that (h-μ)ᵀWᵀW(h-μ) is isotropic.
-  - After ZCA: routing by L2 in whitened space ≡ routing by Mahalanobis in raw space.
-  - Fit ZCA from accumulated pool when n_pool ≥ min_samples.
+This script can still score legacy embeddings, but for SuperNI it warns or fails
+fast unless the embedding profile is runtime-aligned.
+
+Router families:
+    - ZCA fit-once baselines: WhitenedNearestCentroid / WhitenedCosine
+    - Adaptive metric via Participation Ratio (SRT Thm 6)
+    - Pooled Mahalanobis variants, where RIDGE is the closest offline proxy to the
+        deployed LLaMA SRT router when embeddings are runtime-aligned.
 """
 from __future__ import annotations
 import argparse, json, os, sys, time
@@ -68,6 +69,14 @@ LONG_SEQ_ORDER = [
 BENCHMARK_ORDER = {
     "SuperNI": SUPERNI_ORDER,
     "Long_Sequence": LONG_SEQ_ORDER,
+}
+
+EXPECTED_SUPERNI_PROFILE = {
+    "superni_prompt_style": "runtime_cl",
+    "layer": "hidden",
+    "pool": "last",
+    "add_special_tokens": False,
+    "max_length": 1024,
 }
 
 
@@ -173,6 +182,57 @@ def load_all(emb_dir, benchmark, tasks, split):
         if embs is not None:
             out[t] = embs
     return out
+
+
+def _coerce_np_scalar(value):
+    if hasattr(value, "item"):
+        return value.item()
+    return value
+
+
+def load_embedding_profile(emb_dir, benchmark, tasks):
+    """Load extraction profile metadata from the first available split."""
+    for task in tasks:
+        for split in ("train", "dev", "test"):
+            path = Path(emb_dir) / benchmark / task / f"{split}.npz"
+            if not path.exists():
+                continue
+            with np.load(str(path), allow_pickle=True) as data:
+                if "metadata_json" not in data.files:
+                    return {"source": str(path), "metadata_json": None}
+                raw_metadata = _coerce_np_scalar(data["metadata_json"])
+            profile = json.loads(raw_metadata)
+            profile["source"] = str(path)
+            return profile
+    return None
+
+
+def validate_superni_profile(profile):
+    if profile is None:
+        return False, ["no embedding files found"]
+    if profile.get("metadata_json") is None:
+        return False, ["missing metadata_json in embedding .npz"]
+
+    mismatches = []
+    for key, expected in EXPECTED_SUPERNI_PROFILE.items():
+        observed = profile.get(key)
+        if observed != expected:
+            mismatches.append(f"{key}={observed!r} (expected {expected!r})")
+
+    return len(mismatches) == 0, mismatches
+
+
+def format_profile(profile):
+    if not profile:
+        return "unavailable"
+    fields = [
+        f"prompt={profile.get('superni_prompt_style', 'unknown')}",
+        f"layer={profile.get('layer', 'unknown')}",
+        f"pool={profile.get('pool', 'unknown')}",
+        f"add_special_tokens={profile.get('add_special_tokens', 'unknown')}",
+        f"max_length={profile.get('max_length', 'unknown')}",
+    ]
+    return ", ".join(fields)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -926,12 +986,14 @@ def run_incremental_eval(train_embs_dict, test_embs_dict, task_order, args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="CL Routing — Whitened L2 + Whitened Cosine + Adaptive + CUDA")
+        description="CL routing on frozen LLaMA embeddings, with runtime-profile checks for SuperNI")
     parser.add_argument("--emb_dir", required=True)
     parser.add_argument("--benchmark", required=True, choices=["SuperNI", "Long_Sequence"])
     parser.add_argument("--out_dir", default="results_cl_v2")
     parser.add_argument("--task_order", type=str, default=None)
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
+    parser.add_argument("--allow_legacy_profile", action="store_true",
+                        help="Allow SuperNI evaluation on embeddings that are not runtime-aligned")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
@@ -951,6 +1013,21 @@ def main():
     else:
         task_order = BENCHMARK_ORDER.get(args.benchmark, [])
 
+    embedding_profile = load_embedding_profile(args.emb_dir, args.benchmark, task_order)
+    if args.benchmark == "SuperNI":
+        profile_ok, mismatches = validate_superni_profile(embedding_profile)
+        if not profile_ok:
+            mismatch_text = "; ".join(mismatches)
+            message = (
+                "SuperNI embeddings are not runtime-aligned. "
+                f"Observed profile: {format_profile(embedding_profile)}. "
+                f"Mismatch: {mismatch_text}. "
+                "Re-extract with extract_embeddings_llama.py defaults or pass --allow_legacy_profile to override."
+            )
+            if not args.allow_legacy_profile:
+                raise ValueError(message)
+            print(f"[WARN] {message}")
+
     tag = f"{backbone}_{args.benchmark}"
     out_path = out_dir / f"cl_routing_{tag}.json"
 
@@ -963,6 +1040,9 @@ def main():
     print(f"    Benchmark: {args.benchmark}")
     print(f"    Tasks: {len(task_order)}")
     print(f"    Device: {DEVICE}")
+    print(f"    Embedding profile: {format_profile(embedding_profile)}")
+    if args.benchmark == "SuperNI":
+        print("    Deployment proxy: PooledMahalanobis_RIDGE")
     print(f"    NOTE: Uses ALL available train samples (no caps)")
     print()
 
@@ -1008,11 +1088,14 @@ def main():
             "CosineNearestCentroid": "Baseline: raw cosine.",
             "PooledMahalanobis_OAS": "SRT Thm4 + Oracle-Approximating Shrinkage (Chen 2010).",
             "PooledMahalanobis_LW": "SRT Thm4 + Ledoit-Wolf (2004).",
-            "PooledMahalanobis_RIDGE": "SRT Thm4 + analytical ridge δ=d/(n+d).",
+            "PooledMahalanobis_RIDGE": "SRT Thm4 + analytical ridge δ=d/(n+d); closest offline proxy to deployed LLaMA SRT.",
             "PooledMahalanobis_NONE": "SRT Thm4 + no shrinkage (raw pooled covariance).",
             "PSR_k8": "Probabilistic Subspace Routing.",
             "RLS_Woodbury": "Recursive Least Squares.",
         },
+        "embedding_profile": embedding_profile,
+        "expected_superni_profile": EXPECTED_SUPERNI_PROFILE if args.benchmark == "SuperNI" else None,
+        "deployment_proxy": "PooledMahalanobis_RIDGE" if args.benchmark == "SuperNI" else None,
         "results": final_report,
     }
 

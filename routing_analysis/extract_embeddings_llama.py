@@ -1,22 +1,22 @@
 """
 Extract frozen embeddings from LLaMA models for routing analysis.
-Models: meta-llama/Llama-2-7b-hf, Llama-2-7b-chat-hf, Llama-2-13b-hf,
-        meta-llama/Llama-3.1-8B (or Meta-Llama-3-8B)
 
-Strategy: Use last hidden state of the LAST non-padding token (LLaMA is decoder-only,
-left-padded → rightmost real token carries the most context).
-Alternative: average pool all non-padding tokens (set --pool avg).
+Default behavior is aligned with the deployed LLaMA continual-learning router:
+    - SuperNI prompts are built with the same zero-shot instruction template.
+    - Tokenization uses add_special_tokens=False, matching the CL collator.
+    - Embeddings come from the final hidden state at the last non-padding token.
+
+Optional ablations remain available via --pool / --layer / --superni_prompt_style,
+but they are not treated as runtime-aligned by default.
 
 Output: embeddings/{model_name}/{benchmark}/{task_name}/{split}.npz
-  - embeddings: (N, d_model) float32
-  - labels: (N,) object array
+    - embeddings: (N, d_model) float32
+    - labels: (N,) object array
+    - metadata_json: scalar JSON string describing the extraction profile
 
 Usage:
-  python extract_embeddings_llama.py --model meta-llama/Llama-2-7b-hf
-  python extract_embeddings_llama.py --model meta-llama/Llama-2-7b-chat-hf
-  python extract_embeddings_llama.py --model meta-llama/Llama-2-13b-hf
-  python extract_embeddings_llama.py --model meta-llama/Llama-3.1-8B
-  python extract_embeddings_llama.py --model meta-llama/Llama-2-7b-hf --pool avg
+    python extract_embeddings_llama.py --model meta-llama/Llama-2-7b-hf
+    python extract_embeddings_llama.py --model meta-llama/Llama-2-7b-hf --superni_prompt_style runtime_cl
 """
 
 import argparse
@@ -95,21 +95,63 @@ def load_long_seq(json_path: str):
     return texts, labels
 
 
-def load_superni(json_path: str):
+def _normalize_output_label(output):
+    if isinstance(output, str):
+        return output
+    if isinstance(output, (list, tuple)) and output:
+        first = output[0]
+        return first if isinstance(first, str) else str(first)
+    return str(output)
+
+
+def _build_superni_runtime_instruction(data: dict, input_mode: str = "zeroshot") -> str:
+    """Mirror new_gainlora/src/cl_dataset.py load_SuperNI_dataset exactly."""
+    definition = ""
+    if input_mode in {"fewshot", "zeroshot"}:
+        raw_definition = data.get("Definition", "")
+        if isinstance(raw_definition, list):
+            raw_definition = raw_definition[0] if raw_definition else ""
+        if raw_definition:
+            definition = "Definition: " + str(raw_definition).strip() + "\n\n"
+
+    instruction = ""
+    if input_mode in {"fewshot", "zeroshot"}:
+        instruction += "Now complete the following example -\n"
+    instruction += "Input: {0}\n"
+    instruction += "Output: "
+
+    pos_examples = []
+    if input_mode == "fewshot":
+        for idx, pos_example in enumerate(data.get("Positive Examples", [])[:1]):
+            pos_example_str = f"Positive Example {idx + 1} -\n"
+            pos_example_str += f"Input: {pos_example['input'].strip()}\n"
+            pos_example_str += f"Output: {pos_example['output'].strip()}\n"
+            pos_examples.append(pos_example_str)
+
+    return definition + "".join(pos_examples) + instruction
+
+
+def load_superni(json_path: str, prompt_style: str = "runtime_cl"):
     with open(json_path, encoding="utf-8") as f:
         data = json.load(f)
-    defs = data.get("Definition", [])
-    if isinstance(defs, list) and len(defs) > 0:
-        definition = defs[0].strip()
-    elif isinstance(defs, str):
-        definition = defs.strip()
-    else:
-        definition = ""
 
-    if definition:
-        template = f"Definition: {definition}\n\nNow complete the following example -\nInput: {{0}}\nOutput: "
+    if prompt_style == "runtime_cl":
+        template = _build_superni_runtime_instruction(data, input_mode="zeroshot")
+    elif prompt_style == "simple":
+        defs = data.get("Definition", [])
+        if isinstance(defs, list) and len(defs) > 0:
+            definition = defs[0].strip()
+        elif isinstance(defs, str):
+            definition = defs.strip()
+        else:
+            definition = ""
+
+        if definition:
+            template = f"Definition: {definition}\n\nNow complete the following example -\nInput: {{0}}\nOutput: "
+        else:
+            template = "{0}"
     else:
-        template = "{0}"
+        raise ValueError(f"Unknown SuperNI prompt_style={prompt_style}")
 
     texts, labels = [], []
     for inst in data.get("Instances", []):
@@ -124,7 +166,7 @@ def load_superni(json_path: str):
                 inp = str(inst)
                 out = ""
         texts.append(template.format(inp))
-        labels.append(out if isinstance(out, str) else (out[0] if isinstance(out, (list, tuple)) and out else str(out)))
+        labels.append(_normalize_output_label(out))
     return texts, labels
 
 
@@ -136,7 +178,7 @@ def extract_embeddings(
     tokenizer,
     texts: list[str],
     batch_size: int = 8,
-    max_length: int = 512,
+    max_length: int = 1024,
     device: str = "cuda",
     pool: str = "last",
     layer: str = "hidden",
@@ -144,8 +186,8 @@ def extract_embeddings(
 ) -> np.ndarray:
     """
     Extract embeddings from LLaMA (decoder-only).
-    layer='hidden': last hidden state (after all transformer blocks)
-    layer='embedding': word embedding layer (before transformer blocks, matches CL router)
+    layer='hidden': last hidden state (after all transformer blocks, runtime-aligned)
+    layer='embedding': word embedding layer (available for ablations only)
     pool='last': last non-padding token's hidden state
     pool='avg':  average pool over non-padding tokens
     Returns (N, d_model) float32 array (cast from bfloat16, no quantization).
@@ -159,17 +201,19 @@ def extract_embeddings(
             max_length=max_length,
             padding=True,
             truncation=True,
+            add_special_tokens=False,
             return_tensors="pt",
         ).to(device)
 
         if layer == "embedding":
-            # Word embedding layer only — same input the CL router sees
+            # Word embedding layer only — useful for ablations, not runtime-equivalent routing
             hidden = model.model.embed_tokens(enc["input_ids"])  # (B, L, d)
         else:
             out = model(
                 input_ids=enc["input_ids"],
                 attention_mask=enc["attention_mask"],
                 output_hidden_states=True,
+                use_cache=False,
             )
             hidden = out.hidden_states[-1]  # (B, L, d)
 
@@ -190,6 +234,21 @@ def extract_embeddings(
     return np.concatenate(all_embs, axis=0)
 
 
+def resolve_torch_dtype(device: str, dtype_name: str):
+    if dtype_name == "fp16":
+        return torch.float16
+    if dtype_name == "bf16":
+        return torch.bfloat16
+    if dtype_name == "fp32":
+        return torch.float32
+
+    if device == "cuda" and torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+        return torch.bfloat16
+    if device == "cuda":
+        return torch.float16
+    return torch.float32
+
+
 # ── Main ──────────────────────────────────────────────────────────────
 
 def main():
@@ -201,17 +260,23 @@ def main():
     parser.add_argument("--output_dir", type=str, default="embeddings",
                         help="Output root directory")
     parser.add_argument("--batch_size", type=int, default=4)
-    parser.add_argument("--max_length", type=int, default=512)
+    parser.add_argument("--max_length", type=int, default=1024)
     parser.add_argument("--pool", type=str, default="last",
                         choices=["last", "avg"],
                         help="Pooling: 'last' (last token) or 'avg' (mean pool)")
     parser.add_argument("--layer", type=str, default="hidden",
                         choices=["hidden", "embedding"],
-                        help="'hidden'=last hidden state (default), 'embedding'=word embedding layer (matches CL router)")
+                        help="'hidden'=runtime-aligned last hidden state (default), 'embedding'=ablation only")
+    parser.add_argument("--superni_prompt_style", type=str, default="runtime_cl",
+                        choices=["runtime_cl", "simple"],
+                        help="SuperNI prompt construction. 'runtime_cl' mirrors the deployed CL dataset builder.")
     parser.add_argument("--benchmarks", type=str, nargs="+",
                         default=["Long_Sequence", "SuperNI"],
                         choices=["Long_Sequence", "SuperNI"])
     parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--dtype", type=str, default="auto",
+                        choices=["auto", "fp16", "bf16", "fp32"],
+                        help="Model weight dtype. auto picks bf16 when supported, otherwise fp16 on CUDA.")
     parser.add_argument("--token", nargs='?', const='', default=None,
                         help="HuggingFace access token for gated models (omit to use HF_TOKEN env var)")
     args = parser.parse_args()
@@ -224,12 +289,15 @@ def main():
     if args.device is None:
         args.device = "cuda" if torch.cuda.is_available() else "cpu"
 
+    model_dtype = resolve_torch_dtype(args.device, args.dtype)
+
     model_short = args.model.split("/")[-1]
     pool_suffix = f"_pool{args.pool}" if args.pool != "last" else ""
     layer_suffix = "_wordemb" if args.layer == "embedding" else ""
     print(f"=== Model: {args.model} ({model_short}) on {args.device} ===")
     print(f"    Pooling: {args.pool}")
     print(f"    Layer: {args.layer}")
+    print(f"    DType: {model_dtype}")
 
     # Tokenizer
     print("Loading tokenizer...")
@@ -244,8 +312,8 @@ def main():
     print("Loading model...")
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
-        torch_dtype=torch.bfloat16,
-        device_map=args.device,
+        torch_dtype=model_dtype,
+        device_map="auto" if args.device == "cuda" else None,
         use_auth_token=args.token,
     ).eval()
 
@@ -257,7 +325,13 @@ def main():
         tasks = BENCHMARKS[bench_name]
         print(f"\n--- Benchmark: {bench_name} ({len(tasks)} tasks) ---")
 
-        loader_fn = load_long_seq if bench_name == "Long_Sequence" else load_superni
+        if bench_name == "Long_Sequence":
+            loader_fn = load_long_seq
+        else:
+            loader_fn = lambda json_path: load_superni(
+                json_path,
+                prompt_style=args.superni_prompt_style,
+            )
 
         task_pbar = tqdm(tasks, total=len(tasks), unit="task", position=0, leave=True)
         for task_name in task_pbar:
@@ -295,10 +369,30 @@ def main():
                     layer=args.layer,
                     desc=f"{task_name}/{split}",
                 )
+                metadata = {
+                    "benchmark": bench_name,
+                    "task_name": task_name,
+                    "split": split,
+                    "pool": args.pool,
+                    "layer": args.layer,
+                    "torch_dtype": str(model_dtype).replace("torch.", ""),
+                    "max_length": args.max_length,
+                    "padding_side": tokenizer.padding_side,
+                    "add_special_tokens": False,
+                    "superni_prompt_style": args.superni_prompt_style if bench_name == "SuperNI" else None,
+                    "runtime_aligned": (
+                        bench_name == "SuperNI"
+                        and args.superni_prompt_style == "runtime_cl"
+                        and args.layer == "hidden"
+                        and args.pool == "last"
+                        and args.max_length == 1024
+                    ),
+                }
                 np.savez_compressed(
                     out_path,
                     embeddings=embs,
                     labels=np.array(labels, dtype=object),
+                    metadata_json=np.array(json.dumps(metadata, sort_keys=True)),
                 )
                 task_pbar.write(f"  -> saved {out_path} {embs.shape}")
 
