@@ -142,7 +142,7 @@ for ((TASK_ID=0; TASK_ID<NUM_TASKS; TASK_ID++)); do
         --max_new_tokens         ${MAX_NEW_TOKENS} \
         --srt_shrinkage          ${SRT_SHRINKAGE} \
         --srt_max_emb_samples    ${SRT_MAX_EMB_SAMPLES} \
-        --srt_pca_components    ${SRT_PCA_COMPONENTS:-} \
+        ${SRT_PCA_COMPONENTS:+--srt_pca_components ${SRT_PCA_COMPONENTS}} \
         --use_srt_router \
         --bf16 \
         --deepspeed              "${DS_CONFIG}" \
