@@ -448,6 +448,9 @@ def generate_predictions_cl(
     start_time = time.perf_counter()
 
     n_batches = math.ceil(len(samples) / batch_size)
+    # SRT routing accuracy tracker (per GT task, per slot)
+    srt_routing_stats: dict = {}
+
     # SRT router status check (print once)
     if hasattr(model.model, 'srt_router') and model.model.srt_router is not None:
         router = model.model.srt_router
@@ -512,8 +515,19 @@ def generate_predictions_cl(
                 top2 = sorted_tasks[:2]
 
                 correct_flag = "✓" if (slot_task == gt_task or pred_task_str == gt_task) else "✗"
+                # ── Track accuracy per GT task ───────────────────────────
+                gt_key = gt_task
+                if gt_key not in srt_routing_stats:
+                    srt_routing_stats[gt_key] = {"correct": 0, "total": 0, "slots": {}}
+                srt_routing_stats[gt_key]["total"] += 1
+                if correct_flag == "✓":
+                    srt_routing_stats[gt_key]["correct"] += 1
+                slot_key = f"slot{pred_slot}"
+                srt_routing_stats[gt_key]["slots"][slot_key] = \
+                    srt_routing_stats[gt_key]["slots"].get(slot_key, 0) + 1
+                # ─────────────────────────────────────────────────────
 
-                # Format distances compactly
+# Format distances compactly
                 dist_str = "  ".join([f"{t[:20]:20s}:{d:.1f}" for t, d in sorted_tasks[:4]])
 
                 # Safe 2nd task access
@@ -549,6 +563,31 @@ def generate_predictions_cl(
             references.append(reference.strip())
 
     model.model.is_inference = False
+
+    # ── SRT ROUTING ACCURACY SUMMARY ─────────────────────────────────
+    if srt_routing_stats:
+        print()
+        print("  ┌" + "─"*66 + "┐")
+        print("  │           SRT ROUTING ACCURACY SUMMARY" + " "*(66-44) + "│")
+        print("  ├" + "─"*66 + "┤")
+        overall_correct = 0
+        overall_total = 0
+        for gt_key, stats in sorted(srt_routing_stats.items()):
+            acc = stats["correct"] / stats["total"] * 100 if stats["total"] > 0 else 0.0
+            overall_correct += stats["correct"]
+            overall_total += stats["total"]
+            slot_dist = "  ".join([f"{k}={v}" for k, v in sorted(stats["slots"].items())])
+            line = f"  │  GT={gt_key[:40]:40s}  acc={acc:5.1f}%  ({stats['correct']:3d}/{stats['total']:3d})  [{slot_dist[:20]}]"
+            print(line + " " * max(0, 67 - len(line)) + "│")
+        overall_acc = overall_correct / overall_total * 100 if overall_total > 0 else 0.0
+        print("  ├" + "─"*66 + "┤")
+        summary_line = f"  │  OVERALL ACCURACY: {overall_acc:5.1f}%  ({overall_correct:3d}/{overall_total:3d} samples)"
+        print(summary_line + " " * max(0, 67 - len(summary_line)) + "│")
+        print("  └" + "─"*66 + "┘")
+    else:
+        print("  [SRT] No routing data captured.")
+    # ── END SRT SUMMARY ───────────────────────────────────────────────
+
     runtime = time.perf_counter() - start_time
     return predictions, references, generated_lengths, runtime, total_steps
 
@@ -680,6 +719,8 @@ def parse_args() -> argparse.Namespace:
                         choices=["ridge", "oas", "lw", "none"],
                         help="PooledMahalanobis shrinkage method (default: ridge)")
     parser.add_argument("--srt_max_emb_samples",type=int,   default=500)
+    parser.add_argument("--srt_pca_components", type=int, default=None,
+                        help="PCA dims before Mahalanobis (e.g. 128). Reduces 4096→128 for stable Σ estimate.")
     parser.add_argument("--srt_skip_forward",   action="store_true", default=False)
 
     # ── SGWI ───────────────────────────────────────────────────────────────
@@ -935,6 +976,7 @@ def main() -> None:
         srt_max_emb_samples= args.srt_max_emb_samples,
         srt_load_path      = args.srt_load_path,
         srt_skip_forward   = args.srt_skip_forward,
+        srt_pca_components = getattr(args, 'srt_pca_components', None),
         # in-training eval for best-model selection (mirrors T5 load_best_model_at_end)
         dev_samples        = dev_samples,
         tokenizer          = tokenizer,

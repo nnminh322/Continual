@@ -107,9 +107,10 @@ class SRTSGWITrainer(Trainer):
         task_order: List[str],
         sgwi: bool = False,
         srt_shrinkage: str = "ridge",
-        srt_max_emb_samples: int = 500,
+        srt_max_emb_samples: int = 2000,
         srt_load_path: Optional[str] = None,
         srt_skip_forward: bool = False,
+        srt_pca_components: Optional[int] = None,
         # ── in-training evaluation (best-model selection) ──
         dev_samples: Optional[List[dict]] = None,
         tokenizer: Any = None,
@@ -126,6 +127,7 @@ class SRTSGWITrainer(Trainer):
         self.srt_max_emb_samples = srt_max_emb_samples
         self.srt_load_path = srt_load_path
         self.srt_skip_forward = srt_skip_forward
+        self.srt_pca_components = srt_pca_components
         self.srt_router: Optional[SRTRouter] = None
         # ── best-model tracking (replaces load_best_model_at_end for CausalLM) ──
         self.dev_samples = dev_samples or []
@@ -296,7 +298,10 @@ class SRTSGWITrainer(Trainer):
     def _srt_init(self):
         if self.srt_router is not None:
             return
-        self.srt_router = SRTRouter(shrinkage=self.srt_shrinkage)
+        self.srt_router = SRTRouter(
+            shrinkage=self.srt_shrinkage,
+            pca_components=self.srt_pca_components,
+        )
         if self.srt_load_path is not None:
             self.load_srt_signatures(self.srt_load_path, wire_model=True)
 
