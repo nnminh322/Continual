@@ -1,80 +1,26 @@
-==================================================
-LLaMA GainLoRA Continual Learning — SuperNI Order 1
-MODEL:     /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights
-TASKS:     15
-RUN_NAME:  superni_order1_llama_srt
-LOG_DIR:   /kaggle/working/vantee-code/new_llama_gainlora/logs_and_outputs
-EXTRA:     --srt_shrinkage ridge
-==================================================
-
-──────────────────────────────────────────────────
-TASK 1/15: task1572_samsum_summary
-OUTPUT:  /kaggle/working/vantee-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary
-PREV LORA: <none>
-SRT PATH:  <none>
-──────────────────────────────────────────────────
-[2026-04-27 10:20:15,127] [WARNING] [runner.py:232:fetch_hostfile] Unable to find hostfile, will proceed with training with local resources only.
-[2026-04-27 10:20:15,127] [INFO] [runner.py:630:main] cmd = /usr/bin/python3 -u -m deepspeed.launcher.launch --world_info=eyJsb2NhbGhvc3QiOiBbMF19 --master_addr=127.0.0.1 --master_port=29500 --enable_each_rank_log=None --log_level=info /kaggle/working/vantee-code/new_llama_gainlora/run_llama_gainlora_cl.py --model_name_or_path /kaggle/input/datasets/natmin322/llama-2-7b-hf-weights --data_dir /kaggle/working/vantee-code/root_gainlora/CL_Benchmark --task_config_dir /kaggle/working/vantee-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task1572_samsum_summary --output_dir /kaggle/working/vantee-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary --cur_task_id 0 --task_order task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification --lora_r 4 --lora_alpha 32 --lora_dropout 0.0 --per_device_train_batch_size 1 --per_device_eval_batch_size 2 --gradient_accumulation_steps 32 --learning_rate 5e-5 --num_train_epochs 15 --max_source_length 1024 --max_target_length 50 --max_new_tokens 50 --srt_shrinkage ridge --srt_max_emb_samples 2000 --use_srt_router --bf16 --deepspeed /kaggle/working/vantee-code/new_gainlora/configs/ds_configs/stage2.config --logging_steps 10 --seed 42 --srt_shrinkage ridge
-[2026-04-27 10:20:19,795] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE=libnccl-dev=2.25.1-1+cuda12.8
-[2026-04-27 10:20:19,795] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_VERSION=2.25.1-1
-[2026-04-27 10:20:19,795] [INFO] [launch.py:155:main] 0 NCCL_VERSION=2.25.1-1
-[2026-04-27 10:20:19,795] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_DEV_PACKAGE_NAME=libnccl-dev
-[2026-04-27 10:20:19,795] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE=libnccl2=2.25.1-1+cuda12.8
-[2026-04-27 10:20:19,795] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_NAME=libnccl2
-[2026-04-27 10:20:19,795] [INFO] [launch.py:155:main] 0 NV_LIBNCCL_PACKAGE_VERSION=2.25.1-1
-[2026-04-27 10:20:19,795] [INFO] [launch.py:162:main] WORLD INFO DICT: {'localhost': [0]}
-[2026-04-27 10:20:19,795] [INFO] [launch.py:168:main] nnodes=1, num_local_procs=1, node_rank=0
-[2026-04-27 10:20:19,795] [INFO] [launch.py:179:main] global_rank_mapping=defaultdict(<class 'list'>, {'localhost': [0]})
-[2026-04-27 10:20:19,795] [INFO] [launch.py:180:main] dist_world_size=1
-[2026-04-27 10:20:19,795] [INFO] [launch.py:184:main] Setting CUDA_VISIBLE_DEVICES=0
-[2026-04-27 10:20:19,795] [INFO] [launch.py:272:main] process 526 spawned with command: ['/usr/bin/python3', '-u', '/kaggle/working/vantee-code/new_llama_gainlora/run_llama_gainlora_cl.py', '--local_rank=0', '--model_name_or_path', '/kaggle/input/datasets/natmin322/llama-2-7b-hf-weights', '--data_dir', '/kaggle/working/vantee-code/root_gainlora/CL_Benchmark', '--task_config_dir', '/kaggle/working/vantee-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task1572_samsum_summary', '--output_dir', '/kaggle/working/vantee-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary', '--cur_task_id', '0', '--task_order', 'task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification', '--lora_r', '4', '--lora_alpha', '32', '--lora_dropout', '0.0', '--per_device_train_batch_size', '1', '--per_device_eval_batch_size', '2', '--gradient_accumulation_steps', '32', '--learning_rate', '5e-5', '--num_train_epochs', '15', '--max_source_length', '1024', '--max_target_length', '50', '--max_new_tokens', '50', '--srt_shrinkage', 'ridge', '--srt_max_emb_samples', '2000', '--use_srt_router', '--bf16', '--deepspeed', '/kaggle/working/vantee-code/new_gainlora/configs/ds_configs/stage2.config', '--logging_steps', '10', '--seed', '42', '--srt_shrinkage', 'ridge']
-
-============================================================
-Task 0: task1572_samsum_summary
-Task order (15 tasks): ['task1572_samsum_summary', 'task363_sst2_polarity_classification', 'task1290_xsum_summarization', 'task181_outcome_extraction', 'task002_quoref_answer_generation', 'task1510_evalution_relation_extraction', 'task639_multi_woz_user_utterance_generation', 'task1729_personachat_generate_next', 'task073_commonsenseqa_answer_generation', 'task1590_diplomacy_text_generation', 'task748_glucose_reverse_cause_event_detection', 'task511_reddit_tifu_long_text_summarization', 'task591_sciq_answer_generation', 'task1687_sentiment140_classification', 'task875_emotion_classification']
-previous_lora_path: None
-srt_load_path:      None
-sgwi:               True
-============================================================
-
-/kaggle/working/vantee-code/root_gainlora/CL_Benchmark/SuperNI/task1572_samsum_summary/train.json
-['Contributors', 'Source', 'URL', 'Categories', 'Reasoning', 'Definition', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Instance License']
-/kaggle/working/vantee-code/root_gainlora/CL_Benchmark/SuperNI/task1572_samsum_summary/dev.json
-['Contributors', 'Source', 'URL', 'Categories', 'Reasoning', 'Definition', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Instance License']
-/kaggle/working/vantee-code/root_gainlora/CL_Benchmark/SuperNI/task1572_samsum_summary/test.json
-['Contributors', 'Source', 'URL', 'Categories', 'Reasoning', 'Definition', 'Input_language', 'Output_language', 'Instruction_language', 'Domains', 'Positive Examples', 'Negative Examples', 'Instances', 'Instance License']
-Train/dev/test: 160/20/20
-Loading weights: 100%|██████████| 291/291 [00:13<00:00, 20.85it/s]
-[transformers] LlamaForCausalLM has generative capabilities, as `prepare_inputs_for_generation` is explicitly defined. However, it doesn't directly inherit from `GenerationMixin`. From 👉v4.50👈 onwards, `PreTrainedModel` will NOT inherit from `GenerationMixin`, and this model will lose the ability to call `generate` and other related functions.
-  - If you're using `trust_remote_code=True`, you can get rid of this warning by loading the model with an auto class. See https://huggingface.co/docs/transformers/en/model_doc/auto#auto-classes
-  - If you are the owner of the model architecture code, please modify your model class such that it inherits from `GenerationMixin` (after `PreTrainedModel`, otherwise you'll get an exception).
-  - If you are not the owner of the model architecture class, please contact the model code owner to update it.
-[transformers] LlamaModel has generative capabilities, as `prepare_inputs_for_generation` is explicitly defined. However, it doesn't directly inherit from `GenerationMixin`. From 👉v4.50👈 onwards, `PreTrainedModel` will NOT inherit from `GenerationMixin`, and this model will lose the ability to call `generate` and other related functions.
-  - If you're using `trust_remote_code=True`, you can get rid of this warning by loading the model with an auto class. See https://huggingface.co/docs/transformers/en/model_doc/auto#auto-classes
-  - If you are the owner of the model architecture code, please modify your model class such that it inherits from `GenerationMixin` (after `PreTrainedModel`, otherwise you'll get an exception).
-  - If you are not the owner of the model architecture class, please contact the model code owner to update it.
-[LOAD] HF checkpoint copied into custom LLaMA (allowed_missing=163)
-[FIX] Re-initialized lora_A/B in 64 LoRA layers
-[FIX] Re-initialized prompt_key ~ U(-1,1)
-[FIX] Upcast 131 trainable tensors to fp32
-Trainable: 2.920M / 6741.336M (0.04%)
-[TRAIN] step_per_epoch=5, eval_steps=25
-[W427 10:21:21.511696459 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
+Loading weights: 100%|██████████| 291/291 [00:00<00:00, 796.31it/s]
+[SRT] Frozen backbone attached (moved to cuda:0).
+  [SRT] → Forward extraction (max 2000 batches)
+  [PCA] d=4096 → k=-1  var=1.0000
 [rank0]: Traceback (most recent call last):
 [rank0]:   File "/kaggle/working/vantee-code/new_llama_gainlora/run_llama_gainlora_cl.py", line 1107, in <module>
 [rank0]:     main()
-[rank0]:   File "/kaggle/working/vantee-code/new_llama_gainlora/run_llama_gainlora_cl.py", line 966, in main
-[rank0]:     trainer = SRTSGWITrainer(
-[rank0]:               ^^^^^^^^^^^^^^^
-[rank0]:   File "/kaggle/working/vantee-code/new_llama_gainlora/src/sgwi_srt_trainer.py", line 142, in __init__
-[rank0]:     self._srt_init()
-[rank0]:   File "/kaggle/working/vantee-code/new_llama_gainlora/src/sgwi_srt_trainer.py", line 301, in _srt_init
-[rank0]:     self.srt_router = SRTRouter(
-[rank0]:                       ^^^^^^^^^^
-[rank0]:   File "/kaggle/working/vantee-code/new_gainlora/src/srt_router.py", line 634, in __init__
-[rank0]:     self._impl = PooledMahalanobisRouter(
-[rank0]:                  ^^^^^^^^^^^^^^^^^^^^^^^^
-[rank0]: TypeError: PooledMahalanobisRouter.__init__() got an unexpected keyword argument 'pca_components'
-[rank0]:[W427 10:21:22.586282480 ProcessGroupNCCL.cpp:1575] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
-[2026-04-27 10:21:24,801] [INFO] [launch.py:335:sigkill_handler] Killing subprocess 526
-[2026-04-27 10:21:24,801] [ERROR] [launch.py:341:sigkill_handler] ['/usr/bin/python3', '-u', '/kaggle/working/vantee-code/new_llama_gainlora/run_llama_gainlora_cl.py', '--local_rank=0', '--model_name_or_path', '/kaggle/input/datasets/natmin322/llama-2-7b-hf-weights', '--data_dir', '/kaggle/working/vantee-code/root_gainlora/CL_Benchmark', '--task_config_dir', '/kaggle/working/vantee-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task1572_samsum_summary', '--output_dir', '/kaggle/working/vantee-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary', '--cur_task_id', '0', '--task_order', 'task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification', '--lora_r', '4', '--lora_alpha', '32', '--lora_dropout', '0.0', '--per_device_train_batch_size', '1', '--per_device_eval_batch_size', '2', '--gradient_accumulation_steps', '32', '--learning_rate', '5e-5', '--num_train_epochs', '15', '--max_source_length', '1024', '--max_target_length', '50', '--max_new_tokens', '50', '--srt_shrinkage', 'ridge', '--srt_max_emb_samples', '2000', '--use_srt_router', '--bf16', '--deepspeed', '/kaggle/working/vantee-code/new_gainlora/configs/ds_configs/stage2.config', '--logging_steps', '10', '--seed', '42', '--srt_shrinkage', 'ridge'] exits with return code = 1
+[rank0]:   File "/kaggle/working/vantee-code/new_llama_gainlora/run_llama_gainlora_cl.py", line 1041, in main
+[rank0]:     trainer.on_task_end(cur_task)
+[rank0]:   File "/kaggle/working/vantee-code/new_llama_gainlora/src/sgwi_srt_trainer.py", line 343, in on_task_end
+[rank0]:     self._compute_and_store_signature(task_id)
+[rank0]:   File "/kaggle/working/vantee-code/new_llama_gainlora/src/sgwi_srt_trainer.py", line 435, in _compute_and_store_signature
+[rank0]:     sig = self.srt_router.add_task(
+[rank0]:           ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/kaggle/working/vantee-code/new_gainlora/src/srt_router.py", line 671, in add_task
+[rank0]:     return self._impl.add_task(task_id, h_train)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/kaggle/working/vantee-code/new_gainlora/src/srt_router.py", line 277, in add_task
+[rank0]:     self._mu_pool_t, self._Sigma_pool_t, self._n_pool = welford_pooled_update(
+[rank0]:                                                         ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/kaggle/working/vantee-code/new_gainlora/src/srt_router.py", line 126, in welford_pooled_update
+[rank0]:     mu_pool = (n_old * mu_old + n_new * mu_new) / total
+[rank0]:                ~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~
+[rank0]: RuntimeError: The size of tensor a (4096) must match the size of tensor b (4095) at non-singleton dimension 0
+[2026-04-27 11:10:15,773] [INFO] [launch.py:335:sigkill_handler] Killing subprocess 1232
+[2026-04-27 11:10:15,773] [ERROR] [launch.py:341:sigkill_handler] ['/usr/bin/python3', '-u', '/kaggle/working/vantee-code/new_llama_gainlora/run_llama_gainlora_cl.py', '--local_rank=0', '--model_name_or_path', '/kaggle/input/datasets/natmin322/llama-2-7b-hf-weights', '--data_dir', '/kaggle/working/vantee-code/root_gainlora/CL_Benchmark', '--task_config_dir', '/kaggle/working/vantee-code/new_gainlora/configs/gen_script_superni_order1_llama_configs/task363_sst2_polarity_classification', '--output_dir', '/kaggle/working/vantee-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/2-task363_sst2_polarity_classification', '--cur_task_id', '1', '--task_order', 'task1572_samsum_summary,task363_sst2_polarity_classification,task1290_xsum_summarization,task181_outcome_extraction,task002_quoref_answer_generation,task1510_evalution_relation_extraction,task639_multi_woz_user_utterance_generation,task1729_personachat_generate_next,task073_commonsenseqa_answer_generation,task1590_diplomacy_text_generation,task748_glucose_reverse_cause_event_detection,task511_reddit_tifu_long_text_summarization,task591_sciq_answer_generation,task1687_sentiment140_classification,task875_emotion_classification', '--lora_r', '4', '--lora_alpha', '32', '--lora_dropout', '0.0', '--per_device_train_batch_size', '1', '--per_device_eval_batch_size', '2', '--gradient_accumulation_steps', '32', '--learning_rate', '5e-5', '--num_train_epochs', '15', '--max_source_length', '1024', '--max_target_length', '50', '--max_new_tokens', '50', '--srt_shrinkage', 'ridge', '--srt_max_emb_samples', '2000', '--use_srt_router', '--bf16', '--deepspeed', '/kaggle/working/vantee-code/new_gainlora/configs/ds_configs/stage2.config', '--logging_steps', '10', '--seed', '42', '--previous_lora_path', '/kaggle/working/vantee-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights', '--srt_load_path', '/kaggle/working/vantee-code/new_llama_gainlora/logs_and_outputs/superni_order1_llama_srt/outputs/1-task1572_samsum_summary/saved_weights', '--srt_shrinkage', 'ridge'] exits with return code = 1
