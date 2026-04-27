@@ -242,9 +242,13 @@ def resolve_torch_dtype(device: str, dtype_name: str):
     if dtype_name == "fp32":
         return torch.float32
 
-    if device == "cuda" and torch.cuda.is_available() and torch.cuda.is_bf16_supported():
-        return torch.bfloat16
-    if device == "cuda":
+    if device == "cuda" and torch.cuda.is_available():
+        try:
+            major, _minor = torch.cuda.get_device_capability()
+        except Exception:
+            major = 0
+        if major >= 8 and torch.cuda.is_bf16_supported():
+            return torch.bfloat16
         return torch.float16
     return torch.float32
 
@@ -302,19 +306,19 @@ def main():
     # Tokenizer
     print("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(
-        args.model, use_auth_token=args.token, trust_remote_code=True
+        args.model, token=args.token, trust_remote_code=True
     )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"  # LLaMA convention
 
-    # Model — full precision: bfloat16 (LLaMA native dtype, no quantization)
+    # Model — prefer bf16 on Ampere+, otherwise fp16 on older CUDA GPUs such as P100
     print("Loading model...")
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
-        torch_dtype=model_dtype,
+        dtype=model_dtype,
         device_map="auto" if args.device == "cuda" else None,
-        use_auth_token=args.token,
+        token=args.token,
     ).eval()
 
     d_model = model.config.hidden_size
