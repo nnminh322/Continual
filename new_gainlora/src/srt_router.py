@@ -168,6 +168,7 @@ class PooledMahalanobisRouter:
         self,
         shrinkage: str = "ridge",
         device: Optional[str] = None,
+        pca_components: Optional[int] = None,
     ):
         assert shrinkage in _SHRINK_METHODS, f"Unknown shrinkage: {shrinkage}"
         self.shrinkage = shrinkage
@@ -536,8 +537,9 @@ class PooledMahalanobisRouter:
 
         # Restore PCA state
         pca_arr = data.get("pca_components", np.array([-1]))
-        self.pca_components = int(pca_arr[0]) if pca_arr.size > 0 else None
-        if self.pca_components and self.pca_components > 0:
+        pca_val = int(pca_arr[0]) if pca_arr.size > 0 else -1
+        self.pca_components = pca_val if pca_val > 0 else None
+        if self.pca_components is not None and self.pca_components > 0:
             pca_mean = data.get("pca_mean", np.array([]))
             pca_V = data.get("pca_V", np.array([]))
             if pca_mean.size > 0 and pca_V.size > 0:
