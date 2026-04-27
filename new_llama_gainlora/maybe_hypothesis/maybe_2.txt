@@ -1,0 +1,153 @@
+ Tôi sẽ đọc tất cả các file liên quan để phân tích bug lý thuyết. Cho tôi đọc song song các file trước.
+
+  Read 5 files (ctrl+o to expand)
+
+⏺ Tôi đã đọc đủ các file chính. Bây giờ tôi cần đọc thêm file implementation thực tế run_llama_gainlora_cl.py để so sánh cách SRT router được implement
+  trong thực tế.
+
+⏺ Explore(Find SRT router implementation)
+  ⎿  Done (12 tool uses · 97.2k tokens · 2m 13s)
+  (ctrl+o to expand)
+
+⏺ Tuyệt vời, tôi đã có đầy đủ thông tin. Bây giờ tôi cần xác nhận thêm một chi tiết quan trọng - cách srt_max_emb_samples ảnh hưởng đến chất lượng
+  signatures.
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+  ⎿  Loaded new_gainlora/CLAUDE.md
+
+⏺ Bây giờ tôi cần xem hàm extract_embeddings_from_batch được dùng trong pipeline thực tế.
+
+  Searched for 4 patterns, read 1 file (ctrl+o to expand)
+
+⏺ Bây giờ tôi đã có đủ thông tin để phân tích toàn diện. Đây là kết quả:
+
+  ---
+  Phân tích Bug Lý thuyết: Khoảng cách giữa Kiểm định Giả thuyết và Thực tế
+
+  Tóm tắt vấn đề
+
+  - Kiểm định (routing_class_v2.py): PooledMahalanobis RIDGE đạt 97.51% routing accuracy, task1572 ở turn 3 vẫn 90%
+  - Thực tế (run_llama_gainlora_cl.py): task1572 drop từ 42% → 40.7% → 32.6% (rougeL), mức drop quá lớn so với routing accuracy 90%
+
+  Tôi tìm thấy 3 bug lý thuyết nghiêm trọng:
+
+  ---
+  BUG 1 (NGHIÊM TRỌNG NHẤT): Embedding dùng để build SRT signatures trong thực tế bị rút từ model SAI
+
+  Trong sgwi_trainer_llama.py:157, hàm _extract_task_embeddings() gọi:
+  h = extract_embeddings_from_batch(self.model, inputs)
+
+  Hàm extract_embeddings_from_batch (cl_trainer_srt.py:42-134) có 5 cases. Khi encoder_frozen chưa được attach (xảy ra tại thời điểm gọi
+  _compute_and_store_signature() nếu flow không đúng), nó sẽ fall vào Case 4 (line 116-125):
+
+  elif hasattr(model, 'model'):
+      out = model.model(input_ids=llama_source_ids, ...)
+
+  Đây là model đã fine-tune LoRA (model hiện tại), KHÔNG phải frozen backbone. Điều này vi phạm nguyên tắc cốt lõi: embedding space phải đồng nhất giữa tất
+   cả các task.
+
+  Trong kiểm định (extract_embeddings_llama.py), embedding luôn được rút từ frozen pretrained model (Llama-2-7b-hf gốc, không LoRA). Nhưng trong thực tế,
+  nếu encoder_frozen chưa attach đúng thời điểm, embeddings sẽ bị rút từ model đã bị LoRA biến đổi → centroid bị lệch → routing sai.
+
+  Tuy nhiên, nhìn vào log thực tế (run_log.txt line 126-131), encoder_frozen có được attach trước khi gọi on_task_end(). Vậy Case 2 (frozen) được dùng cho
+  signature extraction. Bug này có thể không xảy ra nếu flow đúng, nhưng cần verify kỹ.
+
+  ---
+  BUG 2 (NGHIÊM TRỌNG): srt_max_emb_samples=200 vs kiểm định dùng TOÀN BỘ train data
+
+  Đây là bug lý thuyết chính.
+
+  - Kiểm định (routing_class_v2.py): Dùng TOÀN BỘ train embeddings (160, 1000, 1000... samples mỗi task). Tổng pool lên tới 11,741 samples.
+  - Thực tế (run_superni_order1_llama_cl.sh line 49): SRT_MAX_EMB_SAMPLES=200. Mỗi task chỉ dùng tối đa 200 samples để tính centroid và covariance.
+
+  Hệ quả:
+  1. Centroid μ_t bị estimate kém: Với d=4096 và chỉ 200 samples, centroid estimate có variance cao → routing accuracy giảm
+  2. Pooled covariance Σ_pool bị estimate cực kém: Với n/d = 200/4096 ≈ 0.049, ma trận covariance 4096×4096 được estimate từ chỉ 200 samples →
+  rank-deficient nghiêm trọng. Ridge shrinkage δ = d/(n+d) = 4096/4296 ≈ 0.95 (gần như toàn bộ là identity matrix, mất hết thông tin anisotropic)
+  3. So sánh: Trong kiểm định, sau 3 tasks, pool=2160, δ = 4096/6256 ≈ 0.65 → giữ được nhiều thông tin covariance hơn rất nhiều
+
+  Nhìn vào log thực tế:
+  - Task 1: n=160, δ=0.9624 (gần identity)
+  - Task 2: n_pool=360, δ=0.9192
+  - Task 3: n_pool=560, δ=0.8797
+
+  Trong khi kiểm định:
+  - Task 3: pool=2160 → δ ≈ 0.65
+
+  Kết luận: Router trong thực tế hoạt động gần như NearestCentroid (L2 thuần) thay vì Pooled Mahalanobis thực sự, vì shrinkage quá cao khiến Σ_pool⁻¹ ≈
+  identity.
+
+  ---
+  BUG 3 (NGHIÊM TRỌNG): Thiết kế thử nghiệm không phản ánh đúng bối cảnh incremental — max_batches vs max_samples
+
+  Trong sgwi_trainer_llama.py:152:
+  max_batches = min(max_samples, len(train_dataloader))
+  for step, inputs in enumerate(train_dataloader):
+      if step >= max_batches:
+          break
+
+  srt_max_emb_samples=200 được dùng làm max_batches (số batch), KHÔNG phải max samples. Với per_device_train_batch_size=1, mỗi batch chỉ có 1 sample → thực
+   tế chỉ lấy 200 samples. Nhưng nếu batch_size thay đổi, con số sẽ khác. Đây là inconsistency tiềm ẩn.
+
+  Quan trọng hơn, trong kiểm định, task1572 có 160 train samples và 20 test samples. Trong thực tế cũng vậy (log line 46: Train/dev/test: 160/20/20). Vậy
+  task1572 chỉ có 160 samples → centroid được tính từ 160 samples. Nhưng task363 có 1000 samples mà chỉ lấy 200 → centroid bị estimate kém hơn so với kiểm
+  định (dùng cả 1000).
+
+  ---
+  BUG 4 (QUAN TRỌNG): task_id_to_idx mapping bị đảo ngược thứ tự LoRA slots
+
+  Trong sgwi_trainer_llama.py:179-182:
+  task_id_to_idx = {current_task: 0}
+  for prev_idx in range(self.cur_task_id):
+      prev_task = self.task_order[prev_idx]
+      task_id_to_idx[prev_task] = self.cur_task_id - prev_idx
+
+  Ví dụ tại Task 3 (task1290_xsum):
+  - task1290_xsum → slot 0 (current)
+  - task1572_samsum → slot 2 (oldest, cur_task_id - 0 = 2)
+  - task363_sst2 → slot 1 (cur_task_id - 1 = 1)
+
+  Nhưng trong run_llama_gainlora_cl.py, LoRA adapters được load theo thứ tự:
+  [PREV-LORA] Loaded slot[0] ← task363_sst2 (mới nhất)
+  [PREV-LORA] Loaded slot[1] ← task1572_samsum (cũ nhất)
+
+  Xác nhận từ log (line 465-466):
+  [PREV-LORA] Loaded slot[0] ← .../2-task363_sst2.../saved_weights
+  [PREV-LORA] Loaded slot[1] ← .../1-task1572_samsum.../saved_weights
+
+  Trong LlamaModel.forward(), slot mapping:
+  - key_attention_weights[:, 0] → current task LoRA
+  - key_attention_weights[:, 1] → previous_lora_weights[0] = task363_sst2
+  - key_attention_weights[:, 2] → previous_lora_weights[1] = task1572_samsum
+
+  Và task_id_to_idx:
+  - task1572_samsum → 2 → slot 2 → previous_lora_weights[1] = task1572_samsum ✓
+  - task363_sst2 → 1 → slot 1 → previous_lora_weights[0] = task363_sst2 ✓
+
+  Mapping này có vẻ đúng nhưng phụ thuộc vào thứ tự load LoRA. Cần verify kỹ rằng previous_lora_path được truyền đúng thứ tự (oldest→newest hay
+  newest→oldest).
+
+  Nhìn vào bash script (line 158-161):
+  PREVIOUS_LORA_PATHS="${PREVIOUS_LORA_PATHS},${CUR_SAVED}"
+  → Paths được append theo thứ tự oldest→newest. Nhưng trong code load (log line 465-466), slot[0] nhận path cuối cùng (newest) và slot[1] nhận path đầu
+  (oldest). Điều này cho thấy code load đảo ngược thứ tự.
+
+  Nếu mapping bị sai, router trả về đúng task nhưng activate sai LoRA adapter → performance drop nghiêm trọng.
+
+  ---
+  Kết luận tổng hợp
+
+  ┌───────────────────────────────────┬────────────┬─────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │                Bug                │   Mức độ   │                                           Giải thích                                            │
+  ├───────────────────────────────────┼────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Bug 2: srt_max_emb_samples=200    │ Cao nhất   │ Covariance estimate quá kém (δ≈0.95), router gần như L2 thuần, mất lợi thế Mahalanobis          │
+  ├───────────────────────────────────┼────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Bug 4: LoRA slot mapping          │ Cao        │ Nếu thứ tự load LoRA bị đảo so với task_id_to_idx, routing đúng task nhưng activate sai adapter │
+  ├───────────────────────────────────┼────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Bug 1: Embedding source           │ Trung bình │ Có thể xảy ra nếu flow không đúng, cần verify                                                   │
+  ├───────────────────────────────────┼────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Bug 3: max_batches vs max_samples │ Thấp       │ Inconsistency nhỏ nhưng ảnh hưởng tích lũy                                                      │
+  └───────────────────────────────────┴────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  Bug 2 là nguyên nhân chính giải thích tại sao kiểm định đạt 97% routing accuracy nhưng thực tế performance drop mạnh: router trong thực tế được build từ
+  quá ít samples, khiến nó routing kém hơn nhiều so với kiểm định.

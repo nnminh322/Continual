@@ -1,0 +1,137 @@
+  BUG 1: "Embedding dùng để build SRT signatures bị rút từ model SAI"
+
+  Phán quyết: SAI MỘT PHẦN - cần sửa lại claim
+
+  Luận điểm gốc claim rằng extract_embeddings_from_batch (trong cl_trainer_srt.py) fall vào Case 4 (model đã fine-tune LoRA). Tuy nhiên, code thực tế chạy
+  KHÔNG dùng cl_trainer_srt.py.
+
+  Verify trực tiếp:
+  - File thực tế chạy là new_llama_gainlora/src/sgwi_srt_trainer.py (class SRTSGWITrainer), KHÔNG phải new_gainlora/src/sgwi_trainer_llama.py
+  - Hàm _extract_task_embeddings tại sgwi_srt_trainer.py:349-401 KHÔNG gọi extract_embeddings_from_batch - nó gọi trực tiếp encoder_frozen(src_ids,
+  src_mask) (line 396)
+  - Flow trong run_llama_gainlora_cl.py:
+    a. Line 947: trainer.get_reg_matrix() (SGWI warm-init) - gọi TRƯỚC training
+    b. Line 956: trainer.train()
+    c. Line 975-997: Attach encoder_frozen (FrozenLlamaExtractor) - gọi SAU training
+    d. Line 999: trainer.on_task_end() → _compute_and_store_signature() → _extract_task_embeddings() - gọi SAU encoder_frozen đã attach
+
+  Kết luận thực tế: Signature extraction (on_task_end) dùng đúng frozen backbone vì encoder_frozen đã được attach ở line 975-997 trước khi on_task_end ở
+  line 999. Log xác nhận: [SRT] Frozen backbone attached xuất hiện trước [SRT] → Forward extraction.
+
+  NHƯNG: SGWI warm-init (get_reg_matrix ở line 947) gọi _compute_sgwi_weights() → _extract_task_embeddings() TRƯỚC khi encoder_frozen được attach. Log xác
+  nhận tại line 221-222: [SRT] WARNING: encoder_frozen not attached. Returning empty embeddings. → SGWI bị skip hoàn toàn cho mọi task > 0.
+
+  Đánh giá: Luận điểm gốc claim sai cơ chế (nói về cl_trainer_srt.py Case 4 nhưng code thực tế không dùng file đó). Tuy nhiên, có một bug thực: SGWI
+  warm-init bị vô hiệu hóa hoàn toàn vì encoder_frozen chưa attach tại thời điểm gọi. Đây là bug nhưng không ảnh hưởng đến routing accuracy - chỉ ảnh hưởng
+   đến chất lượng warm-init.
+
+  ---
+  BUG 2: "srt_max_emb_samples=200 vs kiểm định dùng TOÀN BỘ train data"
+
+  Phán quyết: ĐÚNG - đây là bug thực và nghiêm trọng nhất
+
+  Verify trực tiếp:
+
+  Kiểm định (routing_class_v2.py):
+  - Line 166-175: load_all() → load_split() → load toàn bộ .npz không cap
+  - Line 169: NOTE: Uses ALL available train samples (no caps) (comment trong main)
+  - Ablation log line 11: task1572 n=160, line 47: task363 n=1000, line 87: task1290 n=1000 → pool=2160
+
+  Thực tế (sgwi_srt_trainer.py):
+  - Line 386-388: for step, inputs in enumerate(train_dl): if step >= max_samples: break
+  - max_samples = self.srt_max_emb_samples = 200 (từ bash script line 49: SRT_MAX_EMB_SAMPLES=200)
+  - per_device_train_batch_size=1 → mỗi batch = 1 sample → max 200 samples/task
+
+  Hệ quả toán học (verify tính toán):
+  - Ridge shrinkage: δ = d/(n+d) với d=4096
+  - Thực tế task 1: n=160, δ = 4096/(160+4096) = 0.9624 ✓ (khớp log line 133)
+  - Thực tế pool sau 2 tasks: n_pool=360, δ = 4096/(360+4096) = 0.9192 ✓ (khớp log line 378)
+  - Thực tế pool sau 3 tasks: n_pool=560, δ = 4096/(560+4096) = 0.8797 ✓ (khớp log line 708)
+  - Kiểm định pool sau 3 tasks: n_pool=2160, δ = 4096/(2160+4096) = 0.6547
+
+  Kết luận: Claim hoàn toàn chính xác. Shrinkage δ trong thực tế (~0.88-0.96) cao hơn rất nhiều so với kiểm định (~0.65), khiến Σ_pool⁻¹ gần identity
+  matrix → router gần như NearestCentroid (L2 thuần) thay vì Pooled Mahalanobis thực sự.
+
+  ---
+  BUG 3: "max_batches vs max_samples"
+
+  Phán quyết: ĐÚNG NHƯNG KHÔNG NGHIÊM TRỌNG
+
+  Verify trực tiếp:
+
+  sgwi_srt_trainer.py:386-388:
+  for step, inputs in enumerate(train_dl):
+      if step >= max_samples:
+          break
+
+  max_samples thực chất là max_batches. Với per_device_train_batch_size=1 (bash line 39), mỗi batch = 1 sample → 200 batches = 200 samples. Claim đúng rằng
+   đây là inconsistency tên biến, nhưng trong thực tế với batch_size=1, kết quả số lượng samples là đúng.
+
+  Đánh giá: Bug naming nhỏ, không ảnh hưởng kết quả trong cấu hình hiện tại.
+
+  ---
+  BUG 4: "task_id_to_idx mapping bị đảo ngược thứ tự LoRA slots"
+
+  Phán quyết: SAI - Mapping thực tế ĐÚNG
+
+  Verify chi tiết cho Task 3 (task1290_xsum, cur_task_id=2):
+
+  LoRA loading (run_llama_gainlora_cl.py:357-358):
+  paths = [p.strip() for p in previous_lora_path.split(",") if p.strip()]
+  paths_reversed = list(reversed(paths))
+  - Input: "task1572/saved_weights,task363/saved_weights" (oldest→newest)
+  - paths_reversed = ["task363/saved_weights", "task1572/saved_weights"]
+  - slot[0] ← task363 (most recent previous)
+  - slot[1] ← task1572 (oldest)
+
+  Log xác nhận (line 465-466):
+  [PREV-LORA] Loaded slot[0] ← .../2-task363_sst2.../saved_weights
+  [PREV-LORA] Loaded slot[1] ← .../1-task1572_samsum.../saved_weights
+
+  task_id_to_idx (sgwi_srt_trainer.py:444-446):
+  task_id_to_idx = {current_task: 0}  # task1290 → 0
+  for prev_idx in range(self.cur_task_id):  # prev_idx = 0, 1
+      task_id_to_idx[self.task_order[prev_idx]] = self.cur_task_id - prev_idx
+  - prev_idx=0: task_order[0] = task1572 → slot = 2 - 0 = 2
+  - prev_idx=1: task_order[1] = task363 → slot = 2 - 1 = 1
+
+  Mapping: {task1290: 0, task1572: 2, task363: 1}
+
+  Log xác nhận (line 474):
+  [SRT] Wired router: 2 sigs, cur=task1290_xsum, mapping={task1290_xsum: 0, task1572_samsum: 2, task363_sst2: 1}
+
+  key_attention_weights (llama_gainlora.py:849-865):
+  - Shape: (B, n_slots=3, 1) → slot 0 = current LoRA, slot 1 = previous_lora[0], slot 2 = previous_lora[1]
+  - Nếu router predict task363 → slot_idx=1 → key_attention_weights[:, 1, 0] = 1.0 → activate previous_lora_weights[0] = task363 ✓
+  - Nếu router predict task1572 → slot_idx=2 → key_attention_weights[:, 2, 0] = 1.0 → activate previous_lora_weights[1] = task1572 ✓
+
+  Kết luận: Mapping hoàn toàn chính xác. Luận điểm gốc nghi ngờ nhưng cuối cùng cũng nói "có vẻ đúng". Tôi xác nhận: ĐÚNG, không có bug ở đây.
+
+  ---
+  TỔNG KẾT KIỂM ĐỊNH
+
+  ┌──────┬───────────────────────┬────────────────────────────────────────────────────────────────────────────────────────────────┬────────────────────┐
+  │ Bug  │       Claim gốc       │                                         Kết quả verify                                         │      Ghi chú       │
+  ├──────┼───────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┼────────────────────┤
+  │ Bug  │ Embedding từ model    │ Sai cơ chế - code thực tế không dùng cl_trainer_srt.py. Nhưng phát hiện bug khác: SGWI bị vô   │ SGWI fail ≠        │
+  │ 1    │ sai                   │ hiệu hóa do encoder_frozen chưa attach                                                         │ routing fail       │
+  ├──────┼───────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┼────────────────────┤
+  │ Bug  │ 200 samples vs toàn   │ ĐÚNG hoàn toàn - δ thực tế ~0.88-0.96 vs kiểm định ~0.65. Tính toán khớp log                   │ Bug chính          │
+  │ 2    │ bộ                    │                                                                                                │                    │
+  ├──────┼───────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┼────────────────────┤
+  │ Bug  │ max_batches vs        │ Đúng nhưng không ảnh hưởng với batch_size=1                                                    │ Naming issue       │
+  │ 3    │ max_samples           │                                                                                                │                    │
+  ├──────┼───────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────┼────────────────────┤
+  │ Bug  │ LoRA slot mapping sai │ SAI - mapping hoàn toàn chính xác, verify qua code + log                                       │ Không có bug       │
+  │ 4    │                       │                                                                                                │                    │
+  └──────┴───────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────┴────────────────────┘
+
+  Bug thực sự gây performance drop:
+
+  Bug 2 là nguyên nhân chính. Nhưng cần bổ sung phân tích: nếu routing accuracy trong kiểm định ở turn 3 cho task1572 là 90% (ablation line 120:
+  PooledMahalanobis_RIDGE macro=96.67% [90.0% | 100.0% | 100.0%]), thì với 200 samples, router trong thực tế sẽ kém hơn đáng kể. Tuy nhiên, không có log
+  routing accuracy trong thực tế để so sánh trực tiếp.
+
+  Bug bổ sung phát hiện: SGWI warm-init bị vô hiệu hóa hoàn toàn (log line 221-222, 476-477). Điều này có nghĩa mỗi task bắt đầu từ random init thay vì
+  warm-init từ task tương tự → chất lượng LoRA adapter kém hơn → performance drop thêm. Đây là bug thiết kế pipeline: encoder_frozen cần được attach trước
+  get_reg_matrix(), không phải sau training.

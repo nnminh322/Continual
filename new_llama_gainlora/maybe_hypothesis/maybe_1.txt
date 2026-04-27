@@ -1,0 +1,45 @@
+Viewed routing_class_v2.py:1-800
+Viewed ablation_truely.txt:1-581
+Viewed run_superni_order1_llama_cl.sh:1-179
+Viewed extract_embeddings_llama.py:1-310
+Viewed run_llama_gainlora_cl.py:1-800
+Viewed run_llama_gainlora_cl.py:800-1066
+Viewed llama_gainlora.py:1-800
+Viewed srt_router.py:1-585
+Viewed frozen_extractor.py:1-64
+Edited frozen_extractor.py
+Edited extract_embeddings_llama.py
+Searched for "if pool == "last":"
+Viewed extract_embeddings_llama.py:175-185
+Edited extract_embeddings_llama.py
+
+Chào bạn, tôi đã kiểm tra kỹ toàn bộ logic code và nguyên nhân hoàn toàn khớp với **Trường hợp thứ 2** của bạn (thực nghiệm port code bị sai lệch). Tuy nhiên, nguyên nhân cốt lõi sâu xa lại đến từ một **bug chí mạng trong cả file phân tích lý thuyết lẫn file chạy thực tế**, và bug này chỉ "bộc phát" gây hậu quả do sự khác biệt về `batch_size` lúc train/eval.
+
+Dưới đây là lời giải thích chi tiết tại sao lại xảy ra hiện tượng kỳ lạ này:
+
+### 1. Root Cause (Lỗi lấy sai Embedding do `padding_side="left"`)
+Trong cả file `extract_embeddings_llama.py` (kiểm định) và `src/frozen_extractor.py` (chạy thực tế), code đều dùng chung một công thức để lấy embedding của token cuối cùng:
+```python
+# Lỗi sai chết người ở đây:
+lengths = attention_mask.sum(dim=1) - 1
+pooled = h[batch_idx, lengths]
+```
+Tokenizer của LLaMA mặc định dùng `padding_side="left"`. Điều này có nghĩa là các token padding (mask=0) sẽ nằm ở **đầu tensor**, còn các token chữ thực sự (mask=1) bị đẩy về cuối tensor.
+
+**Ví dụ:** Bạn có batch `max_length = 100`, nhưng câu của bạn chỉ dài `20` token.
+* Sẽ có 80 padding tokens ở đầu, 20 token ở cuối.
+* Khi đó `attention_mask.sum(dim=1)` = 20.
+* Do đó `lengths` = 19.
+* Lệnh lấy `h[batch_idx, 19]` thực chất là **trích xuất trúng một Padding Token** (vì token thực sự bắt đầu từ index 80 đến 99).
+
+Kết quả là router của bạn đang bị feed các embedding của padding token hoặc một token ngẫu nhiên nằm giữa câu thay vì token cuối cùng mang toàn vẹn ý nghĩa (last token).
+
+### 2. Tại sao kiểm định lý thuyết (`ablation_truely.txt`) lại đạt >90%?
+File `extract_embeddings_llama.py` của bạn chạy mặc định với `batch_size = 4`. Vì có padding, nên 3/4 số mẫu trong batch đã bị trích xuất ra embedding "rác" (padding token).
+Tuy nhiên, do bạn dùng chính những embedding rác này để tạo Centroids (Signature) rồi lại dùng tập rác này để Testing, Router PooledMahalanobis vô tình học được cách phân biệt task dựa trên **chiều dài câu** (mỗi task có phân phối chiều dài khác nhau, sinh ra padding embedding khác nhau). Sự rò rỉ thông tin về chiều dài câu tạo ra kết quả "ảo" ổn định trên 90% nhưng thực chất không phản ánh semantic đúng của câu.
+
+### 3. Tại sao chạy thực tế Incremental (`run_superni...`) lại rớt thê thảm từ 42% -> 32%?
+Sự sụp đổ bắt nguồn từ **sự bất đồng bộ Batch Size** trong pipeline huấn luyện:
+1. **Quá trình Train (Lưu Signature):** Bạn cấu hình `--per_device_train_batch_size 1`. Khi `batch_size = 1`, tensor không hề bị padding. Lúc này `lengths = attention_mask.sum() - 1` vô tình **LẤY ĐÚNG** token cuối cùng! Router lưu được Signature chuẩn, xịn cho từng Task.
+2. **Quá trình Evaluate Incremental:** Bạn cấu hình `--per_device_eval_batch_size 2` (mặc định >1). Lúc này lại có padding. Câu ngắn hơn trong batch 2 sẽ bị công thức lỗi trích xuất ra một Padding Token.
+3. **Mismatched (Catastrophic Forgetting):** Router bị đưa cho một Padding Token để phân loại, nó đem so sánh với các Signature xịn của quá trình Train. Khoảng cách dĩ nhiên là vô nghĩa, nó dự đoán task sai lệch hoàn toàn đối với 50% số dữ liệu eval. Khi task bị phân loại sai, nó lôi nhầm trọng số LoRA của task khác ra dùng, dẫn đến điểm RougeL rơi tự do không phanh.
