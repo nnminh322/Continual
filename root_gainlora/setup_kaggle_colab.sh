@@ -56,6 +56,18 @@ else
   PIP_CMD="python -m pip"
 fi
 
+PY_VERSION=$(${PY_CMD} -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+echo "[Env] Python: ${PY_VERSION}"
+
+if [[ "${GPU_NAME}" == *"P100"* && "${PY_VERSION}" == "3.12" ]]; then
+  echo "[ERROR] Kaggle P100 + Python 3.12 is not a supported GPU stack for this project."
+  echo "        The older sm_60-compatible PyTorch wheels used for P100 do not match this Python runtime."
+  echo "        Use one of these options instead:"
+  echo "          1. Switch Kaggle accelerator to T4/L4/A100 and rerun setup"
+  echo "          2. Turn GPU off and run CPU-only"
+  exit 1
+fi
+
 # Upgrade pip and core tools
 ${PIP_CMD} install --upgrade pip setuptools wheel
 
