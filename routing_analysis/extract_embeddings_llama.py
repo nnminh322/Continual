@@ -253,6 +253,22 @@ def resolve_torch_dtype(device: str, dtype_name: str):
     return torch.float32
 
 
+def probe_cuda_runtime():
+    """Verify that the selected torch wheel can execute a trivial CUDA kernel."""
+    if not torch.cuda.is_available():
+        return False, "torch.cuda.is_available() returned False"
+
+    try:
+        device = torch.device("cuda:0")
+        probe = torch.zeros(8, device=device, dtype=torch.float32)
+        probe = probe + 1.0
+        _ = probe.sum().item()
+        torch.cuda.synchronize(device)
+        return True, None
+    except Exception as error:
+        return False, f"{type(error).__name__}: {error}"
+
+
 # ── Main ──────────────────────────────────────────────────────────────
 
 def main():
@@ -281,6 +297,8 @@ def main():
     parser.add_argument("--dtype", type=str, default="auto",
                         choices=["auto", "fp16", "bf16", "fp32"],
                         help="Model weight dtype. auto picks bf16 when supported, otherwise fp16 on CUDA.")
+    parser.add_argument("--allow_cpu_fallback", action="store_true",
+                        help="Fallback to CPU if CUDA is visible but cannot execute kernels.")
     parser.add_argument("--token", nargs='?', const='', default=None,
                         help="HuggingFace access token for gated models (omit to use HF_TOKEN env var)")
     args = parser.parse_args()
@@ -292,6 +310,31 @@ def main():
 
     if args.device is None:
         args.device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if args.device == "cuda":
+        cuda_ok, cuda_error = probe_cuda_runtime()
+        if not cuda_ok:
+            gpu_name = "unknown GPU"
+            try:
+                if torch.cuda.device_count() > 0:
+                    gpu_name = torch.cuda.get_device_name(0)
+            except Exception:
+                pass
+
+            message = (
+                f"CUDA is visible but cannot execute kernels on {gpu_name}. "
+                f"This usually means the installed PyTorch wheel does not support this GPU architecture. "
+                f"Original probe error: {cuda_error}"
+            )
+            if args.allow_cpu_fallback:
+                print(f"[WARN] {message}")
+                print("[WARN] Falling back to CPU because --allow_cpu_fallback was set.")
+                args.device = "cpu"
+            else:
+                raise RuntimeError(
+                    message +
+                    " Re-run with --device cpu or --allow_cpu_fallback, or switch Kaggle GPU to T4/L4/A100."
+                )
 
     model_dtype = resolve_torch_dtype(args.device, args.dtype)
 
