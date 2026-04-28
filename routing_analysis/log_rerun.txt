@@ -1,0 +1,582 @@
+[GPU] Tesla T4  15.6 GB — using CUDA
+=== CL Routing Evaluation [Llama-2-7b-hf_SuperNI] ===
+    Backbone: Llama-2-7b-hf
+    Benchmark: SuperNI
+    Tasks: 15
+    Device: cuda
+    Embedding profile: prompt=runtime_cl, layer=hidden, pool=last, add_special_tokens=False, max_length=1024
+    Deployment proxy: PooledMahalanobis_RIDGE
+    NOTE: Uses ALL available train samples (no caps)
+
+Tasks: 15/15, d=4096, device=cuda
+
+  [1/15] task1572_samsum_summary  (n=160, n/d=0.0391, pool=160)
+    NearestCentroid
+    CosineNearestCentroid
+    WhitenedL2_min400               ZCA=wait
+    WhitenedCosine_min400           ZCA=wait
+    WhitenedL2_min800               ZCA=wait
+    WhitenedCosine_min800           ZCA=wait
+    WhitenedL2_min1600              ZCA=wait
+    WhitenedCosine_min1600          ZCA=wait
+    AdaptivePar_0.9                 pool=160 PaR=27.5/4096
+    AdaptivePar_0.7                 pool=160 PaR=27.5/4096
+    AdaptivePar_0.5                 pool=160 PaR=27.5/4096
+    PooledMahalanobis_OAS           pool=160
+    PooledMahalanobis_LW            pool=160
+    PooledMahalanobis_RIDGE         pool=160
+    PooledMahalanobis_NONE          pool=160
+    PSR_k8
+    RLS_Woodbury                    tasks=1
+    RESULT NearestCentroid                macro=100.00%  [100.0%]
+    RESULT CosineNearestCentroid          macro=100.00%  [100.0%]
+    RESULT WhitenedL2_min400              macro=100.00%  [100.0%]
+    RESULT WhitenedCosine_min400          macro=100.00%  [100.0%]
+    RESULT WhitenedL2_min800              macro=100.00%  [100.0%]
+    RESULT WhitenedCosine_min800          macro=100.00%  [100.0%]
+    RESULT WhitenedL2_min1600             macro=100.00%  [100.0%]
+    RESULT WhitenedCosine_min1600         macro=100.00%  [100.0%]
+    RESULT AdaptivePar_0.9                macro=100.00%  [100.0%]
+    RESULT AdaptivePar_0.7                macro=100.00%  [100.0%]
+    RESULT AdaptivePar_0.5                macro=100.00%  [100.0%]
+    RESULT PooledMahalanobis_OAS          macro=100.00%  [100.0%]
+    RESULT PooledMahalanobis_LW           macro=100.00%  [100.0%]
+    RESULT PooledMahalanobis_RIDGE        macro=100.00%  [100.0%]
+    RESULT PooledMahalanobis_NONE         macro=100.00%  [100.0%]
+    RESULT PSR_k8                         macro=100.00%  [100.0%]
+    RESULT RLS_Woodbury                   macro=100.00%  [100.0%]
+
+  [2/15] task363_sst2_polarity_classification  (n=1000, n/d=0.2441, pool=1160)
+    [WhitenedL2] ZCA fitted: N=1160, zca_fitted=True
+    [WhitenedCosine] ZCA fitted: N=1160, zca_fitted=True
+    [WhitenedL2] ZCA fitted: N=1160, zca_fitted=True
+    [WhitenedCosine] ZCA fitted: N=1160, zca_fitted=True
+    NearestCentroid
+    CosineNearestCentroid
+    WhitenedL2_min400               ZCA=fit
+    WhitenedCosine_min400           ZCA=fit
+    WhitenedL2_min800               ZCA=fit
+    WhitenedCosine_min800           ZCA=fit
+    WhitenedL2_min1600              ZCA=wait
+    WhitenedCosine_min1600          ZCA=wait
+    AdaptivePar_0.9                 pool=1160 PaR=1.7/4096
+    AdaptivePar_0.7                 pool=1160 PaR=1.7/4096
+    AdaptivePar_0.5                 pool=1160 PaR=1.7/4096
+    PooledMahalanobis_OAS           pool=1160
+    PooledMahalanobis_LW            pool=1160
+    PooledMahalanobis_RIDGE         pool=1160
+    PooledMahalanobis_NONE          pool=1160
+    PSR_k8
+    RLS_Woodbury                    tasks=2
+    RESULT NearestCentroid                macro=100.00%  [100.0% | 100.0%]
+    RESULT CosineNearestCentroid          macro=100.00%  [100.0% | 100.0%]
+    RESULT WhitenedL2_min400              macro=100.00%  [100.0% | 100.0%]
+    RESULT WhitenedCosine_min400          macro=100.00%  [100.0% | 100.0%]
+    RESULT WhitenedL2_min800              macro=100.00%  [100.0% | 100.0%]
+    RESULT WhitenedCosine_min800          macro=100.00%  [100.0% | 100.0%]
+    RESULT WhitenedL2_min1600             macro=100.00%  [100.0% | 100.0%]
+    RESULT WhitenedCosine_min1600         macro=100.00%  [100.0% | 100.0%]
+    RESULT AdaptivePar_0.9                macro=100.00%  [100.0% | 100.0%]
+    RESULT AdaptivePar_0.7                macro=100.00%  [100.0% | 100.0%]
+    RESULT AdaptivePar_0.5                macro=100.00%  [100.0% | 100.0%]
+    RESULT PooledMahalanobis_OAS          macro=100.00%  [100.0% | 100.0%]
+    RESULT PooledMahalanobis_LW           macro=100.00%  [100.0% | 100.0%]
+    RESULT PooledMahalanobis_RIDGE        macro=100.00%  [100.0% | 100.0%]
+    RESULT PooledMahalanobis_NONE         macro=100.00%  [100.0% | 100.0%]
+    RESULT PSR_k8                         macro= 99.50%  [100.0% |  99.0%]
+    RESULT RLS_Woodbury                   macro= 95.00%  [ 90.0% | 100.0%]
+
+  [3/15] task1290_xsum_summarization  (n=1000, n/d=0.2441, pool=2160)
+    [WhitenedL2] ZCA fitted: N=2160, zca_fitted=True
+    [WhitenedCosine] ZCA fitted: N=2160, zca_fitted=True
+    NearestCentroid
+    CosineNearestCentroid
+    WhitenedL2_min400               ZCA=fit
+    WhitenedCosine_min400           ZCA=fit
+    WhitenedL2_min800               ZCA=fit
+    WhitenedCosine_min800           ZCA=fit
+    WhitenedL2_min1600              ZCA=fit
+    WhitenedCosine_min1600          ZCA=fit
+    AdaptivePar_0.9                 pool=2160 PaR=5.7/4096
+    AdaptivePar_0.7                 pool=2160 PaR=5.7/4096
+    AdaptivePar_0.5                 pool=2160 PaR=5.7/4096
+    PooledMahalanobis_OAS           pool=2160
+    PooledMahalanobis_LW            pool=2160
+    PooledMahalanobis_RIDGE         pool=2160
+    PooledMahalanobis_NONE          pool=2160
+    PSR_k8
+    RLS_Woodbury                    tasks=3
+    RESULT NearestCentroid                macro= 98.33%  [100.0% | 100.0% |  95.0%]
+    RESULT CosineNearestCentroid          macro= 93.33%  [100.0% | 100.0% |  80.0%]
+    RESULT WhitenedL2_min400              macro= 66.67%  [100.0% | 100.0% |   0.0%]
+    RESULT WhitenedCosine_min400          macro= 36.67%  [ 60.0% |  50.0% |   0.0%]
+    RESULT WhitenedL2_min800              macro= 66.67%  [100.0% | 100.0% |   0.0%]
+    RESULT WhitenedCosine_min800          macro= 36.67%  [ 60.0% |  50.0% |   0.0%]
+    RESULT WhitenedL2_min1600             macro=100.00%  [100.0% | 100.0% | 100.0%]
+    RESULT WhitenedCosine_min1600         macro=100.00%  [100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.9                macro=100.00%  [100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.7                macro=100.00%  [100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.5                macro=100.00%  [100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_OAS          macro=100.00%  [100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_LW           macro=100.00%  [100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_RIDGE        macro=100.00%  [100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_NONE         macro=100.00%  [100.0% | 100.0% | 100.0%]
+    RESULT PSR_k8                         macro= 98.00%  [100.0% |  98.0% |  96.0%]
+    RESULT RLS_Woodbury                   macro= 65.67%  [  0.0% | 100.0% |  97.0%]
+
+  [4/15] task181_outcome_extraction  (n=338, n/d=0.0825, pool=2498)
+    NearestCentroid
+    CosineNearestCentroid
+    WhitenedL2_min400               ZCA=fit
+    WhitenedCosine_min400           ZCA=fit
+    WhitenedL2_min800               ZCA=fit
+    WhitenedCosine_min800           ZCA=fit
+    WhitenedL2_min1600              ZCA=fit
+    WhitenedCosine_min1600          ZCA=fit
+    AdaptivePar_0.9                 pool=2498 PaR=6.8/4096
+    AdaptivePar_0.7                 pool=2498 PaR=6.8/4096
+    AdaptivePar_0.5                 pool=2498 PaR=6.8/4096
+    PooledMahalanobis_OAS           pool=2498
+    PooledMahalanobis_LW            pool=2498
+    PooledMahalanobis_RIDGE         pool=2498
+    PooledMahalanobis_NONE          pool=2498
+    PSR_k8
+    RLS_Woodbury                    tasks=4
+    RESULT NearestCentroid                macro= 98.75%  [100.0% | 100.0% |  95.0% | 100.0%]
+    RESULT CosineNearestCentroid          macro= 94.42%  [100.0% | 100.0% |  80.0% |  97.7%]
+    RESULT WhitenedL2_min400              macro= 50.00%  [100.0% | 100.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min400          macro= 14.25%  [ 25.0% |  32.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min800              macro= 50.00%  [100.0% | 100.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min800          macro= 14.25%  [ 25.0% |  32.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min1600             macro= 75.00%  [100.0% | 100.0% | 100.0% |   0.0%]
+    RESULT WhitenedCosine_min1600         macro= 45.00%  [ 60.0% |  62.0% |  58.0% |   0.0%]
+    RESULT AdaptivePar_0.9                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.7                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.5                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_OAS          macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_LW           macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_RIDGE        macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_NONE         macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PSR_k8                         macro= 97.34%  [100.0% |  98.0% |  96.0% |  95.3%]
+    RESULT RLS_Woodbury                   macro= 47.83%  [  0.0% | 100.0% |  89.0% |   2.3%]
+
+  [5/15] task002_quoref_answer_generation  (n=1000, n/d=0.2441, pool=3498)
+    NearestCentroid
+    CosineNearestCentroid
+    WhitenedL2_min400               ZCA=fit
+    WhitenedCosine_min400           ZCA=fit
+    WhitenedL2_min800               ZCA=fit
+    WhitenedCosine_min800           ZCA=fit
+    WhitenedL2_min1600              ZCA=fit
+    WhitenedCosine_min1600          ZCA=fit
+    AdaptivePar_0.9                 pool=3498 PaR=8.7/4096
+    AdaptivePar_0.7                 pool=3498 PaR=8.7/4096
+    AdaptivePar_0.5                 pool=3498 PaR=8.7/4096
+    PooledMahalanobis_OAS           pool=3498
+    PooledMahalanobis_LW            pool=3498
+    PooledMahalanobis_RIDGE         pool=3498
+    PooledMahalanobis_NONE          pool=3498
+    PSR_k8
+    RLS_Woodbury                    tasks=5
+    RESULT NearestCentroid                macro= 96.60%  [100.0% | 100.0% |  95.0% | 100.0% |  88.0%]
+    RESULT CosineNearestCentroid          macro= 92.93%  [100.0% | 100.0% |  80.0% |  97.7% |  87.0%]
+    RESULT WhitenedL2_min400              macro= 40.00%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min400          macro=  7.00%  [ 10.0% |  25.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min800              macro= 40.00%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min800          macro=  7.00%  [ 10.0% |  25.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min1600             macro= 60.00%  [100.0% | 100.0% | 100.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min1600         macro= 22.80%  [ 30.0% |  46.0% |  38.0% |   0.0% |   0.0%]
+    RESULT AdaptivePar_0.9                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.7                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.5                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_OAS          macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_LW           macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_RIDGE        macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_NONE         macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PSR_k8                         macro= 92.07%  [100.0% |  98.0% |  96.0% |  95.3% |  71.0%]
+    RESULT RLS_Woodbury                   macro= 56.00%  [  0.0% | 100.0% |  88.0% |   0.0% |  92.0%]
+
+  [6/15] task1510_evalution_relation_extraction  (n=1000, n/d=0.2441, pool=4498)
+    NearestCentroid
+    CosineNearestCentroid
+    WhitenedL2_min400               ZCA=fit
+    WhitenedCosine_min400           ZCA=fit
+    WhitenedL2_min800               ZCA=fit
+    WhitenedCosine_min800           ZCA=fit
+    WhitenedL2_min1600              ZCA=fit
+    WhitenedCosine_min1600          ZCA=fit
+    AdaptivePar_0.9                 pool=4498 PaR=8.2/4096
+    AdaptivePar_0.7                 pool=4498 PaR=8.2/4096
+    AdaptivePar_0.5                 pool=4498 PaR=8.2/4096
+    PooledMahalanobis_OAS           pool=4498
+    PooledMahalanobis_LW            pool=4498
+    PooledMahalanobis_RIDGE         pool=4498
+    PooledMahalanobis_NONE          pool=4498
+    PSR_k8
+    RLS_Woodbury                    tasks=6
+    RESULT NearestCentroid                macro= 95.45%  [100.0% | 100.0% |  87.0% |  97.7% |  88.0% | 100.0%]
+    RESULT CosineNearestCentroid          macro= 94.11%  [100.0% | 100.0% |  80.0% |  97.7% |  87.0% | 100.0%]
+    RESULT WhitenedL2_min400              macro= 33.33%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min400          macro=  3.50%  [  5.0% |  16.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min800              macro= 33.33%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min800          macro=  3.50%  [  5.0% |  16.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min1600             macro= 50.00%  [100.0% | 100.0% | 100.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min1600         macro= 12.33%  [ 20.0% |  33.0% |  21.0% |   0.0% |   0.0% |   0.0%]
+    RESULT AdaptivePar_0.9                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.7                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.5                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_OAS          macro= 99.83%  [100.0% | 100.0% |  99.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_LW           macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_RIDGE        macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_NONE         macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PSR_k8                         macro= 93.22%  [100.0% |  98.0% |  96.0% |  95.3% |  71.0% |  99.0%]
+    RESULT RLS_Woodbury                   macro= 63.33%  [  0.0% | 100.0% |  88.0% |   0.0% |  93.0% |  99.0%]
+
+  [7/15] task639_multi_woz_user_utterance_generation  (n=142, n/d=0.0347, pool=4640)
+    NearestCentroid
+    CosineNearestCentroid
+    WhitenedL2_min400               ZCA=fit
+    WhitenedCosine_min400           ZCA=fit
+    WhitenedL2_min800               ZCA=fit
+    WhitenedCosine_min800           ZCA=fit
+    WhitenedL2_min1600              ZCA=fit
+    WhitenedCosine_min1600          ZCA=fit
+    AdaptivePar_0.9                 pool=4640 PaR=8.0/4096
+    AdaptivePar_0.7                 pool=4640 PaR=8.0/4096
+    AdaptivePar_0.5                 pool=4640 PaR=8.0/4096
+    PooledMahalanobis_OAS           pool=4640
+    PooledMahalanobis_LW            pool=4640
+    PooledMahalanobis_RIDGE         pool=4640
+    PooledMahalanobis_NONE          pool=4640
+    PSR_k8
+    RLS_Woodbury                    tasks=7
+    RESULT NearestCentroid                macro= 94.08%  [100.0% | 100.0% |  86.0% |  97.7% |  86.0% | 100.0% |  88.9%]
+    RESULT CosineNearestCentroid          macro= 92.94%  [100.0% | 100.0% |  78.0% |  97.7% |  86.0% | 100.0% |  88.9%]
+    RESULT WhitenedL2_min400              macro= 28.57%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min400          macro=  1.57%  [  0.0% |  11.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min800              macro= 28.57%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min800          macro=  1.57%  [  0.0% |  11.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min1600             macro= 42.86%  [100.0% | 100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min1600         macro=  7.57%  [ 15.0% |  26.0% |  12.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT AdaptivePar_0.9                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.7                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.5                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_OAS          macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_LW           macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_RIDGE        macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_NONE         macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PSR_k8                         macro= 88.64%  [100.0% |  98.0% |  96.0% |  95.3% |  71.0% |  99.0% |  61.1%]
+    RESULT RLS_Woodbury                   macro= 54.65%  [  0.0% | 100.0% |  84.0% |   0.0% |  93.0% | 100.0% |   5.6%]
+
+  [8/15] task1729_personachat_generate_next  (n=1000, n/d=0.2441, pool=5640)
+    NearestCentroid
+    CosineNearestCentroid
+    WhitenedL2_min400               ZCA=fit
+    WhitenedCosine_min400           ZCA=fit
+    WhitenedL2_min800               ZCA=fit
+    WhitenedCosine_min800           ZCA=fit
+    WhitenedL2_min1600              ZCA=fit
+    WhitenedCosine_min1600          ZCA=fit
+    AdaptivePar_0.9                 pool=5640 PaR=7.8/4096
+    AdaptivePar_0.7                 pool=5640 PaR=7.8/4096
+    AdaptivePar_0.5                 pool=5640 PaR=7.8/4096
+    PooledMahalanobis_OAS           pool=5640
+    PooledMahalanobis_LW            pool=5640
+    PooledMahalanobis_RIDGE         pool=5640
+    PooledMahalanobis_NONE          pool=5640
+    PSR_k8
+    RLS_Woodbury                    tasks=8
+    RESULT NearestCentroid                macro= 94.82%  [100.0% | 100.0% |  86.0% |  97.7% |  86.0% | 100.0% |  88.9% | 100.0%]
+    RESULT CosineNearestCentroid          macro= 93.82%  [100.0% | 100.0% |  78.0% |  97.7% |  86.0% | 100.0% |  88.9% | 100.0%]
+    RESULT WhitenedL2_min400              macro= 25.00%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min400          macro=  1.25%  [  0.0% |  10.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min800              macro= 25.00%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min800          macro=  1.25%  [  0.0% |  10.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min1600             macro= 37.50%  [100.0% | 100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min1600         macro=  5.38%  [ 10.0% |  22.0% |  11.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT AdaptivePar_0.9                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.7                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.5                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_OAS          macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_LW           macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_RIDGE        macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_NONE         macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PSR_k8                         macro= 88.56%  [100.0% |  98.0% |  96.0% |  95.3% |  71.0% |  99.0% |  61.1% |  88.0%]
+    RESULT RLS_Woodbury                   macro= 59.62%  [  0.0% | 100.0% |  84.0% |   0.0% |  93.0% | 100.0% |   0.0% | 100.0%]
+
+  [9/15] task073_commonsenseqa_answer_generation  (n=975, n/d=0.2380, pool=6615)
+    NearestCentroid
+    CosineNearestCentroid
+    WhitenedL2_min400               ZCA=fit
+    WhitenedCosine_min400           ZCA=fit
+    WhitenedL2_min800               ZCA=fit
+    WhitenedCosine_min800           ZCA=fit
+    WhitenedL2_min1600              ZCA=fit
+    WhitenedCosine_min1600          ZCA=fit
+    AdaptivePar_0.9                 pool=6615 PaR=8.6/4096
+    AdaptivePar_0.7                 pool=6615 PaR=8.6/4096
+    AdaptivePar_0.5                 pool=6615 PaR=8.6/4096
+    PooledMahalanobis_OAS           pool=6615
+    PooledMahalanobis_LW            pool=6615
+    PooledMahalanobis_RIDGE         pool=6615
+    PooledMahalanobis_NONE          pool=6615
+    PSR_k8
+    RLS_Woodbury                    tasks=9
+    RESULT NearestCentroid                macro= 95.28%  [100.0% | 100.0% |  86.0% |  97.7% |  85.0% | 100.0% |  88.9% | 100.0% | 100.0%]
+    RESULT CosineNearestCentroid          macro= 94.28%  [100.0% | 100.0% |  78.0% |  97.7% |  84.0% | 100.0% |  88.9% | 100.0% | 100.0%]
+    RESULT WhitenedL2_min400              macro= 22.22%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min400          macro=  0.89%  [  0.0% |   8.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min800              macro= 22.22%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min800          macro=  0.89%  [  0.0% |   8.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min1600             macro= 33.33%  [100.0% | 100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min1600         macro=  3.56%  [ 10.0% |  16.0% |   6.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT AdaptivePar_0.9                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.7                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.5                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_OAS          macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_LW           macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_RIDGE        macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_NONE         macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PSR_k8                         macro= 89.50%  [100.0% |  98.0% |  96.0% |  95.3% |  71.0% |  99.0% |  61.1% |  88.0% |  97.0%]
+    RESULT RLS_Woodbury                   macro= 63.00%  [  0.0% | 100.0% |  84.0% |   0.0% |  91.0% | 100.0% |   0.0% | 100.0% |  92.0%]
+
+  [10/15] task1590_diplomacy_text_generation  (n=126, n/d=0.0308, pool=6741)
+    NearestCentroid
+    CosineNearestCentroid
+    WhitenedL2_min400               ZCA=fit
+    WhitenedCosine_min400           ZCA=fit
+    WhitenedL2_min800               ZCA=fit
+    WhitenedCosine_min800           ZCA=fit
+    WhitenedL2_min1600              ZCA=fit
+    WhitenedCosine_min1600          ZCA=fit
+    AdaptivePar_0.9                 pool=6741 PaR=8.7/4096
+    AdaptivePar_0.7                 pool=6741 PaR=8.7/4096
+    AdaptivePar_0.5                 pool=6741 PaR=8.7/4096
+    PooledMahalanobis_OAS           pool=6741
+    PooledMahalanobis_LW            pool=6741
+    PooledMahalanobis_RIDGE         pool=6741
+    PooledMahalanobis_NONE          pool=6741
+    PSR_k8
+    RLS_Woodbury                    tasks=10
+    RESULT NearestCentroid                macro= 95.76%  [100.0% | 100.0% |  86.0% |  97.7% |  85.0% | 100.0% |  88.9% | 100.0% | 100.0% | 100.0%]
+    RESULT CosineNearestCentroid          macro= 94.86%  [100.0% | 100.0% |  78.0% |  97.7% |  84.0% | 100.0% |  88.9% | 100.0% | 100.0% | 100.0%]
+    RESULT WhitenedL2_min400              macro= 20.00%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min400          macro=  0.70%  [  0.0% |   7.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min800              macro= 20.00%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min800          macro=  0.70%  [  0.0% |   7.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min1600             macro= 30.00%  [100.0% | 100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min1600         macro=  2.70%  [ 10.0% |  12.0% |   5.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT AdaptivePar_0.9                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.7                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.5                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_OAS          macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_LW           macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_RIDGE        macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_NONE         macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PSR_k8                         macro= 88.05%  [100.0% |  98.0% |  96.0% |  95.3% |  71.0% |  99.0% |  61.1% |  88.0% |  97.0% |  75.0%]
+    RESULT RLS_Woodbury                   macro= 57.10%  [  0.0% | 100.0% |  83.0% |   0.0% |  91.0% | 100.0% |   0.0% | 100.0% |  97.0% |   0.0%]
+
+  [11/15] task748_glucose_reverse_cause_event_detection  (n=1000, n/d=0.2441, pool=7741)
+    NearestCentroid
+    CosineNearestCentroid
+    WhitenedL2_min400               ZCA=fit
+    WhitenedCosine_min400           ZCA=fit
+    WhitenedL2_min800               ZCA=fit
+    WhitenedCosine_min800           ZCA=fit
+    WhitenedL2_min1600              ZCA=fit
+    WhitenedCosine_min1600          ZCA=fit
+    AdaptivePar_0.9                 pool=7741 PaR=10.2/4096
+    AdaptivePar_0.7                 pool=7741 PaR=10.2/4096
+    AdaptivePar_0.5                 pool=7741 PaR=10.2/4096
+    PooledMahalanobis_OAS           pool=7741
+    PooledMahalanobis_LW            pool=7741
+    PooledMahalanobis_RIDGE         pool=7741
+    PooledMahalanobis_NONE          pool=7741
+    PSR_k8
+    RLS_Woodbury                    tasks=11
+    RESULT NearestCentroid                macro= 96.14%  [100.0% | 100.0% |  86.0% |  97.7% |  85.0% | 100.0% |  88.9% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT CosineNearestCentroid          macro= 95.32%  [100.0% | 100.0% |  78.0% |  97.7% |  84.0% | 100.0% |  88.9% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT WhitenedL2_min400              macro= 18.18%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min400          macro=  0.45%  [  0.0% |   5.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min800              macro= 18.18%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min800          macro=  0.45%  [  0.0% |   5.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min1600             macro= 27.27%  [100.0% | 100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min1600         macro=  1.09%  [  0.0% |  10.0% |   2.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT AdaptivePar_0.9                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.7                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.5                macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_OAS          macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_LW           macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_RIDGE        macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_NONE         macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PSR_k8                         macro= 89.04%  [100.0% |  98.0% |  96.0% |  95.3% |  71.0% |  99.0% |  61.1% |  88.0% |  97.0% |  75.0% |  99.0%]
+    RESULT RLS_Woodbury                   macro= 60.18%  [  0.0% | 100.0% |  83.0% |   0.0% |  87.0% | 100.0% |   0.0% | 100.0% |  98.0% |   0.0% |  94.0%]
+
+  [12/15] task511_reddit_tifu_long_text_summarization  (n=1000, n/d=0.2441, pool=8741)
+    NearestCentroid
+    CosineNearestCentroid
+    WhitenedL2_min400               ZCA=fit
+    WhitenedCosine_min400           ZCA=fit
+    WhitenedL2_min800               ZCA=fit
+    WhitenedCosine_min800           ZCA=fit
+    WhitenedL2_min1600              ZCA=fit
+    WhitenedCosine_min1600          ZCA=fit
+    AdaptivePar_0.9                 pool=8741 PaR=10.0/4096
+    AdaptivePar_0.7                 pool=8741 PaR=10.0/4096
+    AdaptivePar_0.5                 pool=8741 PaR=10.0/4096
+    PooledMahalanobis_OAS           pool=8741
+    PooledMahalanobis_LW            pool=8741
+    PooledMahalanobis_RIDGE         pool=8741
+    PooledMahalanobis_NONE          pool=8741
+    PSR_k8
+    RLS_Woodbury                    tasks=12
+    RESULT NearestCentroid                macro= 95.38%  [100.0% | 100.0% |  85.0% |  97.7% |  85.0% | 100.0% |  88.9% | 100.0% | 100.0% | 100.0% | 100.0% |  88.0%]
+    RESULT CosineNearestCentroid          macro= 94.30%  [100.0% | 100.0% |  77.0% |  97.7% |  84.0% | 100.0% |  88.9% | 100.0% | 100.0% | 100.0% | 100.0% |  84.0%]
+    RESULT WhitenedL2_min400              macro= 16.67%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min400          macro=  0.42%  [  0.0% |   5.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min800              macro= 16.67%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min800          macro=  0.42%  [  0.0% |   5.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min1600             macro= 25.00%  [100.0% | 100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min1600         macro=  0.67%  [  0.0% |   6.0% |   2.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT AdaptivePar_0.9                macro= 99.92%  [100.0% | 100.0% |  99.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.7                macro= 99.92%  [100.0% | 100.0% |  99.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.5                macro= 99.92%  [100.0% | 100.0% |  99.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_OAS          macro= 99.92%  [100.0% | 100.0% |  99.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_LW           macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_RIDGE        macro=100.00%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_NONE         macro= 99.92%  [100.0% | 100.0% |  99.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PSR_k8                         macro= 87.62%  [100.0% |  98.0% |  96.0% |  95.3% |  71.0% |  99.0% |  61.1% |  87.0% |  97.0% |  75.0% |  99.0% |  73.0%]
+    RESULT RLS_Woodbury                   macro= 61.83%  [  0.0% | 100.0% |  79.0% |   0.0% |  88.0% | 100.0% |   0.0% | 100.0% |  99.0% |   0.0% |  97.0% |  79.0%]
+
+  [13/15] task591_sciq_answer_generation  (n=1000, n/d=0.2441, pool=9741)
+    NearestCentroid
+    CosineNearestCentroid
+    WhitenedL2_min400               ZCA=fit
+    WhitenedCosine_min400           ZCA=fit
+    WhitenedL2_min800               ZCA=fit
+    WhitenedCosine_min800           ZCA=fit
+    WhitenedL2_min1600              ZCA=fit
+    WhitenedCosine_min1600          ZCA=fit
+    AdaptivePar_0.9                 pool=9741 PaR=11.8/4096
+    AdaptivePar_0.7                 pool=9741 PaR=11.8/4096
+    AdaptivePar_0.5                 pool=9741 PaR=11.8/4096
+    PooledMahalanobis_OAS           pool=9741
+    PooledMahalanobis_LW            pool=9741
+    PooledMahalanobis_RIDGE         pool=9741
+    PooledMahalanobis_NONE          pool=9741
+    PSR_k8
+    RLS_Woodbury                    tasks=13
+    RESULT NearestCentroid                macro= 95.43%  [100.0% |  99.0% |  84.0% |  97.7% |  85.0% | 100.0% |  88.9% | 100.0% | 100.0% | 100.0% | 100.0% |  88.0% |  98.0%]
+    RESULT CosineNearestCentroid          macro= 94.58%  [100.0% | 100.0% |  77.0% |  97.7% |  84.0% | 100.0% |  88.9% | 100.0% | 100.0% | 100.0% | 100.0% |  84.0% |  98.0%]
+    RESULT WhitenedL2_min400              macro= 15.38%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min400          macro=  0.38%  [  0.0% |   5.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min800              macro= 15.38%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min800          macro=  0.38%  [  0.0% |   5.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min1600             macro= 23.08%  [100.0% | 100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min1600         macro=  0.38%  [  0.0% |   4.0% |   1.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT AdaptivePar_0.9                macro= 99.57%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.7                macro= 99.57%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.5                macro= 99.57%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_OAS          macro= 99.57%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_LW           macro= 99.57%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_RIDGE        macro= 99.57%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_NONE         macro= 99.57%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PSR_k8                         macro= 85.00%  [100.0% |  98.0% |  73.0% |  93.0% |  63.0% |  99.0% |  50.0% |  86.0% |  97.0% |  75.0% |  98.0% |  73.0% | 100.0%]
+    RESULT RLS_Woodbury                   macro= 62.85%  [  0.0% | 100.0% |  83.0% |   0.0% |  93.0% | 100.0% |   0.0% | 100.0% | 100.0% |   0.0% | 100.0% |  88.0% |  53.0%]
+
+  [14/15] task1687_sentiment140_classification  (n=1000, n/d=0.2441, pool=10741)
+    NearestCentroid
+    CosineNearestCentroid
+    WhitenedL2_min400               ZCA=fit
+    WhitenedCosine_min400           ZCA=fit
+    WhitenedL2_min800               ZCA=fit
+    WhitenedCosine_min800           ZCA=fit
+    WhitenedL2_min1600              ZCA=fit
+    WhitenedCosine_min1600          ZCA=fit
+    AdaptivePar_0.9                 pool=10741 PaR=11.1/4096
+    AdaptivePar_0.7                 pool=10741 PaR=11.1/4096
+    AdaptivePar_0.5                 pool=10741 PaR=11.1/4096
+    PooledMahalanobis_OAS           pool=10741
+    PooledMahalanobis_LW            pool=10741
+    PooledMahalanobis_RIDGE         pool=10741
+    PooledMahalanobis_NONE          pool=10741
+    PSR_k8
+    RLS_Woodbury                    tasks=14
+    RESULT NearestCentroid                macro= 95.75%  [100.0% |  99.0% |  84.0% |  97.7% |  85.0% | 100.0% |  88.9% | 100.0% | 100.0% | 100.0% | 100.0% |  88.0% |  98.0% | 100.0%]
+    RESULT CosineNearestCentroid          macro= 94.97%  [100.0% | 100.0% |  77.0% |  97.7% |  84.0% | 100.0% |  88.9% | 100.0% | 100.0% | 100.0% | 100.0% |  84.0% |  98.0% | 100.0%]
+    RESULT WhitenedL2_min400              macro= 14.29%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min400          macro=  0.21%  [  0.0% |   3.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min800              macro= 14.29%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min800          macro=  0.21%  [  0.0% |   3.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min1600             macro= 21.43%  [100.0% | 100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min1600         macro=  0.29%  [  0.0% |   3.0% |   1.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT AdaptivePar_0.9                macro= 99.60%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.7                macro= 99.60%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.5                macro= 99.60%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_OAS          macro= 99.60%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_LW           macro= 99.60%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_RIDGE        macro= 99.60%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_NONE         macro= 99.60%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PSR_k8                         macro= 85.72%  [100.0% |  98.0% |  73.0% |  93.0% |  63.0% |  99.0% |  50.0% |  86.0% |  97.0% |  75.0% |  98.0% |  73.0% | 100.0% |  95.0%]
+    RESULT RLS_Woodbury                   macro= 65.64%  [  0.0% | 100.0% |  89.0% |   0.0% |  98.0% | 100.0% |   0.0% | 100.0% | 100.0% |   0.0% | 100.0% |  88.0% |  64.0% |  80.0%]
+
+  [15/15] task875_emotion_classification  (n=1000, n/d=0.2441, pool=11741)
+    NearestCentroid
+    CosineNearestCentroid
+    WhitenedL2_min400               ZCA=fit
+    WhitenedCosine_min400           ZCA=fit
+    WhitenedL2_min800               ZCA=fit
+    WhitenedCosine_min800           ZCA=fit
+    WhitenedL2_min1600              ZCA=fit
+    WhitenedCosine_min1600          ZCA=fit
+    AdaptivePar_0.9                 pool=11741 PaR=11.7/4096
+    AdaptivePar_0.7                 pool=11741 PaR=11.7/4096
+    AdaptivePar_0.5                 pool=11741 PaR=11.7/4096
+    PooledMahalanobis_OAS           pool=11741
+    PooledMahalanobis_LW            pool=11741
+    PooledMahalanobis_RIDGE         pool=11741
+    PooledMahalanobis_NONE          pool=11741
+    PSR_k8
+    RLS_Woodbury                    tasks=15
+    RESULT NearestCentroid                macro= 95.97%  [100.0% |  99.0% |  84.0% |  97.7% |  85.0% | 100.0% |  88.9% | 100.0% | 100.0% | 100.0% | 100.0% |  88.0% |  98.0% | 100.0% |  99.0%]
+    RESULT CosineNearestCentroid          macro= 95.24%  [100.0% | 100.0% |  77.0% |  97.7% |  84.0% | 100.0% |  88.9% | 100.0% | 100.0% | 100.0% | 100.0% |  84.0% |  98.0% | 100.0% |  99.0%]
+    RESULT WhitenedL2_min400              macro= 13.33%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min400          macro=  0.20%  [  0.0% |   3.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min800              macro= 13.33%  [100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min800          macro=  0.20%  [  0.0% |   3.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedL2_min1600             macro= 20.00%  [100.0% | 100.0% | 100.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT WhitenedCosine_min1600         macro=  0.20%  [  0.0% |   2.0% |   1.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0% |   0.0%]
+    RESULT AdaptivePar_0.9                macro= 99.56%  [100.0% | 100.0% |  99.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.7                macro= 99.56%  [100.0% | 100.0% |  99.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT AdaptivePar_0.5                macro= 99.56%  [100.0% | 100.0% |  99.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_OAS          macro= 99.56%  [100.0% | 100.0% |  99.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_LW           macro= 99.56%  [100.0% | 100.0% |  99.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_RIDGE        macro= 99.63%  [100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PooledMahalanobis_NONE         macro= 99.56%  [100.0% | 100.0% |  99.0% | 100.0% | 100.0% | 100.0% |  94.4% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0%]
+    RESULT PSR_k8                         macro= 85.80%  [100.0% |  98.0% |  73.0% |  93.0% |  63.0% |  99.0% |  50.0% |  86.0% |  97.0% |  75.0% |  98.0% |  73.0% | 100.0% |  95.0% |  87.0%]
+    RESULT RLS_Woodbury                   macro= 67.73%  [  0.0% | 100.0% |  89.0% |   0.0% |  99.0% | 100.0% |   0.0% | 100.0% | 100.0% |   0.0% | 100.0% |  87.0% |  65.0% |  84.0% |  92.0%]
+
+==========================================================================================
+  Final Routing Accuracy (15 tasks, 176.3s, cuda)
+==========================================================================================
+  Method                                      Final      Avg  Steps
+  ------------------------------------------------------------------------------------------------------------
+  NearestCentroid                            95.97%   96.52%  T1:100%  T2:100%  T3:98%  T4:99%  T5:97%  T6:95%  T7:94%  T8:95%  T9:95%  T10:96%  T11:96%  T12:95%  T13:95%  T14:96%  T15:96%
+  CosineNearestCentroid                      95.24%   95.01%  T1:100%  T2:100%  T3:93%  T4:94%  T5:93%  T6:94%  T7:93%  T8:94%  T9:94%  T10:95%  T11:95%  T12:94%  T13:95%  T14:95%  T15:95%
+  WhitenedL2_min400                          13.33%   37.58%  T1:100%  T2:100%  T3:67%  T4:50%  T5:40%  T6:33%  T7:29%  T8:25%  T9:22%  T10:20%  T11:18%  T12:17%  T13:15%  T14:14%  T15:13%
+  WhitenedCosine_min400                       0.20%   17.83%  T1:100%  T2:100%  T3:37%  T4:14%  T5:7%  T6:4%  T7:2%  T8:1%  T9:1%  T10:1%  T11:0%  T12:0%  T13:0%  T14:0%  T15:0%
+  WhitenedL2_min800                          13.33%   37.58%  T1:100%  T2:100%  T3:67%  T4:50%  T5:40%  T6:33%  T7:29%  T8:25%  T9:22%  T10:20%  T11:18%  T12:17%  T13:15%  T14:14%  T15:13%
+  WhitenedCosine_min800                       0.20%   17.83%  T1:100%  T2:100%  T3:37%  T4:14%  T5:7%  T6:4%  T7:2%  T8:1%  T9:1%  T10:1%  T11:0%  T12:0%  T13:0%  T14:0%  T15:0%
+  WhitenedL2_min1600                         20.00%   49.70%  T1:100%  T2:100%  T3:100%  T4:75%  T5:60%  T6:50%  T7:43%  T8:38%  T9:33%  T10:30%  T11:27%  T12:25%  T13:23%  T14:21%  T15:20%
+  WhitenedCosine_min1600                      0.20%   26.80%  T1:100%  T2:100%  T3:100%  T4:45%  T5:23%  T6:12%  T7:8%  T8:5%  T9:4%  T10:3%  T11:1%  T12:1%  T13:0%  T14:0%  T15:0%
+  AdaptivePar_0.9                            99.56%   99.91%  T1:100%  T2:100%  T3:100%  T4:100%  T5:100%  T6:100%  T7:100%  T8:100%  T9:100%  T10:100%  T11:100%  T12:100%  T13:100%  T14:100%  T15:100%
+  AdaptivePar_0.7                            99.56%   99.91%  T1:100%  T2:100%  T3:100%  T4:100%  T5:100%  T6:100%  T7:100%  T8:100%  T9:100%  T10:100%  T11:100%  T12:100%  T13:100%  T14:100%  T15:100%
+  AdaptivePar_0.5                            99.56%   99.91%  T1:100%  T2:100%  T3:100%  T4:100%  T5:100%  T6:100%  T7:100%  T8:100%  T9:100%  T10:100%  T11:100%  T12:100%  T13:100%  T14:100%  T15:100%
+  PooledMahalanobis_OAS                      99.56%   99.90%  T1:100%  T2:100%  T3:100%  T4:100%  T5:100%  T6:100%  T7:100%  T8:100%  T9:100%  T10:100%  T11:100%  T12:100%  T13:100%  T14:100%  T15:100%
+  PooledMahalanobis_LW                       99.56%   99.92%  T1:100%  T2:100%  T3:100%  T4:100%  T5:100%  T6:100%  T7:100%  T8:100%  T9:100%  T10:100%  T11:100%  T12:100%  T13:100%  T14:100%  T15:100%
+  PooledMahalanobis_RIDGE                    99.63%   99.92%  T1:100%  T2:100%  T3:100%  T4:100%  T5:100%  T6:100%  T7:100%  T8:100%  T9:100%  T10:100%  T11:100%  T12:100%  T13:100%  T14:100%  T15:100%
+  PooledMahalanobis_NONE                     99.56%   99.91%  T1:100%  T2:100%  T3:100%  T4:100%  T5:100%  T6:100%  T7:100%  T8:100%  T9:100%  T10:100%  T11:100%  T12:100%  T13:100%  T14:100%  T15:100%
+  PSR_k8                                     85.80%   91.20%  T1:100%  T2:100%  T3:98%  T4:97%  T5:92%  T6:93%  T7:89%  T8:89%  T9:89%  T10:88%  T11:89%  T12:88%  T13:85%  T14:86%  T15:86%
+  RLS_Woodbury                               67.73%   65.36%  T1:100%  T2:95%  T3:66%  T4:48%  T5:56%  T6:63%  T7:55%  T8:60%  T9:63%  T10:57%  T11:60%  T12:62%  T13:63%  T14:66%  T15:68%
+
+✓ Saved /kaggle/working/results_cl_v2/cl_routing_Llama-2-7b-hf_SuperNI.json
