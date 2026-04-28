@@ -38,6 +38,12 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from transformers import Trainer
 
+from llama_route_extractor import (
+    build_superni_source_prompt,
+    extract_route_embeddings_from_texts,
+)
+from srt_router_v2 import SRTRouter
+
 
 # ── Inline metric helpers (avoid circular import with main script) ─────────────
 
@@ -68,14 +74,6 @@ def _rouge_l_eval(pred: str, ref: str) -> float:
     beta = 1.2
     b2 = beta * beta
     return (1 + b2) * p * r / (r + b2 * p)
-
-# ── SRTRouter import: load from new_gainlora/src ─────────────────────────────
-_NG_SRC = str(Path(__file__).resolve().parent.parent.parent / "new_gainlora" / "src")
-if _NG_SRC not in sys.path:
-    sys.path.insert(0, _NG_SRC)
-
-from srt_router import SRTRouter  # noqa: E402 (path injection above)
-
 
 class SRTSGWITrainer(Trainer):
     """
@@ -135,6 +133,7 @@ class SRTSGWITrainer(Trainer):
         self.max_source_length = max_source_length
         self.max_new_tokens = max_new_tokens
         self.eval_batch_size = eval_batch_size
+        self.srt_batch_size = max(1, eval_batch_size)
         self._best_eval_rougeL: float = -1.0
         self._best_lora_A_state: Optional[Dict[str, torch.Tensor]] = None
         self._best_lora_B_state: Optional[Dict[str, torch.Tensor]] = None
@@ -195,6 +194,7 @@ class SRTSGWITrainer(Trainer):
                 padding=True,
                 truncation=True,
                 max_length=self.max_source_length,
+                add_special_tokens=False,
                 return_tensors="pt",
             )
             encoded = {k: v.to(device) for k, v in encoded.items()}
@@ -383,27 +383,37 @@ class SRTSGWITrainer(Trainer):
             print("  [SRT] WARNING: encoder_frozen not attached. Returning empty embeddings.")
             return torch.empty(0), []
 
-        print(f"  [SRT] → Forward extraction (max {max_samples} batches)")
-        train_dl = self.get_train_dataloader()
-        h_list = []
-        pad_id = self.model.config.pad_token_id or 0
-
-        for step, inputs in enumerate(train_dl):
-            if step >= max_samples:
-                break
-            inputs = self._prepare_inputs(inputs)
-
-            # Use source-only ids for routing (no label tokens)
-            src_ids = inputs.get("input_ids_wo_label", inputs["input_ids"])
-            src_mask = (src_ids != pad_id).long()
-
-            with torch.no_grad():
-                h = encoder_frozen(src_ids, src_mask)  # (B, d)
-            h_list.append(h.float().cpu())
-
-        if not h_list:
+        n_samples = len(self.train_dataset)
+        if max_samples is not None:
+            n_samples = min(n_samples, max_samples * self.srt_batch_size)
+        if n_samples == 0:
             return torch.empty(0), []
-        return torch.cat(h_list, dim=0), []
+
+        prompts = [
+            build_superni_source_prompt(self.train_dataset[idx])
+            for idx in range(n_samples)
+        ]
+
+        try:
+            device = next(encoder_frozen.parameters()).device
+        except StopIteration:
+            device = next(self.model.parameters()).device
+
+        print(
+            f"  [SRT] → Forward extraction ({n_samples} samples, "
+            f"batch_size={self.srt_batch_size})"
+        )
+        embs = extract_route_embeddings_from_texts(
+            encoder_frozen=encoder_frozen,
+            tokenizer=self.tokenizer,
+            texts=prompts,
+            batch_size=self.srt_batch_size,
+            max_length=self.max_source_length,
+            device=device,
+        )
+        if embs.shape[0] == 0:
+            return torch.empty(0), []
+        return torch.from_numpy(embs).float(), []
 
     def _srt_emb_cache_path(self, task_name: str) -> Optional[str]:
         model_name = getattr(self.model.config, "_name_or_path", None) or ""
