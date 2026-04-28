@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import importlib.util
 import json
 import math
 import os
@@ -58,20 +59,29 @@ from transformers import (
 ROOT_DIR = Path(__file__).resolve().parent           # new_llama_gainlora/
 CONTINUAL_DIR = ROOT_DIR.parent                       # Continual/
 SRC_DIR = ROOT_DIR / "src"                            # new_llama_gainlora/src/
-NG_SRC = CONTINUAL_DIR / "new_gainlora" / "src"      # new_gainlora/src/ (llama_gainlora, srt_router, cl_dataset)
+DATASET_MODULE_PATH = CONTINUAL_DIR / "new_gainlora" / "src" / "cl_dataset.py"
 
-for _p in [str(SRC_DIR), str(NG_SRC)]:
+for _p in [str(SRC_DIR)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
+
+def _load_module_from_file(module_name: str, module_path: Path):
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load module {module_name} from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_dataset_module = _load_module_from_file("new_llama_cl_dataset", DATASET_MODULE_PATH)
+CLConfig = _dataset_module.CLConfig
+CLInstructions = _dataset_module.CLInstructions
 
 from llama_gainlora import LlamaForCausalLM                    # noqa: E402
 from frozen_extractor import FrozenLlamaExtractor              # noqa: E402
 from sgwi_srt_trainer import SRTSGWITrainer                    # noqa: E402
-from cl_dataset import CLConfig, CLInstructions                # noqa: E402
-from compute_metrics import (                                  # noqa: E402
-    compute_grouped_metrics as legacy_compute_grouped_metrics,
-    compute_metrics as legacy_compute_metrics,
-)
 
 import logging
 import pickle
@@ -135,6 +145,52 @@ def rouge_1_f1(prediction: str, reference: str) -> float:
 
 def exact_match(prediction: str, reference: str) -> float:
     return float(normalize_text(prediction) == normalize_text(reference))
+
+
+def compute_metrics_local(predictions: list[str], references: list[str]) -> dict[str, float]:
+    if len(predictions) != len(references):
+        raise ValueError(
+            f"# of predictions {len(predictions)} doesn't match # of references {len(references)}."
+        )
+    if not references:
+        return {"exact_match": 0.0, "rouge1": 0.0, "eval_rougeL": 0.0}
+
+    exact_match_sum = 0.0
+    rouge1_sum = 0.0
+    rouge_l_sum = 0.0
+    for prediction, reference in zip(predictions, references):
+        exact_match_sum += exact_match(prediction, reference)
+        rouge1_sum += rouge_1_f1(prediction, reference)
+        rouge_l_sum += rouge_l_f1(prediction, reference)
+
+    scale = 100.0 / len(references)
+    return {
+        "exact_match": round(exact_match_sum * scale, 4),
+        "rouge1": round(rouge1_sum * scale, 4),
+        "eval_rougeL": round(rouge_l_sum * scale, 4),
+    }
+
+
+def compute_grouped_metrics_local(
+    predictions: list[str],
+    references: list[str],
+    groups: list[str],
+) -> dict[str, float]:
+    if not (len(predictions) == len(references) == len(groups)):
+        raise ValueError("predictions, references, and groups must have the same length")
+
+    grouped_examples: dict[str, list[tuple[str, str]]] = {}
+    for prediction, reference, group in zip(predictions, references, groups):
+        grouped_examples.setdefault(group, []).append((prediction, reference))
+
+    results: dict[str, float] = {}
+    for group, group_examples in grouped_examples.items():
+        group_predictions, group_references = zip(*group_examples)
+        for metric_name, metric_value in compute_metrics_local(
+            list(group_predictions), list(group_references)
+        ).items():
+            results[f"{metric_name}_for_{group}"] = metric_value
+    return results
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -468,6 +524,7 @@ def generate_predictions_cl(
         refs = [s["Instance"]["label"] for s in batch_samples]
         input_length = batch["input_ids_wo_label"].shape[1]
 
+        model.reset_srt_debug_log()
         with torch.no_grad():
             generated = model.generate(
                 input_ids          = batch["input_ids_wo_label"],
@@ -480,16 +537,21 @@ def generate_predictions_cl(
 
         # ── SRT DEBUG LOGGING ─────────────────────────────────────────────
         srt_log = model.get_srt_debug_log()
-        for entry_idx, entry in enumerate(srt_log):
-            batch_start = start + entry_idx * batch_size
+        if srt_log:
+            entry = srt_log[0]
+            if len(srt_log) > 1:
+                print(
+                    f"  [SRT-D] Collapsed {len(srt_log)} routing log steps to the first "
+                    f"source-prompt decision for batch starting at idx={start}."
+                )
+
             n_tasks = entry.get("n_tasks", 0)
             task_list = entry.get("task_id_list", [])
+            sample_count = min(len(batch_samples), int(entry.get("batch_size", len(batch_samples))))
 
-            for sample_in_batch in range(entry["batch_size"]):
-                global_idx = batch_start + sample_in_batch
-                if global_idx >= len(samples):
-                    break
-                sample = samples[global_idx]
+            for sample_in_batch in range(sample_count):
+                global_idx = start + sample_in_batch
+                sample = batch_samples[sample_in_batch]
                 gt_task = sample.get("Dataset", sample.get("Instance", {}).get("task", "unknown"))
 
                 # Predicted routing decision
@@ -504,7 +566,6 @@ def generate_predictions_cl(
                 # Distances
                 dists = entry.get("dists", {})
                 best_d = entry["best_dist"][sample_in_batch]
-                second_d = entry["second_dist"][sample_in_batch]
                 conf = entry["confidence"][sample_in_batch]
 
                 # Print top-2 nearest tasks
@@ -546,10 +607,8 @@ def generate_predictions_cl(
                     srt_routing_stats[gt_key]["slots"].get(slot_key, 0) + 1
                 # ─────────────────────────────────────────────────────
 
-# Format distances compactly
                 dist_str = "  ".join([f"{t[:20]:20s}:{d:.1f}" for t, d in sorted_tasks[:4]])
 
-                # Safe 2nd task access
                 if len(top2) > 1:
                     second_name = top2[1][0][:25]
                     second_disp = f"{second_name:25s}(d={top2[1][1]:.2f})"
@@ -644,7 +703,7 @@ def evaluate_split_cl(
         model, tokenizer, samples, max_source_length, max_target_length, max_new_tokens, batch_size,
         desc=display_name or f"Eval {split_name}",
     )
-    legacy_metrics = legacy_compute_metrics(predictions, references)
+    legacy_metrics = compute_metrics_local(predictions, references)
 
     metrics = {
         f"{split_name}_rougeL":            legacy_metrics["eval_rougeL"],
@@ -661,7 +720,7 @@ def evaluate_split_cl(
             raise ValueError(
                 "group_names length must match samples length for continual evaluation"
             )
-        grouped = legacy_compute_grouped_metrics(predictions, references, group_names)
+        grouped = compute_grouped_metrics_local(predictions, references, group_names)
         group_counts = Counter(group_names)
         metrics.update(
             {
@@ -691,7 +750,7 @@ def evaluate_continual_split_cl_legacy(
         desc="Continual predict",
     )
 
-    metrics = legacy_compute_metrics(predictions, references)
+    metrics = compute_metrics_local(predictions, references)
     metrics = {f"predict_{key}": value for key, value in metrics.items()}
     metrics["predict_gen_len"] = round(float(np.mean(generated_lengths)) if generated_lengths else 0.0, 4)
     metrics["predict_runtime"] = float(runtime)
@@ -706,8 +765,8 @@ def evaluate_continual_split_cl_legacy(
     task_groups = [sample["Task"] for sample in samples]
     dataset_groups = [sample["Dataset"] for sample in samples]
     dataset_counts = Counter(dataset_groups)
-    metrics.update({f"predict_{key}": value for key, value in legacy_compute_grouped_metrics(predictions, references, task_groups).items()})
-    metrics.update({f"predict_{key}": value for key, value in legacy_compute_grouped_metrics(predictions, references, dataset_groups).items()})
+    metrics.update({f"predict_{key}": value for key, value in compute_grouped_metrics_local(predictions, references, task_groups).items()})
+    metrics.update({f"predict_{key}": value for key, value in compute_grouped_metrics_local(predictions, references, dataset_groups).items()})
 
     return metrics
 

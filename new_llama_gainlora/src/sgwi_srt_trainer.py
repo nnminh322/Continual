@@ -164,6 +164,12 @@ class SRTSGWITrainer(Trainer):
 
         model = self.model
         model.eval()
+        core = getattr(model, "model", None)
+        prev_use_srt = getattr(core, "use_srt_routing", False) if core is not None else False
+        if core is not None:
+            # During current-task dev eval we want slot 0 only; routing to past adapters
+            # would corrupt best-checkpoint selection before the new signature exists.
+            core.use_srt_routing = False
         device = next(model.parameters()).device
         pad_id = (
             self.tokenizer.pad_token_id
@@ -176,60 +182,63 @@ class SRTSGWITrainer(Trainer):
 
         n_batches = math.ceil(len(self.dev_samples) / self.eval_batch_size)
         step = self.state.global_step
-        for start in tqdm(
-            range(0, len(self.dev_samples), self.eval_batch_size),
-            total=n_batches,
-            desc=f"Eval @ step {step}",
-            leave=False,
-        ):
-            batch = self.dev_samples[start : start + self.eval_batch_size]
-            prompts = [
-                s["Instance"]["instruction"].format(s["Instance"]["sentence"])
-                for s in batch
-            ]
-            refs = [s["Instance"]["label"] for s in batch]
+        try:
+            for start in tqdm(
+                range(0, len(self.dev_samples), self.eval_batch_size),
+                total=n_batches,
+                desc=f"Eval @ step {step}",
+                leave=False,
+            ):
+                batch = self.dev_samples[start : start + self.eval_batch_size]
+                prompts = [
+                    s["Instance"]["instruction"].format(s["Instance"]["sentence"])
+                    for s in batch
+                ]
+                refs = [s["Instance"]["label"] for s in batch]
 
-            encoded = self.tokenizer(
-                prompts,
-                padding=True,
-                truncation=True,
-                max_length=self.max_source_length,
-                add_special_tokens=False,
-                return_tensors="pt",
-            )
-            encoded = {k: v.to(device) for k, v in encoded.items()}
-            input_length = encoded["input_ids"].shape[1]
-
-            gen_cfg = copy.deepcopy(model.generation_config)
-            gen_cfg.max_length   = None
-            gen_cfg.do_sample    = False
-            gen_cfg.num_beams    = 1
-            gen_cfg.temperature  = None
-            gen_cfg.top_p        = None
-            gen_cfg.top_k        = None
-            gen_cfg.pad_token_id = pad_id
-            gen_cfg.eos_token_id = self.tokenizer.eos_token_id
-            gen_cfg.bos_token_id = self.tokenizer.bos_token_id
-            gen_cfg.max_new_tokens = self.max_new_tokens
-
-            with torch.no_grad():
-                generated = model.generate(
-                    input_ids          = encoded["input_ids"],
-                    input_ids_wo_label = encoded["input_ids"],
-                    attention_mask     = encoded["attention_mask"],
-                    generation_config  = gen_cfg,
+                encoded = self.tokenizer(
+                    prompts,
+                    padding=True,
+                    truncation=True,
+                    max_length=self.max_source_length,
+                    add_special_tokens=False,
+                    return_tensors="pt",
                 )
+                encoded = {k: v.to(device) for k, v in encoded.items()}
+                input_length = encoded["input_ids"].shape[1]
 
-            for gen_ids, ref in zip(generated, refs):
-                pred = self.tokenizer.decode(
-                    gen_ids[input_length:],
-                    skip_special_tokens=True,
-                    clean_up_tokenization_spaces=True,
-                ).strip()
-                predictions.append(pred)
-                references.append(ref.strip())
+                gen_cfg = copy.deepcopy(model.generation_config)
+                gen_cfg.max_length   = None
+                gen_cfg.do_sample    = False
+                gen_cfg.num_beams    = 1
+                gen_cfg.temperature  = None
+                gen_cfg.top_p        = None
+                gen_cfg.top_k        = None
+                gen_cfg.pad_token_id = pad_id
+                gen_cfg.eos_token_id = self.tokenizer.eos_token_id
+                gen_cfg.bos_token_id = self.tokenizer.bos_token_id
+                gen_cfg.max_new_tokens = self.max_new_tokens
 
-        model.train()
+                with torch.no_grad():
+                    generated = model.generate(
+                        input_ids          = encoded["input_ids"],
+                        input_ids_wo_label = encoded["input_ids"],
+                        attention_mask     = encoded["attention_mask"],
+                        generation_config  = gen_cfg,
+                    )
+
+                for gen_ids, ref in zip(generated, refs):
+                    pred = self.tokenizer.decode(
+                        gen_ids[input_length:],
+                        skip_special_tokens=True,
+                        clean_up_tokenization_spaces=True,
+                    ).strip()
+                    predictions.append(pred)
+                    references.append(ref.strip())
+        finally:
+            if core is not None:
+                core.use_srt_routing = prev_use_srt
+            model.train()
 
         rouge_l = (
             sum(_rouge_l_eval(p, r) for p, r in zip(predictions, references))
