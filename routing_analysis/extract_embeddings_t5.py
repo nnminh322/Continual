@@ -386,6 +386,25 @@ def probe_cuda_runtime():
         return False, f"{type(error).__name__}: {error}"
 
 
+def resolve_torch_dtype(device: str, dtype_name: str):
+    if dtype_name == "fp16":
+        return torch.float16
+    if dtype_name == "bf16":
+        return torch.bfloat16
+    if dtype_name == "fp32":
+        return torch.float32
+
+    if device == "cuda" and torch.cuda.is_available():
+        try:
+            major, _minor = torch.cuda.get_device_capability()
+        except Exception:
+            major = 0
+        if major >= 8 and torch.cuda.is_bf16_supported():
+            return torch.bfloat16
+        return torch.float16
+    return torch.float32
+
+
 # ── Main ──────────────────────────────────────────────────────────────
 
 def main():
@@ -403,6 +422,9 @@ def main():
                         choices=["Long_Sequence", "SuperNI"])
     parser.add_argument("--device", type=str, default=None,
                         help="Device (auto-detect if not set)")
+    parser.add_argument("--dtype", type=str, default="auto",
+                        choices=["auto", "fp16", "bf16", "fp32"],
+                        help="Model weight dtype. auto picks bf16 when supported, otherwise fp16 on CUDA.")
     parser.add_argument("--layer", type=str, default="encoder",
                         choices=LAYER_CHOICES,
                         help=(
@@ -443,6 +465,7 @@ def main():
                     " Re-run with --device cpu or --allow_cpu_fallback, or switch Kaggle GPU to T4/L4/A100."
                 )
 
+    model_dtype = resolve_torch_dtype(args.device, args.dtype)
     layer_specs = resolve_layer_specs(args.layer)
     data_root = resolve_data_root(args.data_root, args.benchmarks)
 
@@ -450,12 +473,16 @@ def main():
     print(f"=== Model: {args.model} ({model_short}) on {args.device} ===")
     print(f"    Layer mode: {args.layer}")
     print(f"    Data root: {data_root}")
+    print(f"    DType: {model_dtype}")
 
     # Load tokenizer and model
     print("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     print("Loading encoder model...")
-    model = T5EncoderModel.from_pretrained(args.model).to(args.device).eval()
+    model = T5EncoderModel.from_pretrained(
+        args.model,
+        torch_dtype=model_dtype,
+    ).to(args.device).eval()
 
     d_model = model.config.d_model
     num_hidden_layers = getattr(model.config, "num_layers", None)
@@ -539,6 +566,7 @@ def main():
                             if spec["profile"] is not None else None
                         ),
                         "num_hidden_layers": num_hidden_layers,
+                        "torch_dtype": str(model_dtype).replace("torch.", ""),
                         "max_length": args.max_length,
                         "add_special_tokens": True,
                         "superni_prompt_style": "runtime_cl" if bench_name == "SuperNI" else None,
