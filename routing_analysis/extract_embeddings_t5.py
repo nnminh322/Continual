@@ -17,6 +17,7 @@ Usage:
     python extract_embeddings_t5.py --model google/flan-t5-large
     python extract_embeddings_t5.py --model google/flan-t5-xl
     python extract_embeddings_t5.py --model google/flan-t5-small  # debug
+    python extract_embeddings_t5.py --model google/flan-t5-large --layer encoder_depth_suite
 """
 
 import argparse
@@ -58,6 +59,33 @@ BENCHMARKS = {
     "Long_Sequence": LONG_SEQ_TASKS,
     "SuperNI": SUPERNI_TASKS,
 }
+
+HIDDEN_LAYER_FRACTIONS = {
+    "final": 1.0,
+    "half": 0.5,
+    "quarter": 0.25,
+    "eighth": 0.125,
+    "sixteenth": 0.0625,
+}
+
+HIDDEN_LAYER_LABELS = {
+    "final": "final",
+    "half": "1/2",
+    "quarter": "1/4",
+    "eighth": "1/8",
+    "sixteenth": "1/16",
+}
+
+LAYER_CHOICES = [
+    "encoder",
+    "embedding",
+    "encoder_final",
+    "encoder_half",
+    "encoder_quarter",
+    "encoder_eighth",
+    "encoder_sixteenth",
+    "encoder_depth_suite",
+]
 
 
 # ── Data loading (mirrors cl_dataset.py logic) ────────────────────────
@@ -132,23 +160,131 @@ def load_superni(json_path: str):
 
 # ── Embedding extraction ──────────────────────────────────────────────
 
+def resolve_layer_specs(layer: str):
+    encoder_specs = {
+        "encoder": [{
+            "mode": "encoder",
+            "profile": "final",
+            "metadata_layer": "encoder",
+            "dir_suffix": "",
+        }],
+        "encoder_final": [{
+            "mode": "encoder",
+            "profile": "final",
+            "metadata_layer": "encoder_final",
+            "dir_suffix": "_layer-final",
+        }],
+        "encoder_half": [{
+            "mode": "encoder",
+            "profile": "half",
+            "metadata_layer": "encoder_half",
+            "dir_suffix": "_layer-1of2",
+        }],
+        "encoder_quarter": [{
+            "mode": "encoder",
+            "profile": "quarter",
+            "metadata_layer": "encoder_quarter",
+            "dir_suffix": "_layer-1of4",
+        }],
+        "encoder_eighth": [{
+            "mode": "encoder",
+            "profile": "eighth",
+            "metadata_layer": "encoder_eighth",
+            "dir_suffix": "_layer-1of8",
+        }],
+        "encoder_sixteenth": [{
+            "mode": "encoder",
+            "profile": "sixteenth",
+            "metadata_layer": "encoder_sixteenth",
+            "dir_suffix": "_layer-1of16",
+        }],
+        "encoder_depth_suite": [
+            {
+                "mode": "encoder",
+                "profile": "final",
+                "metadata_layer": "encoder_final",
+                "dir_suffix": "_layer-final",
+            },
+            {
+                "mode": "encoder",
+                "profile": "half",
+                "metadata_layer": "encoder_half",
+                "dir_suffix": "_layer-1of2",
+            },
+            {
+                "mode": "encoder",
+                "profile": "quarter",
+                "metadata_layer": "encoder_quarter",
+                "dir_suffix": "_layer-1of4",
+            },
+            {
+                "mode": "encoder",
+                "profile": "eighth",
+                "metadata_layer": "encoder_eighth",
+                "dir_suffix": "_layer-1of8",
+            },
+            {
+                "mode": "encoder",
+                "profile": "sixteenth",
+                "metadata_layer": "encoder_sixteenth",
+                "dir_suffix": "_layer-1of16",
+            },
+        ],
+    }
+    if layer == "embedding":
+        return [{
+            "mode": "embedding",
+            "profile": None,
+            "metadata_layer": "embedding",
+            "dir_suffix": "_wordemb",
+        }]
+    if layer not in encoder_specs:
+        raise ValueError(f"Unknown layer={layer}")
+    return encoder_specs[layer]
+
+
+def resolve_hidden_layer_index(num_hidden_layers: int, profile: str) -> int:
+    if profile == "final":
+        return num_hidden_layers
+    fraction = HIDDEN_LAYER_FRACTIONS[profile]
+    return max(1, min(num_hidden_layers, int(round(num_hidden_layers * fraction))))
+
+
+def pool_hidden_states(hidden: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    mask_f = mask.unsqueeze(-1).float()
+    return (hidden * mask_f).sum(dim=1) / mask_f.sum(dim=1).clamp(min=1)
+
+
+def build_output_backbone(model_short: str, layer_spec: dict) -> str:
+    return f"{model_short}{layer_spec['dir_suffix']}"
+
+
+def describe_layer_spec(layer_spec: dict, num_hidden_layers: int | None = None) -> str:
+    if layer_spec["mode"] == "embedding":
+        return "embedding"
+    label = HIDDEN_LAYER_LABELS[layer_spec["profile"]]
+    if num_hidden_layers is None:
+        return f"encoder@{label}"
+    layer_index = resolve_hidden_layer_index(num_hidden_layers, layer_spec["profile"])
+    return f"encoder@{label} (L{layer_index}/{num_hidden_layers})"
+
 @torch.no_grad()
 def extract_embeddings(
     model: T5EncoderModel,
     tokenizer,
     texts: list[str],
+    layer_specs: list[dict],
     batch_size: int = 32,
     max_length: int = 512,
     device: str = "cuda",
-    layer: str = "encoder",
     desc: str = "batches",
-) -> np.ndarray:
+) -> dict[str, np.ndarray]:
     """
     Extract embeddings from T5.
-    layer='encoder': avg-pooled encoder last hidden state (runtime-aligned).
-    layer='embedding': avg-pooled word embedding output (ablation only).
+    layer='encoder': avg-pooled encoder final hidden state (runtime-aligned).
+    encoder_depth_suite additionally extracts 1/2, 1/4, 1/8, and 1/16 depth.
     """
-    all_embs = []
+    all_embs = {spec["metadata_layer"]: [] for spec in layer_specs}
     for i in tqdm(range(0, len(texts), batch_size),
                   desc=f"    {desc}", unit="batch", leave=False, position=1):
         batch_texts = texts[i : i + batch_size]
@@ -160,18 +296,32 @@ def extract_embeddings(
             return_tensors="pt",
         ).to(device)
 
-        if layer == "embedding":
-            # Word embedding layer only — useful for ablations, not deployed SRT routing
-            hidden = model.encoder.embed_tokens(enc["input_ids"])  # (B, L, d)
-        else:
-            out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"])
-            hidden = out.last_hidden_state  # (B, L, d)
+        encoder_specs = [spec for spec in layer_specs if spec["mode"] == "encoder"]
+        if encoder_specs:
+            out = model(
+                input_ids=enc["input_ids"],
+                attention_mask=enc["attention_mask"],
+                output_hidden_states=True,
+            )
+            hidden_states = out.hidden_states
+            num_hidden_layers = len(hidden_states) - 1
+            for spec in encoder_specs:
+                layer_index = resolve_hidden_layer_index(num_hidden_layers, spec["profile"])
+                hidden = hidden_states[layer_index]
+                pooled = pool_hidden_states(hidden, enc["attention_mask"])
+                all_embs[spec["metadata_layer"]].append(pooled.cpu().float().numpy())
 
-        mask = enc["attention_mask"].unsqueeze(-1).float()  # (B, L, 1)
-        pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)  # (B, d)
-        all_embs.append(pooled.cpu().float().numpy())
+        for spec in layer_specs:
+            if spec["mode"] != "embedding":
+                continue
+            hidden = model.encoder.embed_tokens(enc["input_ids"])
+            pooled = pool_hidden_states(hidden, enc["attention_mask"])
+            all_embs[spec["metadata_layer"]].append(pooled.cpu().float().numpy())
 
-    return np.concatenate(all_embs, axis=0)
+    return {
+        key: np.concatenate(value, axis=0)
+        for key, value in all_embs.items()
+    }
 
 
 def probe_cuda_runtime():
@@ -208,10 +358,13 @@ def main():
     parser.add_argument("--device", type=str, default=None,
                         help="Device (auto-detect if not set)")
     parser.add_argument("--layer", type=str, default="encoder",
-                        choices=["encoder", "embedding"],
-                        help="'encoder'=last hidden state (after attention), "
-                            "'embedding'=word embedding layer (before attention, ablation only)")
-        parser.add_argument("--allow_cpu_fallback", action="store_true",
+                        choices=LAYER_CHOICES,
+                        help=(
+                            "'encoder'=runtime-aligned final encoder state (default); "
+                            "'encoder_depth_suite'=extract final, 1/2, 1/4, 1/8, and 1/16 encoder depth profiles; "
+                            "'embedding'=word embedding ablation"
+                        ))
+    parser.add_argument("--allow_cpu_fallback", action="store_true",
                         help="Fallback to CPU if CUDA is visible but cannot execute kernels.")
     args = parser.parse_args()
 
@@ -244,12 +397,11 @@ def main():
                     " Re-run with --device cpu or --allow_cpu_fallback, or switch Kaggle GPU to T4/L4/A100."
                 )
 
-    # Model name for output dir
+    layer_specs = resolve_layer_specs(args.layer)
+
     model_short = args.model.split("/")[-1]  # e.g. "flan-t5-large"
-    if args.layer == "embedding":
-        model_short += "_wordemb"  # separate output dir for word embeddings
     print(f"=== Model: {args.model} ({model_short}) on {args.device} ===")
-    print(f"    Layer: {args.layer}")
+    print(f"    Layer mode: {args.layer}")
 
     # Load tokenizer and model
     print("Loading tokenizer...")
@@ -258,7 +410,11 @@ def main():
     model = T5EncoderModel.from_pretrained(args.model).to(args.device).eval()
 
     d_model = model.config.d_model
+    num_hidden_layers = getattr(model.config, "num_layers", None)
     print(f"d_model = {d_model}")
+    print("    Layer profiles: " + ", ".join(
+        describe_layer_spec(spec, num_hidden_layers) for spec in layer_specs
+    ))
 
     # Process benchmarks
     for bench_name in args.benchmarks:
@@ -275,37 +431,87 @@ def main():
                 task_pbar.write(f"  [SKIP] {task_name}: not found at {task_dir}")
                 continue
 
-            out_dir = Path(args.output_dir) / model_short / bench_name / task_name
-            out_dir.mkdir(parents=True, exist_ok=True)
-
             for split in ["train", "dev", "test"]:
                 json_path = task_dir / f"{split}.json"
                 if not json_path.exists():
                     continue
 
-                out_path = out_dir / f"{split}.npz"
-                if out_path.exists():
+                out_paths = {}
+                missing_specs = []
+                for spec in layer_specs:
+                    out_dir = (
+                        Path(args.output_dir)
+                        / build_output_backbone(model_short, spec)
+                        / bench_name
+                        / task_name
+                    )
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    out_path = out_dir / f"{split}.npz"
+                    out_paths[spec["metadata_layer"]] = out_path
+                    if not out_path.exists():
+                        missing_specs.append(spec)
+
+                if not missing_specs:
                     task_pbar.write(f"  [EXISTS] {task_name}/{split} — skip")
                     continue
 
                 texts, labels = loader_fn(str(json_path))
                 task_pbar.write(f"  {task_name}/{split}: {len(texts)} samples")
 
-                embs = extract_embeddings(
+                embs_by_layer = extract_embeddings(
                     model, tokenizer, texts,
+                    layer_specs=missing_specs,
                     batch_size=args.batch_size,
                     max_length=args.max_length,
                     device=args.device,
-                    layer=args.layer,
                     desc=f"{task_name}/{split}",
                 )
 
-                np.savez_compressed(
-                    out_path,
-                    embeddings=embs,                      # (N, d_model) float32
-                    labels=np.array(labels, dtype=object), # (N,) strings
-                )
-                task_pbar.write(f"  -> saved {out_path} {embs.shape}")
+                for spec in missing_specs:
+                    hidden_layer_index = None
+                    if spec["mode"] == "encoder" and num_hidden_layers is not None:
+                        hidden_layer_index = resolve_hidden_layer_index(num_hidden_layers, spec["profile"])
+
+                    metadata = {
+                        "benchmark": bench_name,
+                        "task_name": task_name,
+                        "split": split,
+                        "backbone_family": "t5",
+                        "pool": "avg",
+                        "layer": spec["metadata_layer"],
+                        "layer_family": spec["mode"],
+                        "hidden_layer_profile": spec["profile"],
+                        "hidden_layer_fraction": (
+                            HIDDEN_LAYER_FRACTIONS[spec["profile"]]
+                            if spec["profile"] is not None else None
+                        ),
+                        "hidden_layer_index": hidden_layer_index,
+                        "hidden_layer_label": (
+                            HIDDEN_LAYER_LABELS[spec["profile"]]
+                            if spec["profile"] is not None else None
+                        ),
+                        "num_hidden_layers": num_hidden_layers,
+                        "max_length": args.max_length,
+                        "add_special_tokens": True,
+                        "superni_prompt_style": "runtime_cl" if bench_name == "SuperNI" else None,
+                        "runtime_aligned": (
+                            bench_name == "SuperNI"
+                            and spec["metadata_layer"] == "encoder"
+                            and args.max_length == 512
+                        ),
+                    }
+
+                    out_path = out_paths[spec["metadata_layer"]]
+                    embs = embs_by_layer[spec["metadata_layer"]]
+                    np.savez_compressed(
+                        out_path,
+                        embeddings=embs,
+                        labels=np.array(labels, dtype=object),
+                        metadata_json=np.array(json.dumps(metadata, sort_keys=True)),
+                    )
+                    task_pbar.write(
+                        f"  -> saved {out_path} {embs.shape} [{describe_layer_spec(spec, num_hidden_layers)}]"
+                    )
 
     print("\nDone.")
 

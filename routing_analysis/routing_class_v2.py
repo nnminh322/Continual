@@ -71,12 +71,21 @@ BENCHMARK_ORDER = {
     "Long_Sequence": LONG_SEQ_ORDER,
 }
 
-EXPECTED_SUPERNI_PROFILE = {
-    "superni_prompt_style": "runtime_cl",
-    "layer": "hidden",
-    "pool": "last",
-    "add_special_tokens": False,
-    "max_length": 1024,
+EXPECTED_SUPERNI_PROFILES = {
+    "llama": {
+        "superni_prompt_style": "runtime_cl",
+        "layer": "hidden",
+        "pool": "last",
+        "add_special_tokens": False,
+        "max_length": 1024,
+    },
+    "t5": {
+        "superni_prompt_style": "runtime_cl",
+        "layer": "encoder",
+        "pool": "avg",
+        "add_special_tokens": True,
+        "max_length": 512,
+    },
 }
 
 HIDDEN_LAYER_LABELS = {
@@ -201,25 +210,27 @@ def _coerce_np_scalar(value):
 def infer_legacy_embedding_profile(emb_dir, benchmark, source_path):
     """Best-effort profile for older .npz files that predate metadata_json."""
     model_dir = Path(emb_dir).name
+    lower_model_dir = model_dir.lower()
+    backbone_family = "t5" if ("t5" in lower_model_dir or "flan" in lower_model_dir) else "llama"
     profile = {
         "source": str(source_path),
         "metadata_json_present": False,
         "profile_inferred": True,
-        "layer": "embedding" if model_dir.endswith("_wordemb") else "hidden",
+        "backbone_family": backbone_family,
+        "layer": "embedding" if model_dir.endswith("_wordemb") else ("encoder" if backbone_family == "t5" else "hidden"),
         "pool": "avg" if "_poolavg" in model_dir else "last",
     }
 
     if benchmark == "SuperNI":
-        # Older extractor layouts encoded layer/pool in the directory name but not
-        # prompt/tokenization settings. We infer the runtime-default profile here so
-        # unchanged default folders like "Llama-2-7b-hf" remain usable.
-        profile.update({
-            "superni_prompt_style": "runtime_cl",
-            "add_special_tokens": False,
-            "max_length": 1024,
-        })
+        expected_profile = EXPECTED_SUPERNI_PROFILES[backbone_family]
+        profile.update(expected_profile)
 
     return profile
+
+
+def get_expected_superni_profile(profile):
+    backbone_family = (profile or {}).get("backbone_family", "llama")
+    return EXPECTED_SUPERNI_PROFILES.get(backbone_family, EXPECTED_SUPERNI_PROFILES["llama"])
 
 
 def load_embedding_profile(emb_dir, benchmark, tasks):
@@ -247,8 +258,9 @@ def validate_superni_profile(profile):
     if not profile.get("metadata_json_present", False) and not profile.get("profile_inferred", False):
         return False, ["missing metadata_json in embedding .npz"]
 
+    expected_profile = get_expected_superni_profile(profile)
     mismatches = []
-    for key, expected in EXPECTED_SUPERNI_PROFILE.items():
+    for key, expected in expected_profile.items():
         observed = profile.get(key)
         if observed != expected:
             mismatches.append(f"{key}={observed!r} (expected {expected!r})")
@@ -294,7 +306,7 @@ def format_profile_brief(profile):
             return f"{label} (L{hidden_index}/{num_hidden_layers})"
         return label
 
-    if layer == "hidden":
+    if layer in {"hidden", "encoder"}:
         return "final"
     return layer
 
@@ -1131,7 +1143,7 @@ def evaluate_embedding_dir(emb_dir, benchmark, task_order, args, out_dir):
             "RLS_Woodbury": "Recursive Least Squares.",
         },
         "embedding_profile": embedding_profile,
-        "expected_superni_profile": EXPECTED_SUPERNI_PROFILE if benchmark == "SuperNI" else None,
+        "expected_superni_profile": get_expected_superni_profile(embedding_profile) if benchmark == "SuperNI" else None,
         "deployment_proxy": "PooledMahalanobis_RIDGE" if benchmark == "SuperNI" else None,
         "results": final_report,
     }
