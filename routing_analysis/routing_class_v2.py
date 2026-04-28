@@ -190,6 +190,30 @@ def _coerce_np_scalar(value):
     return value
 
 
+def infer_legacy_embedding_profile(emb_dir, benchmark, source_path):
+    """Best-effort profile for older .npz files that predate metadata_json."""
+    model_dir = Path(emb_dir).name
+    profile = {
+        "source": str(source_path),
+        "metadata_json": None,
+        "profile_inferred": True,
+        "layer": "embedding" if model_dir.endswith("_wordemb") else "hidden",
+        "pool": "avg" if "_poolavg" in model_dir else "last",
+    }
+
+    if benchmark == "SuperNI":
+        # Older extractor layouts encoded layer/pool in the directory name but not
+        # prompt/tokenization settings. We infer the runtime-default profile here so
+        # unchanged default folders like "Llama-2-7b-hf" remain usable.
+        profile.update({
+            "superni_prompt_style": "runtime_cl",
+            "add_special_tokens": False,
+            "max_length": 1024,
+        })
+
+    return profile
+
+
 def load_embedding_profile(emb_dir, benchmark, tasks):
     """Load extraction profile metadata from the first available split."""
     for task in tasks:
@@ -199,10 +223,11 @@ def load_embedding_profile(emb_dir, benchmark, tasks):
                 continue
             with np.load(str(path), allow_pickle=True) as data:
                 if "metadata_json" not in data.files:
-                    return {"source": str(path), "metadata_json": None}
+                    return infer_legacy_embedding_profile(emb_dir, benchmark, path)
                 raw_metadata = _coerce_np_scalar(data["metadata_json"])
             profile = json.loads(raw_metadata)
             profile["source"] = str(path)
+            profile["profile_inferred"] = False
             return profile
     return None
 
@@ -210,7 +235,7 @@ def load_embedding_profile(emb_dir, benchmark, tasks):
 def validate_superni_profile(profile):
     if profile is None:
         return False, ["no embedding files found"]
-    if profile.get("metadata_json") is None:
+    if profile.get("metadata_json") is None and not profile.get("profile_inferred", False):
         return False, ["missing metadata_json in embedding .npz"]
 
     mismatches = []
@@ -1022,7 +1047,8 @@ def main():
                 "SuperNI embeddings are not runtime-aligned. "
                 f"Observed profile: {format_profile(embedding_profile)}. "
                 f"Mismatch: {mismatch_text}. "
-                "Re-extract with extract_embeddings_llama.py defaults or pass --allow_legacy_profile to override."
+                "Either backfill metadata in place with backfill_embedding_metadata.py, "
+                "re-extract with extract_embeddings_llama.py defaults, or pass --allow_legacy_profile to override."
             )
             if not args.allow_legacy_profile:
                 raise ValueError(message)
@@ -1041,6 +1067,8 @@ def main():
     print(f"    Tasks: {len(task_order)}")
     print(f"    Device: {DEVICE}")
     print(f"    Embedding profile: {format_profile(embedding_profile)}")
+    if embedding_profile and embedding_profile.get("profile_inferred"):
+        print("    [WARN] metadata_json missing; profile inferred from legacy embedding directory naming")
     if args.benchmark == "SuperNI":
         print("    Deployment proxy: PooledMahalanobis_RIDGE")
     print(f"    NOTE: Uses ALL available train samples (no caps)")

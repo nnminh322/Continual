@@ -1,20 +1,22 @@
 """
 Extract frozen encoder embeddings from T5 models for routing analysis.
-Models: flan-t5-large, flan-t5-xl
-Benchmarks: Long_Sequence (15 tasks), SuperNI (15 tasks)
+
+Default behavior is aligned with the deployed T5 continual-learning router:
+    - SuperNI prompts use the runtime zero-shot instruction template.
+    - Embeddings come from frozen T5EncoderModel last_hidden_state.
+    - Pooling is mean over non-padding tokens.
+
+Optional ablations remain available via --layer embedding, but runtime-aligned
+SRT validation should use the default encoder layer.
 
 Output: embeddings/{model_name}/{benchmark}/{task_name}/{split}.npz
-  - embeddings: (N, d_model) float32  — avg-pooled representation
-  - labels: (N,) object array         — output labels as strings
-
-Layer options:
-  --layer encoder   : encoder last hidden state (after all attention layers) — rich semantic
-  --layer embedding  : word embedding layer output (before attention) — matches CL router input
+    - embeddings: (N, d_model) float32
+    - labels: (N,) object array
 
 Usage:
-  python extract_embeddings_t5.py --model google/flan-t5-large
-  python extract_embeddings_t5.py --model google/flan-t5-xl
-  python extract_embeddings_t5.py --model google/flan-t5-small  # debug
+    python extract_embeddings_t5.py --model google/flan-t5-large
+    python extract_embeddings_t5.py --model google/flan-t5-xl
+    python extract_embeddings_t5.py --model google/flan-t5-small  # debug
 """
 
 import argparse
@@ -143,8 +145,8 @@ def extract_embeddings(
 ) -> np.ndarray:
     """
     Extract embeddings from T5.
-    layer='encoder': avg-pooled encoder last hidden state (after attention).
-    layer='embedding': avg-pooled word embedding output (before attention).
+    layer='encoder': avg-pooled encoder last hidden state (runtime-aligned).
+    layer='embedding': avg-pooled word embedding output (ablation only).
     """
     all_embs = []
     for i in tqdm(range(0, len(texts), batch_size),
@@ -159,7 +161,7 @@ def extract_embeddings(
         ).to(device)
 
         if layer == "embedding":
-            # Word embedding layer only — same input the CL router sees
+            # Word embedding layer only — useful for ablations, not deployed SRT routing
             hidden = model.encoder.embed_tokens(enc["input_ids"])  # (B, L, d)
         else:
             out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"])
@@ -170,6 +172,22 @@ def extract_embeddings(
         all_embs.append(pooled.cpu().float().numpy())
 
     return np.concatenate(all_embs, axis=0)
+
+
+def probe_cuda_runtime():
+    """Verify that the installed torch wheel can run a trivial CUDA kernel."""
+    if not torch.cuda.is_available():
+        return False, "torch.cuda.is_available() returned False"
+
+    try:
+        device = torch.device("cuda:0")
+        probe = torch.zeros(8, device=device, dtype=torch.float32)
+        probe = probe + 1.0
+        _ = probe.sum().item()
+        torch.cuda.synchronize(device)
+        return True, None
+    except Exception as error:
+        return False, f"{type(error).__name__}: {error}"
 
 
 # ── Main ──────────────────────────────────────────────────────────────
@@ -192,12 +210,39 @@ def main():
     parser.add_argument("--layer", type=str, default="encoder",
                         choices=["encoder", "embedding"],
                         help="'encoder'=last hidden state (after attention), "
-                             "'embedding'=word embedding layer (before attention, matches CL router)")
+                            "'embedding'=word embedding layer (before attention, ablation only)")
+        parser.add_argument("--allow_cpu_fallback", action="store_true",
+                        help="Fallback to CPU if CUDA is visible but cannot execute kernels.")
     args = parser.parse_args()
 
     # Device
     if args.device is None:
         args.device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if args.device == "cuda":
+        cuda_ok, cuda_error = probe_cuda_runtime()
+        if not cuda_ok:
+            gpu_name = "unknown GPU"
+            try:
+                if torch.cuda.device_count() > 0:
+                    gpu_name = torch.cuda.get_device_name(0)
+            except Exception:
+                pass
+
+            message = (
+                f"CUDA is visible but cannot execute kernels on {gpu_name}. "
+                f"This usually means the installed PyTorch wheel does not support this GPU architecture. "
+                f"Original probe error: {cuda_error}"
+            )
+            if args.allow_cpu_fallback:
+                print(f"[WARN] {message}")
+                print("[WARN] Falling back to CPU because --allow_cpu_fallback was set.")
+                args.device = "cpu"
+            else:
+                raise RuntimeError(
+                    message +
+                    " Re-run with --device cpu or --allow_cpu_fallback, or switch Kaggle GPU to T4/L4/A100."
+                )
 
     # Model name for output dir
     model_short = args.model.split("/")[-1]  # e.g. "flan-t5-large"
