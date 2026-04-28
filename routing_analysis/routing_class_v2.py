@@ -195,7 +195,7 @@ def infer_legacy_embedding_profile(emb_dir, benchmark, source_path):
     model_dir = Path(emb_dir).name
     profile = {
         "source": str(source_path),
-        "metadata_json": None,
+        "metadata_json_present": False,
         "profile_inferred": True,
         "layer": "embedding" if model_dir.endswith("_wordemb") else "hidden",
         "pool": "avg" if "_poolavg" in model_dir else "last",
@@ -227,6 +227,7 @@ def load_embedding_profile(emb_dir, benchmark, tasks):
                 raw_metadata = _coerce_np_scalar(data["metadata_json"])
             profile = json.loads(raw_metadata)
             profile["source"] = str(path)
+            profile["metadata_json_present"] = True
             profile["profile_inferred"] = False
             return profile
     return None
@@ -235,7 +236,7 @@ def load_embedding_profile(emb_dir, benchmark, tasks):
 def validate_superni_profile(profile):
     if profile is None:
         return False, ["no embedding files found"]
-    if profile.get("metadata_json") is None and not profile.get("profile_inferred", False):
+    if not profile.get("metadata_json_present", False) and not profile.get("profile_inferred", False):
         return False, ["missing metadata_json in embedding .npz"]
 
     mismatches = []
