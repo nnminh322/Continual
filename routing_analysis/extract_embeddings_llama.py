@@ -504,7 +504,7 @@ def main():
     print("Loading model...")
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
-        dtype=model_dtype,
+        torch_dtype=model_dtype,
         device_map="auto" if args.device == "cuda" else None,
         token=args.token,
     ).eval()
