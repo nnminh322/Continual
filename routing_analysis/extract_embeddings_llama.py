@@ -60,6 +60,52 @@ BENCHMARKS = {
     "SuperNI": SUPERNI_TASKS,
 }
 
+
+def resolve_data_root(data_root_arg: str, benchmarks: list[str]) -> Path:
+    requested = Path(data_root_arg).expanduser()
+    script_dir = Path(__file__).resolve().parent
+    repo_root = script_dir.parent
+
+    candidate_paths = []
+    if requested.is_absolute():
+        candidate_paths.append(requested)
+    else:
+        candidate_paths.extend([
+            requested,
+            Path.cwd() / requested,
+            script_dir / requested,
+            repo_root / requested,
+        ])
+        if requested == Path("CL_Benchmark"):
+            candidate_paths.extend([
+                script_dir / "CL_Benchmark",
+                repo_root / "CL_Benchmark",
+                repo_root / "root_gainlora" / "CL_Benchmark",
+                repo_root / "new_gainlora" / "CL_Benchmark",
+            ])
+
+    seen = set()
+    deduped_candidates = []
+    for candidate in candidate_paths:
+        try:
+            normalized = candidate.resolve(strict=False)
+        except Exception:
+            normalized = candidate
+        key = str(normalized)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped_candidates.append(candidate)
+
+    for candidate in deduped_candidates:
+        if candidate.exists() and candidate.is_dir() and any((candidate / bench).exists() for bench in benchmarks):
+            return candidate
+
+    candidate_text = "\n".join(f"  - {candidate}" for candidate in deduped_candidates)
+    raise FileNotFoundError(
+        f"Could not locate data_root={data_root_arg!r}. Checked:\n{candidate_text}"
+    )
+
 HIDDEN_LAYER_FRACTIONS = {
     "final": 1.0,
     "half": 0.5,
@@ -484,12 +530,14 @@ def main():
 
     model_dtype = resolve_torch_dtype(args.device, args.dtype)
     layer_specs = resolve_layer_specs(args.layer)
+    data_root = resolve_data_root(args.data_root, args.benchmarks)
 
     model_short = args.model.split("/")[-1]
     print(f"=== Model: {args.model} ({model_short}) on {args.device} ===")
     print(f"    Pooling: {args.pool}")
     print(f"    Layer mode: {args.layer}")
     print(f"    DType: {model_dtype}")
+    print(f"    Data root: {data_root}")
 
     # Tokenizer
     print("Loading tokenizer...")
@@ -532,7 +580,7 @@ def main():
         task_pbar = tqdm(tasks, total=len(tasks), unit="task", position=0, leave=True)
         for task_name in task_pbar:
             task_pbar.set_description(f"[{bench_name}] {task_name:50s}")
-            task_dir = Path(args.data_root) / bench_name / task_name
+            task_dir = data_root / bench_name / task_name
             if not task_dir.exists():
                 task_pbar.write(f"  [SKIP] {task_name}: not found at {task_dir}")
                 continue
