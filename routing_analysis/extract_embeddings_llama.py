@@ -17,6 +17,7 @@ Output: embeddings/{model_name}/{benchmark}/{task_name}/{split}.npz
 Usage:
     python extract_embeddings_llama.py --model meta-llama/Llama-2-7b-hf
     python extract_embeddings_llama.py --model meta-llama/Llama-2-7b-hf --superni_prompt_style runtime_cl
+    python extract_embeddings_llama.py --model meta-llama/Llama-2-7b-hf --layer hidden_depth_suite
 """
 
 import argparse
@@ -58,6 +59,33 @@ BENCHMARKS = {
     "Long_Sequence": LONG_SEQ_TASKS,
     "SuperNI": SUPERNI_TASKS,
 }
+
+HIDDEN_LAYER_FRACTIONS = {
+    "final": 1.0,
+    "half": 0.5,
+    "quarter": 0.25,
+    "eighth": 0.125,
+    "sixteenth": 0.0625,
+}
+
+HIDDEN_LAYER_LABELS = {
+    "final": "final",
+    "half": "1/2",
+    "quarter": "1/4",
+    "eighth": "1/8",
+    "sixteenth": "1/16",
+}
+
+LAYER_CHOICES = [
+    "hidden",
+    "embedding",
+    "hidden_final",
+    "hidden_half",
+    "hidden_quarter",
+    "hidden_eighth",
+    "hidden_sixteenth",
+    "hidden_depth_suite",
+]
 
 
 # ── Data loading (mirrors cl_dataset.py logic) ────────────────────────
@@ -172,27 +200,141 @@ def load_superni(json_path: str, prompt_style: str = "runtime_cl"):
 
 # ── Embedding extraction ──────────────────────────────────────────────
 
+def resolve_layer_specs(layer: str):
+    hidden_specs = {
+        "hidden": [{
+            "mode": "hidden",
+            "profile": "final",
+            "metadata_layer": "hidden",
+            "dir_suffix": "",
+        }],
+        "hidden_final": [{
+            "mode": "hidden",
+            "profile": "final",
+            "metadata_layer": "hidden_final",
+            "dir_suffix": "_layer-final",
+        }],
+        "hidden_half": [{
+            "mode": "hidden",
+            "profile": "half",
+            "metadata_layer": "hidden_half",
+            "dir_suffix": "_layer-1of2",
+        }],
+        "hidden_quarter": [{
+            "mode": "hidden",
+            "profile": "quarter",
+            "metadata_layer": "hidden_quarter",
+            "dir_suffix": "_layer-1of4",
+        }],
+        "hidden_eighth": [{
+            "mode": "hidden",
+            "profile": "eighth",
+            "metadata_layer": "hidden_eighth",
+            "dir_suffix": "_layer-1of8",
+        }],
+        "hidden_sixteenth": [{
+            "mode": "hidden",
+            "profile": "sixteenth",
+            "metadata_layer": "hidden_sixteenth",
+            "dir_suffix": "_layer-1of16",
+        }],
+        "hidden_depth_suite": [
+            {
+                "mode": "hidden",
+                "profile": "final",
+                "metadata_layer": "hidden_final",
+                "dir_suffix": "_layer-final",
+            },
+            {
+                "mode": "hidden",
+                "profile": "half",
+                "metadata_layer": "hidden_half",
+                "dir_suffix": "_layer-1of2",
+            },
+            {
+                "mode": "hidden",
+                "profile": "quarter",
+                "metadata_layer": "hidden_quarter",
+                "dir_suffix": "_layer-1of4",
+            },
+            {
+                "mode": "hidden",
+                "profile": "eighth",
+                "metadata_layer": "hidden_eighth",
+                "dir_suffix": "_layer-1of8",
+            },
+            {
+                "mode": "hidden",
+                "profile": "sixteenth",
+                "metadata_layer": "hidden_sixteenth",
+                "dir_suffix": "_layer-1of16",
+            },
+        ],
+    }
+    if layer == "embedding":
+        return [{
+            "mode": "embedding",
+            "profile": None,
+            "metadata_layer": "embedding",
+            "dir_suffix": "_wordemb",
+        }]
+    if layer not in hidden_specs:
+        raise ValueError(f"Unknown layer={layer}")
+    return hidden_specs[layer]
+
+
+def resolve_hidden_layer_index(num_hidden_layers: int, profile: str) -> int:
+    if profile == "final":
+        return num_hidden_layers
+    fraction = HIDDEN_LAYER_FRACTIONS[profile]
+    return max(1, min(num_hidden_layers, int(round(num_hidden_layers * fraction))))
+
+
+def pool_hidden_states(hidden: torch.Tensor, mask: torch.Tensor, pool: str) -> torch.Tensor:
+    if pool == "last":
+        seq_lens = mask.sum(dim=1) - 1
+        return hidden[torch.arange(hidden.size(0), device=hidden.device), seq_lens]
+    if pool == "avg":
+        mask_f = mask.unsqueeze(-1).float()
+        return (hidden * mask_f).sum(dim=1) / mask_f.sum(dim=1).clamp(min=1)
+    raise ValueError(f"Unknown pool={pool}")
+
+
+def build_output_backbone(model_short: str, pool: str, layer_spec: dict) -> str:
+    pool_suffix = f"_pool{pool}" if pool != "last" else ""
+    return f"{model_short}{pool_suffix}{layer_spec['dir_suffix']}"
+
+
+def describe_layer_spec(layer_spec: dict, num_hidden_layers: int | None = None) -> str:
+    if layer_spec["mode"] == "embedding":
+        return "embedding"
+    label = HIDDEN_LAYER_LABELS[layer_spec["profile"]]
+    if num_hidden_layers is None:
+        return f"hidden@{label}"
+    layer_index = resolve_hidden_layer_index(num_hidden_layers, layer_spec["profile"])
+    return f"hidden@{label} (L{layer_index}/{num_hidden_layers})"
+
 @torch.no_grad()
 def extract_embeddings(
     model,
     tokenizer,
     texts: list[str],
+    layer_specs: list[dict],
     batch_size: int = 8,
     max_length: int = 1024,
     device: str = "cuda",
     pool: str = "last",
-    layer: str = "hidden",
     desc: str = "batches",
-) -> np.ndarray:
+) -> dict[str, np.ndarray]:
     """
     Extract embeddings from LLaMA (decoder-only).
-    layer='hidden': last hidden state (after all transformer blocks, runtime-aligned)
-    layer='embedding': word embedding layer (available for ablations only)
+    Hidden-layer specs can target the final state or shallower depths such as
+    1/2, 1/4, 1/8, and 1/16 of the transformer depth.
     pool='last': last non-padding token's hidden state
     pool='avg':  average pool over non-padding tokens
-    Returns (N, d_model) float32 array (cast from bfloat16, no quantization).
+    Returns a dict mapping metadata_layer -> (N, d_model) float32 arrays.
     """
-    all_embs = []
+    all_embs = {spec["metadata_layer"]: [] for spec in layer_specs}
     for i in tqdm(range(0, len(texts), batch_size),
                   desc=f"    {desc}", unit="batch", leave=False, position=1):
         batch_texts = texts[i : i + batch_size]
@@ -205,33 +347,33 @@ def extract_embeddings(
             return_tensors="pt",
         ).to(device)
 
-        if layer == "embedding":
-            # Word embedding layer only — useful for ablations, not runtime-equivalent routing
-            hidden = model.model.embed_tokens(enc["input_ids"])  # (B, L, d)
-        else:
+        hidden_specs = [spec for spec in layer_specs if spec["mode"] == "hidden"]
+        if hidden_specs:
             out = model(
                 input_ids=enc["input_ids"],
                 attention_mask=enc["attention_mask"],
                 output_hidden_states=True,
                 use_cache=False,
             )
-            hidden = out.hidden_states[-1]  # (B, L, d)
+            hidden_states = out.hidden_states
+            num_hidden_layers = len(hidden_states) - 1
+            for spec in hidden_specs:
+                layer_index = resolve_hidden_layer_index(num_hidden_layers, spec["profile"])
+                hidden = hidden_states[layer_index]
+                pooled = pool_hidden_states(hidden, enc["attention_mask"], pool)
+                all_embs[spec["metadata_layer"]].append(pooled.cpu().float().numpy())
 
-        mask = enc["attention_mask"]  # (B, L)
+        for spec in layer_specs:
+            if spec["mode"] != "embedding":
+                continue
+            hidden = model.model.embed_tokens(enc["input_ids"])
+            pooled = pool_hidden_states(hidden, enc["attention_mask"], pool)
+            all_embs[spec["metadata_layer"]].append(pooled.cpu().float().numpy())
 
-        if pool == "last":
-            # Index of last non-padding token per sample
-            seq_lens = mask.sum(dim=1) - 1  # (B,)
-            pooled = hidden[torch.arange(hidden.size(0), device=device), seq_lens]
-        elif pool == "avg":
-            mask_f = mask.unsqueeze(-1).float()
-            pooled = (hidden * mask_f).sum(dim=1) / mask_f.sum(dim=1).clamp(min=1)
-        else:
-            raise ValueError(f"Unknown pool={pool}")
-
-        all_embs.append(pooled.cpu().float().numpy())
-
-    return np.concatenate(all_embs, axis=0)
+    return {
+        key: np.concatenate(value, axis=0)
+        for key, value in all_embs.items()
+    }
 
 
 def resolve_torch_dtype(device: str, dtype_name: str):
@@ -285,8 +427,12 @@ def main():
                         choices=["last", "avg"],
                         help="Pooling: 'last' (last token) or 'avg' (mean pool)")
     parser.add_argument("--layer", type=str, default="hidden",
-                        choices=["hidden", "embedding"],
-                        help="'hidden'=runtime-aligned last hidden state (default), 'embedding'=ablation only")
+                        choices=LAYER_CHOICES,
+                        help=(
+                            "'hidden'=runtime-aligned final hidden state (default); "
+                            "'hidden_depth_suite'=extract final, 1/2, 1/4, 1/8, and 1/16 depth profiles; "
+                            "'embedding'=word embedding ablation"
+                        ))
     parser.add_argument("--superni_prompt_style", type=str, default="runtime_cl",
                         choices=["runtime_cl", "simple"],
                         help="SuperNI prompt construction. 'runtime_cl' mirrors the deployed CL dataset builder.")
@@ -337,13 +483,12 @@ def main():
                 )
 
     model_dtype = resolve_torch_dtype(args.device, args.dtype)
+    layer_specs = resolve_layer_specs(args.layer)
 
     model_short = args.model.split("/")[-1]
-    pool_suffix = f"_pool{args.pool}" if args.pool != "last" else ""
-    layer_suffix = "_wordemb" if args.layer == "embedding" else ""
     print(f"=== Model: {args.model} ({model_short}) on {args.device} ===")
     print(f"    Pooling: {args.pool}")
-    print(f"    Layer: {args.layer}")
+    print(f"    Layer mode: {args.layer}")
     print(f"    DType: {model_dtype}")
 
     # Tokenizer
@@ -365,7 +510,11 @@ def main():
     ).eval()
 
     d_model = model.config.hidden_size
+    num_hidden_layers = getattr(model.config, "num_hidden_layers", None)
     print(f"d_model = {d_model}")
+    print("    Layer profiles: " + ", ".join(
+        describe_layer_spec(spec, num_hidden_layers) for spec in layer_specs
+    ))
 
     # Process benchmarks
     for bench_name in args.benchmarks:
@@ -388,60 +537,89 @@ def main():
                 task_pbar.write(f"  [SKIP] {task_name}: not found at {task_dir}")
                 continue
 
-            out_dir = (
-                Path(args.output_dir) / f"{model_short}{pool_suffix}{layer_suffix}"
-                / bench_name / task_name
-            )
-            out_dir.mkdir(parents=True, exist_ok=True)
-
             for split in ["train", "dev", "test"]:
                 json_path = task_dir / f"{split}.json"
                 if not json_path.exists():
                     continue
 
-                out_path = out_dir / f"{split}.npz"
-                if out_path.exists():
+                out_paths = {}
+                missing_specs = []
+                for spec in layer_specs:
+                    out_dir = (
+                        Path(args.output_dir)
+                        / build_output_backbone(model_short, args.pool, spec)
+                        / bench_name
+                        / task_name
+                    )
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    out_path = out_dir / f"{split}.npz"
+                    out_paths[spec["metadata_layer"]] = out_path
+                    if not out_path.exists():
+                        missing_specs.append(spec)
+
+                if not missing_specs:
                     task_pbar.write(f"  [EXISTS] {task_name}/{split} — skip")
                     continue
 
                 texts, labels = loader_fn(str(json_path))
                 task_pbar.write(f"  {task_name}/{split}: {len(texts)} samples")
 
-                embs = extract_embeddings(
+                embs_by_layer = extract_embeddings(
                     model, tokenizer, texts,
+                    layer_specs=missing_specs,
                     batch_size=args.batch_size,
                     max_length=args.max_length,
                     device=args.device,
                     pool=args.pool,
-                    layer=args.layer,
                     desc=f"{task_name}/{split}",
                 )
-                metadata = {
-                    "benchmark": bench_name,
-                    "task_name": task_name,
-                    "split": split,
-                    "pool": args.pool,
-                    "layer": args.layer,
-                    "torch_dtype": str(model_dtype).replace("torch.", ""),
-                    "max_length": args.max_length,
-                    "padding_side": tokenizer.padding_side,
-                    "add_special_tokens": False,
-                    "superni_prompt_style": args.superni_prompt_style if bench_name == "SuperNI" else None,
-                    "runtime_aligned": (
-                        bench_name == "SuperNI"
-                        and args.superni_prompt_style == "runtime_cl"
-                        and args.layer == "hidden"
-                        and args.pool == "last"
-                        and args.max_length == 1024
-                    ),
-                }
-                np.savez_compressed(
-                    out_path,
-                    embeddings=embs,
-                    labels=np.array(labels, dtype=object),
-                    metadata_json=np.array(json.dumps(metadata, sort_keys=True)),
-                )
-                task_pbar.write(f"  -> saved {out_path} {embs.shape}")
+                for spec in missing_specs:
+                    hidden_layer_index = None
+                    if spec["mode"] == "hidden" and num_hidden_layers is not None:
+                        hidden_layer_index = resolve_hidden_layer_index(num_hidden_layers, spec["profile"])
+
+                    metadata = {
+                        "benchmark": bench_name,
+                        "task_name": task_name,
+                        "split": split,
+                        "pool": args.pool,
+                        "layer": spec["metadata_layer"],
+                        "layer_family": spec["mode"],
+                        "hidden_layer_profile": spec["profile"],
+                        "hidden_layer_fraction": (
+                            HIDDEN_LAYER_FRACTIONS[spec["profile"]]
+                            if spec["profile"] is not None else None
+                        ),
+                        "hidden_layer_index": hidden_layer_index,
+                        "hidden_layer_label": (
+                            HIDDEN_LAYER_LABELS[spec["profile"]]
+                            if spec["profile"] is not None else None
+                        ),
+                        "num_hidden_layers": num_hidden_layers,
+                        "torch_dtype": str(model_dtype).replace("torch.", ""),
+                        "max_length": args.max_length,
+                        "padding_side": tokenizer.padding_side,
+                        "add_special_tokens": False,
+                        "superni_prompt_style": args.superni_prompt_style if bench_name == "SuperNI" else None,
+                        "runtime_aligned": (
+                            bench_name == "SuperNI"
+                            and args.superni_prompt_style == "runtime_cl"
+                            and spec["metadata_layer"] == "hidden"
+                            and args.pool == "last"
+                            and args.max_length == 1024
+                        ),
+                    }
+                    out_path = out_paths[spec["metadata_layer"]]
+                    embs = embs_by_layer[spec["metadata_layer"]]
+                    np.savez_compressed(
+                        out_path,
+                        embeddings=embs,
+                        labels=np.array(labels, dtype=object),
+                        metadata_json=np.array(json.dumps(metadata, sort_keys=True)),
+                    )
+                    task_pbar.write(
+                        f"  -> saved {out_path} {embs.shape} [{describe_layer_spec(spec, num_hidden_layers)}]"
+                    )
 
     print("\nDone.")
 

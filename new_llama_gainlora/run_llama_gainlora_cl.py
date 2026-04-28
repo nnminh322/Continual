@@ -478,8 +478,6 @@ def generate_predictions_cl(
     """
     model.eval()
     model.model.is_inference = True  # enable routing stat collection
-    # Attach tokenizer so LlamaModel.forward() can decode tokens for SRT debug log
-    model.model._tokenizer = tokenizer
 
     device = next(model.parameters()).device
     pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
@@ -508,16 +506,6 @@ def generate_predictions_cl(
     # SRT routing accuracy tracker (per GT task, per slot)
     srt_routing_stats: dict = {}
 
-    # SRT router status check (print once)
-    if hasattr(model.model, 'srt_router') and model.model.srt_router is not None:
-        router = model.model.srt_router
-        print(f"  [SRT-INIT] router tasks={list(router.signatures.keys())}")
-        print(f"  [SRT-INIT] task_id_to_idx={getattr(model.model, 'srt_task_id_to_idx', {})}")
-        print(f"  [SRT-INIT] use_srt_routing={getattr(model.model, 'use_srt_routing', False)}")
-        print(f"  [SRT-INIT] encoder_frozen={type(model.model.encoder_frozen).__name__ if model.model.encoder_frozen is not None else 'None'}")
-    else:
-        print(f"  [SRT-INIT] NO ROUTER FOUND!")
-
     for start in tqdm(range(0, len(samples), batch_size), total=n_batches, desc=desc):
         batch_samples = samples[start : start + batch_size]
         batch = collator(batch_samples)
@@ -536,26 +524,15 @@ def generate_predictions_cl(
 
         total_steps += 1
 
-        # ── SRT DEBUG LOGGING ─────────────────────────────────────────────
         srt_log = model.get_srt_debug_log()
         if srt_log:
             entry = srt_log[0]
-            if len(srt_log) > 1:
-                print(
-                    f"  [SRT-D] Collapsed {len(srt_log)} routing log steps to the first "
-                    f"source-prompt decision for batch starting at idx={start}."
-                )
-
-            n_tasks = entry.get("n_tasks", 0)
-            task_list = entry.get("task_id_list", [])
             sample_count = min(len(batch_samples), int(entry.get("batch_size", len(batch_samples))))
 
             for sample_in_batch in range(sample_count):
-                global_idx = start + sample_in_batch
                 sample = batch_samples[sample_in_batch]
                 gt_task = sample.get("Dataset", sample.get("Instance", {}).get("task", "unknown"))
 
-                # Predicted routing decision
                 srt_preds = entry["srt_preds"]
                 slot_idxs = entry["slot_idxs"]
                 pred_task_str = srt_preds[sample_in_batch]
@@ -564,29 +541,9 @@ def generate_predictions_cl(
                 idx_to_tid = {v: k for k, v in tid_map.items()}
                 slot_task = idx_to_tid.get(pred_slot, f"unknown_slot{pred_slot}")
 
-                # Distances
-                dists = entry.get("dists", {})
-                best_d = entry["best_dist"][sample_in_batch]
-                conf = entry["confidence"][sample_in_batch]
-
-                # Print top-2 nearest tasks
-                sorted_tasks = sorted(
-                    [(tid, dists.get(tid, [0])[sample_in_batch]) for tid in task_list],
-                    key=lambda x: x[1]
-                )
-                top2 = sorted_tasks[:2]
-
                 label_correct = (pred_task_str == gt_task)
                 slot_correct = (slot_task == gt_task)
-                if slot_correct and label_correct:
-                    correct_flag = "slot✓ label✓"
-                elif slot_correct:
-                    correct_flag = "slot✓ label✗"
-                elif label_correct:
-                    correct_flag = "slot✗ label✓"
-                else:
-                    correct_flag = "slot✗ label✗"
-                # ── Track accuracy per GT task ───────────────────────────
+
                 gt_key = gt_task
                 if gt_key not in srt_routing_stats:
                     srt_routing_stats[gt_key] = {
@@ -606,29 +563,6 @@ def generate_predictions_cl(
                 slot_key = f"slot{pred_slot}"
                 srt_routing_stats[gt_key]["slots"][slot_key] = \
                     srt_routing_stats[gt_key]["slots"].get(slot_key, 0) + 1
-                # ─────────────────────────────────────────────────────
-
-                dist_str = "  ".join([f"{t[:20]:20s}:{d:.1f}" for t, d in sorted_tasks[:4]])
-
-                if len(top2) > 1:
-                    second_name = top2[1][0][:25]
-                    second_disp = f"{second_name:25s}(d={top2[1][1]:.2f})"
-                else:
-                    second_disp = f"{'N/A':25s}(d=0.00)"
-
-                print(
-                    f"  [SRT-D] idx={global_idx:3d}  "
-                    f"n_tasks={n_tasks}  "
-                    f"slot={pred_slot}  "
-                    f"1st={pred_task_str[:25]:25s}(d={best_d:.2f})  "
-                    f"2nd={second_disp}  "
-                    f"conf={conf:.3f}  "
-                    f"GT={gt_task[:25]:25s}  "
-                    f"{correct_flag}  "
-                    f"txt={entry['decoded_first'][:60]!r}"
-                )
-                print(f"        dists: {dist_str}")
-        # ── END SRT DEBUG ─────────────────────────────────────────────
 
         for generated_ids, reference in zip(generated, refs):
             completion_ids = generated_ids[input_length:]

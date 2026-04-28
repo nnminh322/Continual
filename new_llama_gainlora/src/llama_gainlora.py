@@ -624,9 +624,9 @@ class LlamaModel(LlamaPreTrainedModel):
             self.all_attn_weights = []
             self.key_attention_weights = None
             self.encoder_frozen = None
-            # ── SRT debug logging ──────────────────────────────────
-            self.srt_debug = True          # always log routing decisions
-            self._srt_debug_log = []       # list of dicts
+            # Collect per-batch routing decisions so the caller can build summaries.
+            self.srt_debug = True
+            self._srt_debug_log = []
 
             self.previous_prompts_keys = None
             if prompt_config["previous_prompt_key_path"] is not None and prompt_config["task_id"]:
@@ -864,54 +864,18 @@ class LlamaModel(LlamaPreTrainedModel):
                     slot_idx = min(slot_idx, n_slots - 1)
                     key_attention_weights[batch_idx, slot_idx, 0] = 1.0
 
-                # ── SRT DEBUG LOGGING (enriched) ──────────────────────────
                 if self.srt_debug:
-                    tok = getattr(self, '_tokenizer', None)
-                    pad_id = getattr(self, '_pad_token_id', 0)
-
-                    # Full route_debug: all Mahalanobis distances + confidence
-                    route_info = self.srt_router.route_debug(route_inputs)
-
-                    # Verify encoder was used (critical for routing correctness)
-                    encoder_was_none = self.encoder_frozen is None
-                    routing_via_srt = (not self.training) and self.use_srt_routing
-
-                    # Decode source tokens of first sample in batch
-                    sid = source_input_ids[0].cpu()
-                    mask = (sid != pad_id).cpu()
-                    nonpad = sid[mask]
-                    seq_len = nonpad.size(0)
-                    decoded = ""
-                    if tok is not None and seq_len > 0:
-                        decoded = tok.decode(nonpad[:60], skip_special_tokens=True)[:150].replace("\n", " ")
-
-                    # Per-sample slot decisions
                     slot_idxs = [
                         min(self.srt_task_id_to_idx.get(tid, 0), n_slots - 1)
-                        for tid in route_info["task_ids"]
+                        for tid in srt_preds
                     ]
-                    idx_to_tid = {v: k for k, v in self.srt_task_id_to_idx.items()}
 
                     self._srt_debug_log.append({
                         "batch_size": batch_size,
-                        "n_slots": n_slots,
-                        "n_tasks": route_info["n_tasks"],
-                        "task_id_list": route_info["task_id_list"],
-                        "srt_preds": route_info["task_ids"].tolist() if hasattr(route_info["task_ids"], "tolist") else list(route_info["task_ids"]),
+                        "srt_preds": srt_preds.tolist() if hasattr(srt_preds, "tolist") else list(srt_preds),
                         "slot_idxs": slot_idxs,
-                        "best_dist": route_info["best_dist"].tolist() if hasattr(route_info["best_dist"], "tolist") else list(route_info["best_dist"]),
-                        "second_dist": route_info["second_dist"].tolist() if hasattr(route_info["second_dist"], "tolist") else list(route_info["second_dist"]),
-                        "confidence": route_info["confidence_ratio"].tolist() if hasattr(route_info["confidence_ratio"], "tolist") else list(route_info["confidence_ratio"]),
-                        "dists": {
-                            tid: route_info["dists"][:, i].tolist()
-                            for i, tid in enumerate(route_info["task_id_list"])
-                        },
                         "task_id_to_idx": dict(self.srt_task_id_to_idx),
-                        "decoded_first": decoded,
-                        "seq_len": int(seq_len),
-                        "encoder_type": type(self.encoder_frozen).__name__ if self.encoder_frozen is not None else "None",
                     })
-                # ── END SRT DEBUG ────────────────────────────────────
             else:
                 key_attention_weights[:, 0, 0] = 1.0
 

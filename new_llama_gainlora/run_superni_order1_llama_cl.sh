@@ -19,7 +19,7 @@ set -euo pipefail
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-MODEL_NAME_OR_PATH=${MODEL_NAME_OR_PATH:-"meta-llama/Llama-2-7b-hf"}
+MODEL_NAME_OR_PATH=${MODEL_NAME_OR_PATH:-"/kaggle/input/datasets/natmin322/llama-2-7b-hf-weights"}
 CONTINUAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

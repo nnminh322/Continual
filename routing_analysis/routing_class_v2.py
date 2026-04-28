@@ -79,6 +79,14 @@ EXPECTED_SUPERNI_PROFILE = {
     "max_length": 1024,
 }
 
+HIDDEN_LAYER_LABELS = {
+    "final": "final",
+    "half": "1/2",
+    "quarter": "1/4",
+    "eighth": "1/8",
+    "sixteenth": "1/16",
+}
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ZCA WHITENING  (torch — runs on GPU when available)
@@ -251,14 +259,44 @@ def validate_superni_profile(profile):
 def format_profile(profile):
     if not profile:
         return "unavailable"
+    hidden_label = profile.get("hidden_layer_label")
+    hidden_index = profile.get("hidden_layer_index")
+    num_hidden_layers = profile.get("num_hidden_layers")
+    layer_desc = profile.get("layer", "unknown")
+    if hidden_label is not None:
+        if hidden_index is not None and num_hidden_layers is not None:
+            layer_desc = f"{layer_desc} ({hidden_label}, L{hidden_index}/{num_hidden_layers})"
+        else:
+            layer_desc = f"{layer_desc} ({hidden_label})"
     fields = [
         f"prompt={profile.get('superni_prompt_style', 'unknown')}",
-        f"layer={profile.get('layer', 'unknown')}",
+        f"layer={layer_desc}",
         f"pool={profile.get('pool', 'unknown')}",
         f"add_special_tokens={profile.get('add_special_tokens', 'unknown')}",
         f"max_length={profile.get('max_length', 'unknown')}",
     ]
     return ", ".join(fields)
+
+
+def format_profile_brief(profile):
+    if not profile:
+        return "unknown"
+    layer = profile.get("layer", "unknown")
+    if layer == "embedding":
+        return "embedding"
+
+    hidden_profile = profile.get("hidden_layer_profile")
+    if hidden_profile in HIDDEN_LAYER_LABELS:
+        label = HIDDEN_LAYER_LABELS[hidden_profile]
+        hidden_index = profile.get("hidden_layer_index")
+        num_hidden_layers = profile.get("num_hidden_layers")
+        if hidden_index is not None and num_hidden_layers is not None:
+            return f"{label} (L{hidden_index}/{num_hidden_layers})"
+        return label
+
+    if layer == "hidden":
+        return "final"
+    return layer
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -677,7 +715,7 @@ def _shrink_lw(cov, n, d):
 
 
 def _shrink_ridge(cov, n, d):
-    """Analytical ridge: δ = d/(n+d). No CV needed."""
+    """Analytical ridge: δ = d/(n+d). Matches the runtime router in new_llama_gainlora."""
     delta = d / (n + d + 1e-10)
     tr_S = torch.trace(cov).item()
     target = (tr_S / d) * torch.eye(d, device=cov.device, dtype=cov.dtype)
@@ -1006,41 +1044,10 @@ def run_incremental_eval(train_embs_dict, test_embs_dict, task_order, args):
     return all_results
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# MAIN
-# ══════════════════════════════════════════════════════════════════════════════
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="CL routing on frozen LLaMA embeddings, with runtime-profile checks for SuperNI")
-    parser.add_argument("--emb_dir", required=True)
-    parser.add_argument("--benchmark", required=True, choices=["SuperNI", "Long_Sequence"])
-    parser.add_argument("--out_dir", default="results_cl_v2")
-    parser.add_argument("--task_order", type=str, default=None)
-    parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
-    parser.add_argument("--allow_legacy_profile", action="store_true",
-                        help="Allow SuperNI evaluation on embeddings that are not runtime-aligned")
-    parser.add_argument("--force", action="store_true")
-    args = parser.parse_args()
-
-    # Override device if CUDA not available
-    global DEVICE, HAS_CUDA
-    if args.device == "cuda" and not HAS_CUDA:
-        print("[WARN] CUDA requested but not available. Falling back to CPU.")
-        DEVICE = "cpu"
-    elif args.device == "cpu":
-        DEVICE = "cpu"
-
-    out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
-    backbone = Path(args.emb_dir).name
-
-    if args.task_order:
-        task_order = [t.strip() for t in args.task_order.split(",") if t.strip()]
-    else:
-        task_order = BENCHMARK_ORDER.get(args.benchmark, [])
-
-    embedding_profile = load_embedding_profile(args.emb_dir, args.benchmark, task_order)
-    if args.benchmark == "SuperNI":
+def evaluate_embedding_dir(emb_dir, benchmark, task_order, args, out_dir):
+    backbone = Path(emb_dir).name
+    embedding_profile = load_embedding_profile(emb_dir, benchmark, task_order)
+    if benchmark == "SuperNI":
         profile_ok, mismatches = validate_superni_profile(embedding_profile)
         if not profile_ok:
             mismatch_text = "; ".join(mismatches)
@@ -1055,34 +1062,34 @@ def main():
                 raise ValueError(message)
             print(f"[WARN] {message}")
 
-    tag = f"{backbone}_{args.benchmark}"
+    tag = f"{backbone}_{benchmark}"
     out_path = out_dir / f"cl_routing_{tag}.json"
 
     if out_path.exists() and not args.force:
         print(f"[SKIP] {out_path} exists. Use --force.")
-        return
+        with open(out_path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
 
     print(f"=== CL Routing Evaluation [{tag}] ===")
     print(f"    Backbone: {backbone}")
-    print(f"    Benchmark: {args.benchmark}")
+    print(f"    Benchmark: {benchmark}")
     print(f"    Tasks: {len(task_order)}")
     print(f"    Device: {DEVICE}")
     print(f"    Embedding profile: {format_profile(embedding_profile)}")
     if embedding_profile and embedding_profile.get("profile_inferred"):
         print("    [WARN] metadata_json missing; profile inferred from legacy embedding directory naming")
-    if args.benchmark == "SuperNI":
+    if benchmark == "SuperNI":
         print("    Deployment proxy: PooledMahalanobis_RIDGE")
-    print(f"    NOTE: Uses ALL available train samples (no caps)")
+    print("    NOTE: Uses ALL available train samples (no caps)")
     print()
 
-    train_embs = load_all(args.emb_dir, args.benchmark, task_order, "train")
-    test_embs = load_all(args.emb_dir, args.benchmark, task_order, "test")
+    train_embs = load_all(emb_dir, benchmark, task_order, "train")
+    test_embs = load_all(emb_dir, benchmark, task_order, "test")
 
     t0 = time.time()
     results = run_incremental_eval(train_embs, test_embs, task_order, args)
     elapsed = time.time() - t0
 
-    # Summary table
     print(f"\n{'='*90}")
     print(f"  Final Routing Accuracy ({len(task_order)} tasks, {elapsed:.1f}s, {DEVICE})")
     print(f"{'='*90}")
@@ -1104,8 +1111,9 @@ def main():
         }
 
     report = {
+        "emb_dir": str(emb_dir),
         "backbone": backbone,
-        "benchmark": args.benchmark,
+        "benchmark": benchmark,
         "n_tasks": len(task_order),
         "device": DEVICE,
         "elapsed_seconds": float(elapsed),
@@ -1117,20 +1125,81 @@ def main():
             "CosineNearestCentroid": "Baseline: raw cosine.",
             "PooledMahalanobis_OAS": "SRT Thm4 + Oracle-Approximating Shrinkage (Chen 2010).",
             "PooledMahalanobis_LW": "SRT Thm4 + Ledoit-Wolf (2004).",
-            "PooledMahalanobis_RIDGE": "SRT Thm4 + analytical ridge δ=d/(n+d); closest offline proxy to deployed LLaMA SRT.",
+            "PooledMahalanobis_RIDGE": "SRT Thm4 + analytical ridge δ=d/(n+d); matches the deployed LLaMA SRT shrinkage path.",
             "PooledMahalanobis_NONE": "SRT Thm4 + no shrinkage (raw pooled covariance).",
             "PSR_k8": "Probabilistic Subspace Routing.",
             "RLS_Woodbury": "Recursive Least Squares.",
         },
         "embedding_profile": embedding_profile,
-        "expected_superni_profile": EXPECTED_SUPERNI_PROFILE if args.benchmark == "SuperNI" else None,
-        "deployment_proxy": "PooledMahalanobis_RIDGE" if args.benchmark == "SuperNI" else None,
+        "expected_superni_profile": EXPECTED_SUPERNI_PROFILE if benchmark == "SuperNI" else None,
+        "deployment_proxy": "PooledMahalanobis_RIDGE" if benchmark == "SuperNI" else None,
         "results": final_report,
     }
 
-    with open(out_path, "w") as f:
-        json.dump(report, f, indent=2, default=str)
+    with open(out_path, "w", encoding="utf-8") as handle:
+        json.dump(report, handle, indent=2, default=str)
     print(f"\n✓ Saved {out_path}")
+    return report
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN
+# ══════════════════════════════════════════════════════════════════════════════
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="CL routing on frozen LLaMA embeddings, with runtime-profile checks for SuperNI")
+    parser.add_argument("--emb_dir", default=None)
+    parser.add_argument("--emb_dirs", nargs="+", default=None,
+                        help="Compare multiple embedding directories in one run")
+    parser.add_argument("--benchmark", required=True, choices=["SuperNI", "Long_Sequence"])
+    parser.add_argument("--out_dir", default="results_cl_v2")
+    parser.add_argument("--task_order", type=str, default=None)
+    parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
+    parser.add_argument("--allow_legacy_profile", action="store_true",
+                        help="Allow SuperNI evaluation on embeddings that are not runtime-aligned, including shallow hidden-layer ablations")
+    parser.add_argument("--force", action="store_true")
+    args = parser.parse_args()
+
+    if (args.emb_dir is None) == (args.emb_dirs is None):
+        parser.error("Provide exactly one of --emb_dir or --emb_dirs")
+
+    # Override device if CUDA not available
+    global DEVICE, HAS_CUDA
+    if args.device == "cuda" and not HAS_CUDA:
+        print("[WARN] CUDA requested but not available. Falling back to CPU.")
+        DEVICE = "cpu"
+    elif args.device == "cpu":
+        DEVICE = "cpu"
+
+    out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
+    emb_dirs = args.emb_dirs if args.emb_dirs is not None else [args.emb_dir]
+
+    if args.task_order:
+        task_order = [t.strip() for t in args.task_order.split(",") if t.strip()]
+    else:
+        task_order = BENCHMARK_ORDER.get(args.benchmark, [])
+
+    reports = OrderedDict()
+    for emb_dir in emb_dirs:
+        report = evaluate_embedding_dir(emb_dir, args.benchmark, task_order, args, out_dir)
+        reports[Path(emb_dir).name] = report
+
+    if len(reports) > 1:
+        print(f"\n{'='*90}")
+        print("  Depth Comparison (PooledMahalanobis_RIDGE)")
+        print(f"{'='*90}")
+        print(f"  {'Profile':18s}  {'Backbone':32s}  {'Final':>7s}  {'Avg':>7s}")
+        print(f"  {'-'*74}")
+        for backbone, report in reports.items():
+            ridge = report.get("results", {}).get("PooledMahalanobis_RIDGE")
+            if ridge is None:
+                continue
+            profile_label = format_profile_brief(report.get("embedding_profile"))
+            print(
+                f"  {profile_label:18s}  {backbone:32s}  "
+                f"{ridge['final_accuracy']*100:6.2f}%  {ridge['avg_accuracy']*100:6.2f}%"
+            )
 
 
 if __name__ == "__main__":
