@@ -514,14 +514,33 @@ def generate_predictions_cl(
                 )
                 top2 = sorted_tasks[:2]
 
-                correct_flag = "✓" if (slot_task == gt_task or pred_task_str == gt_task) else "✗"
+                label_correct = (pred_task_str == gt_task)
+                slot_correct = (slot_task == gt_task)
+                if slot_correct and label_correct:
+                    correct_flag = "slot✓ label✓"
+                elif slot_correct:
+                    correct_flag = "slot✓ label✗"
+                elif label_correct:
+                    correct_flag = "slot✗ label✓"
+                else:
+                    correct_flag = "slot✗ label✗"
                 # ── Track accuracy per GT task ───────────────────────────
                 gt_key = gt_task
                 if gt_key not in srt_routing_stats:
-                    srt_routing_stats[gt_key] = {"correct": 0, "total": 0, "slots": {}}
+                    srt_routing_stats[gt_key] = {
+                        "slot_correct": 0,
+                        "label_correct": 0,
+                        "disagree": 0,
+                        "total": 0,
+                        "slots": {},
+                    }
                 srt_routing_stats[gt_key]["total"] += 1
-                if correct_flag == "✓":
-                    srt_routing_stats[gt_key]["correct"] += 1
+                if slot_correct:
+                    srt_routing_stats[gt_key]["slot_correct"] += 1
+                if label_correct:
+                    srt_routing_stats[gt_key]["label_correct"] += 1
+                if label_correct != slot_correct:
+                    srt_routing_stats[gt_key]["disagree"] += 1
                 slot_key = f"slot{pred_slot}"
                 srt_routing_stats[gt_key]["slots"][slot_key] = \
                     srt_routing_stats[gt_key]["slots"].get(slot_key, 0) + 1
@@ -566,24 +585,41 @@ def generate_predictions_cl(
 
     # ── SRT ROUTING ACCURACY SUMMARY ─────────────────────────────────
     if srt_routing_stats:
+        box_width = 98
         print()
-        print("  ┌" + "─"*66 + "┐")
-        print("  │           SRT ROUTING ACCURACY SUMMARY" + " "*(66-44) + "│")
-        print("  ├" + "─"*66 + "┤")
-        overall_correct = 0
+        print("  ┌" + "─"*box_width + "┐")
+        print("  │           SRT ROUTING ACCURACY SUMMARY" + " "*(box_width-44) + "│")
+        print("  ├" + "─"*box_width + "┤")
+        overall_slot_correct = 0
+        overall_label_correct = 0
+        overall_disagree = 0
         overall_total = 0
         for gt_key, stats in sorted(srt_routing_stats.items()):
-            acc = stats["correct"] / stats["total"] * 100 if stats["total"] > 0 else 0.0
-            overall_correct += stats["correct"]
+            slot_acc = stats["slot_correct"] / stats["total"] * 100 if stats["total"] > 0 else 0.0
+            label_acc = stats["label_correct"] / stats["total"] * 100 if stats["total"] > 0 else 0.0
+            overall_slot_correct += stats["slot_correct"]
+            overall_label_correct += stats["label_correct"]
+            overall_disagree += stats["disagree"]
             overall_total += stats["total"]
             slot_dist = "  ".join([f"{k}={v}" for k, v in sorted(stats["slots"].items())])
-            line = f"  │  GT={gt_key[:40]:40s}  acc={acc:5.1f}%  ({stats['correct']:3d}/{stats['total']:3d})  [{slot_dist[:20]}]"
-            print(line + " " * max(0, 67 - len(line)) + "│")
-        overall_acc = overall_correct / overall_total * 100 if overall_total > 0 else 0.0
-        print("  ├" + "─"*66 + "┤")
-        summary_line = f"  │  OVERALL ACCURACY: {overall_acc:5.1f}%  ({overall_correct:3d}/{overall_total:3d} samples)"
-        print(summary_line + " " * max(0, 67 - len(summary_line)) + "│")
-        print("  └" + "─"*66 + "┘")
+            line = (
+                f"  │  GT={gt_key[:32]:32s}  "
+                f"slot_acc={slot_acc:5.1f}%  "
+                f"label_acc={label_acc:5.1f}%  "
+                f"disagree={stats['disagree']:3d}  "
+                f"[{slot_dist[:18]}]"
+            )
+            print(line + " " * max(0, box_width + 3 - len(line)) + "│")
+        overall_slot_acc = overall_slot_correct / overall_total * 100 if overall_total > 0 else 0.0
+        overall_label_acc = overall_label_correct / overall_total * 100 if overall_total > 0 else 0.0
+        print("  ├" + "─"*box_width + "┤")
+        summary_line = (
+            f"  │  OVERALL: slot_acc={overall_slot_acc:5.1f}% ({overall_slot_correct:3d}/{overall_total:3d})  "
+            f"label_acc={overall_label_acc:5.1f}% ({overall_label_correct:3d}/{overall_total:3d})  "
+            f"disagree={overall_disagree:3d}"
+        )
+        print(summary_line + " " * max(0, box_width + 3 - len(summary_line)) + "│")
+        print("  └" + "─"*box_width + "┘")
     else:
         print("  [SRT] No routing data captured.")
     # ── END SRT SUMMARY ───────────────────────────────────────────────
