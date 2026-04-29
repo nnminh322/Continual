@@ -25,7 +25,6 @@ SRT routing convention (matches T5 standard):
 import copy
 import math
 import os
-import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -43,37 +42,8 @@ from llama_route_extractor import (
     extract_route_embeddings_from_texts,
 )
 from srt_router_v2 import SRTRouter
+from baseline_metrics import compute_metrics
 
-
-# ── Inline metric helpers (avoid circular import with main script) ─────────────
-
-def _tokenize_eval(text: str) -> list:
-    return re.findall(r"\w+", text.lower())
-
-
-def _lcs_eval(left: list, right: list) -> int:
-    if not left or not right:
-        return 0
-    prev = [0] * (len(right) + 1)
-    for lt in left:
-        curr = [0]
-        for idx, rt in enumerate(right, 1):
-            curr.append(prev[idx - 1] + 1 if lt == rt else max(prev[idx], curr[-1]))
-        prev = curr
-    return prev[-1]
-
-
-def _rouge_l_eval(pred: str, ref: str) -> float:
-    pt, rt = _tokenize_eval(pred), _tokenize_eval(ref)
-    if not pt or not rt:
-        return 0.0
-    lcs = _lcs_eval(pt, rt)
-    p, r = lcs / len(pt), lcs / len(rt)
-    if p + r == 0:
-        return 0.0
-    beta = 1.2
-    b2 = beta * beta
-    return (1 + b2) * p * r / (r + b2 * p)
 
 class SRTSGWITrainer(Trainer):
     """
@@ -240,10 +210,7 @@ class SRTSGWITrainer(Trainer):
                 core.use_srt_routing = prev_use_srt
             model.train()
 
-        rouge_l = (
-            sum(_rouge_l_eval(p, r) for p, r in zip(predictions, references))
-            / max(len(references), 1)
-        )
+        rouge_l = compute_metrics(predictions, references)["eval_rougeL"]
         metrics = {f"{metric_key_prefix}_rougeL": round(rouge_l, 4)}
 
         # ── Best-model tracking (in-memory, avoids saving 7B checkpoint files) ──

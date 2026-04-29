@@ -35,7 +35,6 @@ import importlib.util
 import json
 import math
 import os
-import re
 import time
 import sys
 from collections import Counter
@@ -83,6 +82,10 @@ CLInstructions = _dataset_module.CLInstructions
 from llama_gainlora import LlamaForCausalLM                    # noqa: E402
 from frozen_extractor import FrozenLlamaExtractor              # noqa: E402
 from sgwi_srt_trainer import SRTSGWITrainer                    # noqa: E402
+from baseline_metrics import (                                  # noqa: E402
+    compute_grouped_metrics as compute_grouped_metrics_local,
+    compute_metrics as compute_metrics_local,
+)
 
 import logging
 import pickle
@@ -92,106 +95,6 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # Metrics (same as simple baseline)
 # ─────────────────────────────────────────────────────────────────────────────
-
-def normalize_text(text: str) -> str:
-    return " ".join(text.strip().lower().split())
-
-
-def tokenize_words(text: str) -> list[str]:
-    return re.findall(r"\w+", text.lower())
-
-
-def lcs_length(left: list[str], right: list[str]) -> int:
-    if not left or not right:
-        return 0
-    previous_row = [0] * (len(right) + 1)
-    for left_token in left:
-        current_row = [0]
-        for index, right_token in enumerate(right, start=1):
-            if left_token == right_token:
-                current_row.append(previous_row[index - 1] + 1)
-            else:
-                current_row.append(max(previous_row[index], current_row[-1]))
-        previous_row = current_row
-    return previous_row[-1]
-
-
-def rouge_l_f1(prediction: str, reference: str) -> float:
-    pred_tokens = tokenize_words(prediction)
-    ref_tokens = tokenize_words(reference)
-    if not pred_tokens or not ref_tokens:
-        return 0.0
-    lcs = lcs_length(pred_tokens, ref_tokens)
-    precision = lcs / len(pred_tokens)
-    recall = lcs / len(ref_tokens)
-    if precision + recall == 0:
-        return 0.0
-    beta = 1.2
-    beta_sq = beta * beta
-    return ((1 + beta_sq) * precision * recall) / (recall + beta_sq * precision)
-
-
-def rouge_1_f1(prediction: str, reference: str) -> float:
-    pred_counts = Counter(tokenize_words(prediction))
-    ref_counts = Counter(tokenize_words(reference))
-    if not pred_counts or not ref_counts:
-        return 0.0
-    overlap = sum((pred_counts & ref_counts).values())
-    precision = overlap / sum(pred_counts.values())
-    recall = overlap / sum(ref_counts.values())
-    if precision + recall == 0:
-        return 0.0
-    return (2 * precision * recall) / (precision + recall)
-
-
-def exact_match(prediction: str, reference: str) -> float:
-    return float(normalize_text(prediction) == normalize_text(reference))
-
-
-def compute_metrics_local(predictions: list[str], references: list[str]) -> dict[str, float]:
-    if len(predictions) != len(references):
-        raise ValueError(
-            f"# of predictions {len(predictions)} doesn't match # of references {len(references)}."
-        )
-    if not references:
-        return {"exact_match": 0.0, "rouge1": 0.0, "eval_rougeL": 0.0}
-
-    exact_match_sum = 0.0
-    rouge1_sum = 0.0
-    rouge_l_sum = 0.0
-    for prediction, reference in zip(predictions, references):
-        exact_match_sum += exact_match(prediction, reference)
-        rouge1_sum += rouge_1_f1(prediction, reference)
-        rouge_l_sum += rouge_l_f1(prediction, reference)
-
-    scale = 100.0 / len(references)
-    return {
-        "exact_match": round(exact_match_sum * scale, 4),
-        "rouge1": round(rouge1_sum * scale, 4),
-        "eval_rougeL": round(rouge_l_sum * scale, 4),
-    }
-
-
-def compute_grouped_metrics_local(
-    predictions: list[str],
-    references: list[str],
-    groups: list[str],
-) -> dict[str, float]:
-    if not (len(predictions) == len(references) == len(groups)):
-        raise ValueError("predictions, references, and groups must have the same length")
-
-    grouped_examples: dict[str, list[tuple[str, str]]] = {}
-    for prediction, reference, group in zip(predictions, references, groups):
-        grouped_examples.setdefault(group, []).append((prediction, reference))
-
-    results: dict[str, float] = {}
-    for group, group_examples in grouped_examples.items():
-        group_predictions, group_references = zip(*group_examples)
-        for metric_name, metric_value in compute_metrics_local(
-            list(group_predictions), list(group_references)
-        ).items():
-            results[f"{metric_name}_for_{group}"] = metric_value
-    return results
 
 
 # ─────────────────────────────────────────────────────────────────────────────
