@@ -963,11 +963,11 @@ def run_incremental_eval(train_embs_dict, test_embs_dict, task_order, args):
     """
     ordered_found = [t for t in task_order if t in train_embs_dict and t in test_embs_dict]
     n_tasks = len(ordered_found)
-    d = next(iter(train_embs_dict.values())).shape[1]
-    print(f"Tasks: {n_tasks}/{len(task_order)}, d={d}, device={DEVICE}")
-
     if n_tasks == 0:
         return {}
+
+    d = train_embs_dict[ordered_found[0]].shape[1]
+    print(f"Tasks: {n_tasks}/{len(task_order)}, d={d}, device={DEVICE}")
 
     # Router registry
     routers = OrderedDict()
@@ -1059,6 +1059,7 @@ def run_incremental_eval(train_embs_dict, test_embs_dict, task_order, args):
 def evaluate_embedding_dir(emb_dir, benchmark, task_order, args, out_dir):
     backbone = Path(emb_dir).name
     embedding_profile = load_embedding_profile(emb_dir, benchmark, task_order)
+    extractor_name = "extract_embeddings_t5.py" if "t5" in backbone.lower() or "flan" in backbone.lower() else "extract_embeddings_llama.py"
     if benchmark == "SuperNI":
         profile_ok, mismatches = validate_superni_profile(embedding_profile)
         if not profile_ok:
@@ -1068,7 +1069,7 @@ def evaluate_embedding_dir(emb_dir, benchmark, task_order, args, out_dir):
                 f"Observed profile: {format_profile(embedding_profile)}. "
                 f"Mismatch: {mismatch_text}. "
                 "Either backfill metadata in place with backfill_embedding_metadata.py, "
-                "re-extract with extract_embeddings_llama.py defaults, or pass --allow_legacy_profile to override."
+                f"re-extract with {extractor_name} defaults, or pass --allow_legacy_profile to override."
             )
             if not args.allow_legacy_profile:
                 raise ValueError(message)
@@ -1097,6 +1098,16 @@ def evaluate_embedding_dir(emb_dir, benchmark, task_order, args, out_dir):
 
     train_embs = load_all(emb_dir, benchmark, task_order, "train")
     test_embs = load_all(emb_dir, benchmark, task_order, "test")
+
+    if not train_embs or not test_embs:
+        train_count = len(train_embs)
+        test_count = len(test_embs)
+        raise FileNotFoundError(
+            "No routing embeddings were loaded for evaluation. "
+            f"emb_dir={emb_dir}, benchmark={benchmark}, train_tasks={train_count}, test_tasks={test_count}. "
+            f"This usually means extraction did not run successfully or wrote to a different output directory. "
+            f"Re-run {extractor_name} and confirm that {emb_dir}/{benchmark}/<task>/train.npz and test.npz exist."
+        )
 
     t0 = time.time()
     results = run_incremental_eval(train_embs, test_embs, task_order, args)
