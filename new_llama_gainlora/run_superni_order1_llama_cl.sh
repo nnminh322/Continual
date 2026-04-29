@@ -25,7 +25,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 DATA_DIR="${CONTINUAL_DIR}/root_gainlora/CL_Benchmark"
 CONFIG_BASE="${CONTINUAL_DIR}/new_gainlora/configs/gen_script_superni_order1_llama_configs"
-DS_CONFIG="${CONTINUAL_DIR}/new_gainlora/configs/ds_configs/stage2.config"
+DS_CONFIG=${DS_CONFIG:-"${CONTINUAL_DIR}/new_gainlora/configs/ds_configs/stage2_cpu_offload.config"}
 LOG_DIR="${SCRIPT_DIR}/logs_and_outputs"
 RUN_NAME=${RUN_NAME:-"superni_order1_llama_srt"}
 
@@ -37,7 +37,7 @@ LORA_R=${LORA_R:-4}
 LORA_ALPHA=${LORA_ALPHA:-32}
 LORA_DROPOUT=${LORA_DROPOUT:-0.0}
 PER_DEVICE_TRAIN_BATCH_SIZE=${PER_DEVICE_TRAIN_BATCH_SIZE:-1}
-PER_DEVICE_EVAL_BATCH_SIZE=${PER_DEVICE_EVAL_BATCH_SIZE:-2}   # 32GB VRAM safe
+PER_DEVICE_EVAL_BATCH_SIZE=${PER_DEVICE_EVAL_BATCH_SIZE:-1}   # quality-neutral VRAM reduction
 GRADIENT_ACCUMULATION_STEPS=${GRADIENT_ACCUMULATION_STEPS:-32}
 LEARNING_RATE=${LEARNING_RATE:-5e-5}
 NUM_TRAIN_EPOCHS=${NUM_TRAIN_EPOCHS:-15}
@@ -48,6 +48,7 @@ MAX_TRAIN_SAMPLES=${MAX_TRAIN_SAMPLES:-}     # default: no cap; set e.g. 500 for
 SRT_SHRINKAGE=${SRT_SHRINKAGE:-"ridge"}    # PooledMahalanobis shrinkage method
 SRT_MAX_EMB_SAMPLES=${SRT_MAX_EMB_SAMPLES:-2000}  # increased for better Σ estimate (was 200)
 SRT_PCA_COMPONENTS=${SRT_PCA_COMPONENTS:-}  # PCA dims before Mahalanobis (e.g. 128); empty = no PCA
+GRADIENT_CHECKPOINTING=${GRADIENT_CHECKPOINTING:-1}
 
 # Parse extra flags (e.g. --no_sgwi)
 EXTRA_FLAGS="$*"
@@ -80,6 +81,8 @@ echo "MODEL:     ${MODEL_NAME_OR_PATH}"
 echo "TASKS:     ${NUM_TASKS}"
 echo "RUN_NAME:  ${RUN_NAME}"
 echo "LOG_DIR:   ${LOG_DIR}"
+echo "DS_CONFIG: ${DS_CONFIG}"
+echo "GRAD_CKPT:${GRADIENT_CHECKPOINTING}"
 echo "EXTRA:     ${EXTRA_FLAGS}"
 echo "=================================================="
 
@@ -118,6 +121,13 @@ for ((TASK_ID=0; TASK_ID<NUM_TASKS; TASK_ID++)); do
         SRT_LOAD_ARG="--srt_load_path ${PREV_SRT_PATH}"
     fi
 
+    GC_ARG=""
+    if [ "${GRADIENT_CHECKPOINTING}" != "0" ]; then
+        GC_ARG="--gradient_checkpointing"
+    else
+        GC_ARG="--no_gradient_checkpointing"
+    fi
+
     # Run task
     deepspeed \
         --num_gpus=${NUM_GPUS} \
@@ -144,6 +154,7 @@ for ((TASK_ID=0; TASK_ID<NUM_TASKS; TASK_ID++)); do
         --srt_max_emb_samples    ${SRT_MAX_EMB_SAMPLES} \
         ${SRT_PCA_COMPONENTS:+--srt_pca_components ${SRT_PCA_COMPONENTS}} \
         --use_srt_router \
+        ${GC_ARG} \
         --bf16 \
         --deepspeed              "${DS_CONFIG}" \
         --logging_steps          10 \
