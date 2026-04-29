@@ -455,10 +455,11 @@ def generate_predictions_cl(
         if srt_log:
             entry = srt_log[0]
             if len(srt_log) > 1:
-                print(
-                    f"  [SRT-D] Collapsed {len(srt_log)} routing log steps to the first "
-                    f"source-prompt decision for batch starting at idx={start}."
-                )
+                # print(
+                #     f"  [SRT-D] Collapsed {len(srt_log)} routing log steps to the first "
+                #     f"source-prompt decision for batch starting at idx={start}."
+                # )
+                pass
 
             n_tasks = entry.get("n_tasks", 0)
             task_list = entry.get("task_id_list", [])
@@ -530,18 +531,18 @@ def generate_predictions_cl(
                 else:
                     second_disp = f"{'N/A':25s}(d=0.00)"
 
-                print(
-                    f"  [SRT-D] idx={global_idx:3d}  "
-                    f"n_tasks={n_tasks}  "
-                    f"slot={pred_slot}  "
-                    f"1st={pred_task_str[:25]:25s}(d={best_d:.2f})  "
-                    f"2nd={second_disp}  "
-                    f"conf={conf:.3f}  "
-                    f"GT={gt_task[:25]:25s}  "
-                    f"{correct_flag}  "
-                    f"txt={entry['decoded_first'][:60]!r}"
-                )
-                print(f"        dists: {dist_str}")
+                # print(
+                #     f"  [SRT-D] idx={global_idx:3d}  "
+                #     f"n_tasks={n_tasks}  "
+                #     f"slot={pred_slot}  "
+                #     f"1st={pred_task_str[:25]:25s}(d={best_d:.2f})  "
+                #     f"2nd={second_disp}  "
+                #     f"conf={conf:.3f}  "
+                #     f"GT={gt_task[:25]:25s}  "
+                #     f"{correct_flag}  "
+                #     f"txt={entry['decoded_first'][:60]!r}"
+                # )
+                # print(f"        dists: {dist_str}")
         # ── END SRT DEBUG ─────────────────────────────────────────────
 
         for generated_ids, reference in zip(generated, refs):
