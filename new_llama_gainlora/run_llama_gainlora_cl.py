@@ -238,9 +238,20 @@ def build_continual_eval_samples(
     task_names: list[str],
 ) -> list[dict]:
     samples: list[dict] = []
+    seen_keys: set[tuple[str, str, str]] = set()
     for task_name in task_names:
         task_config_dir = task_config_base_dir / task_name
-        samples.extend(build_split_samples(data_dir, task_config_dir, "test", None))
+        task_samples = build_split_samples(data_dir, task_config_dir, "test", None)
+        for sample in task_samples:
+            dataset_name = str(sample.get("Dataset", ""))
+            instance = sample.get("Instance", {}) or {}
+            instance_id = str(instance.get("id", ""))
+            sentence = str(instance.get("sentence", ""))
+            key = (dataset_name, instance_id, sentence)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            samples.append(sample)
     return samples
 
 
