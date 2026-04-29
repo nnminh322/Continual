@@ -60,13 +60,24 @@ class RefShrinkageRouter:
 # ============================================================
 # IMPLEMENTATION 2: SRTRouter hard mode (srt_router.py)
 # ============================================================
-def update_pooled_cov(mu_old, cov_old, n_old, mu_new, cov_new, n_new):
+def covariance_dof(n):
+    return max(int(n) - 1, 0)
+
+
+def update_pooled_cov(mu_old, cov_old, n_old, dof_old, mu_new, cov_new, n_new):
     total = n_old + n_new
     mu_pool = (n_old * mu_old + n_new * mu_new) / total
-    delta = mu_new - mu_old
-    C = (n_old * n_new / total) * np.outer(delta, delta)
-    cov_pool = ((n_old - 1) * cov_old + (n_new - 1) * cov_new + C) / (total - 1)
-    return mu_pool, cov_pool, total
+    dof_new = covariance_dof(n_new)
+    total_dof = dof_old + dof_new
+    if total_dof <= 0:
+        cov_pool = np.zeros_like(cov_new)
+    elif dof_old <= 0:
+        cov_pool = cov_new.copy()
+    elif dof_new <= 0:
+        cov_pool = cov_old.copy()
+    else:
+        cov_pool = ((dof_old * cov_old) + (dof_new * cov_new)) / total_dof
+    return mu_pool, cov_pool, total, total_dof
 
 class SRTRouter:
     """Exact copy of srt_router.py hard mode."""
@@ -75,6 +86,7 @@ class SRTRouter:
         self._mu_pool = None
         self._Sigma_pool = None
         self._n_pool = 0
+        self._cov_dof = 0
         self._mu_global = None
         self._W_zca = None
         self.shrink_factor = shrink_factor
@@ -84,9 +96,10 @@ class SRTRouter:
             self._mu_pool = mu_t.copy()
             self._Sigma_pool = Sigma_t.copy()
             self._n_pool = n_t
+            self._cov_dof = covariance_dof(n_t)
         else:
-            self._mu_pool, self._Sigma_pool, self._n_pool = update_pooled_cov(
-                self._mu_pool, self._Sigma_pool, self._n_pool, mu_t, Sigma_t, n_t)
+            self._mu_pool, self._Sigma_pool, self._n_pool, self._cov_dof = update_pooled_cov(
+                self._mu_pool, self._Sigma_pool, self._n_pool, self._cov_dof, mu_t, Sigma_t, n_t)
 
     def add_task(self, task_id, h_train):
         h_train = np.array(h_train, dtype=np.float64)

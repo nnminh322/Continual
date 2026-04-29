@@ -283,17 +283,29 @@ def participation_ratio_torch(cov_t, device="cuda"):
 # INCREMENTAL POOLED STATISTICS  (Welford-Hart, torch)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def welford_pooled_update(mu_old_t, cov_old_t, n_old, mu_new_t, cov_new_t, n_new):
+def _covariance_dof(n):
+    return max(int(n) - 1, 0)
+
+def welford_pooled_update(mu_old_t, cov_old_t, n_old, dof_old, mu_new_t, cov_new_t, n_new):
     """
-    Welford-Hart pooled update (torch).
-    Returns: (mu_pool, cov_pool, n_pool)
+    Legacy helper name kept for compatibility.
+
+    Returns pooled mean over all samples and pooled within-class covariance.
+    Returns: (mu_pool, cov_pool, n_pool, cov_dof)
     """
     total = n_old + n_new
     mu_pool = (n_old * mu_old_t + n_new * mu_new_t) / total
-    delta = mu_new_t - mu_old_t
-    C = (n_old * n_new / total) * torch.outer(delta, delta)
-    cov_pool = ((n_old - 1) * cov_old_t + (n_new - 1) * cov_new_t + C) / max(total - 1, 1)
-    return mu_pool, cov_pool, total
+    dof_new = _covariance_dof(n_new)
+    total_dof = dof_old + dof_new
+    if total_dof <= 0:
+        cov_pool = torch.zeros_like(cov_new_t)
+    elif dof_old <= 0:
+        cov_pool = cov_new_t.clone()
+    elif dof_new <= 0:
+        cov_pool = cov_old_t.clone()
+    else:
+        cov_pool = ((dof_old * cov_old_t) + (dof_new * cov_new_t)) / total_dof
+    return mu_pool, cov_pool, total, total_dof
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -563,6 +575,7 @@ class AdaptivePooledMahalanobisRouter:
         self.mu_pool_t = None  # torch
         self.Sigma_pool_t = None  # torch
         self.n_pool = 0
+        self.cov_dof = 0
 
         self.Sinv = None  # torch (shrunk inverse)
         self.current_metric = 'l2'
@@ -589,11 +602,12 @@ class AdaptivePooledMahalanobisRouter:
             self.mu_pool_t = mu_t_t.clone()
             self.Sigma_pool_t = Sigma_t_t.clone()
             self.n_pool = n_t
+            self.cov_dof = _covariance_dof(n_t)
         else:
             mu_old = self.mu_pool_t
             cov_old = self.Sigma_pool_t
-            self.mu_pool_t, self.Sigma_pool_t, self.n_pool = welford_pooled_update(
-                mu_old, cov_old, self.n_pool, mu_t_t, Sigma_t_t, n_t)
+            self.mu_pool_t, self.Sigma_pool_t, self.n_pool, self.cov_dof = welford_pooled_update(
+                mu_old, cov_old, self.n_pool, self.cov_dof, mu_t_t, Sigma_t_t, n_t)
 
         del mu_t_t, Sigma_t_t
 
@@ -724,6 +738,7 @@ class PooledMahalanobisRouter:
         self.mu_pool_t = None  # torch
         self.Sigma_pool_t = None
         self.n_pool = 0
+        self.cov_dof = 0
         self.Sinv = None       # torch (shrunk inverse)
         self._delta = 0.0
 
@@ -744,16 +759,17 @@ class PooledMahalanobisRouter:
             self.mu_pool_t = mu_t_t.clone()
             self.Sigma_pool_t = Sigma_t_t.clone()
             self.n_pool = n_t
+            self.cov_dof = _covariance_dof(n_t)
         else:
             mu_old = self.mu_pool_t
             cov_old = self.Sigma_pool_t
-            self.mu_pool_t, self.Sigma_pool_t, self.n_pool = welford_pooled_update(
-                mu_old, cov_old, self.n_pool, mu_t_t, Sigma_t_t, n_t)
+            self.mu_pool_t, self.Sigma_pool_t, self.n_pool, self.cov_dof = welford_pooled_update(
+                mu_old, cov_old, self.n_pool, self.cov_dof, mu_t_t, Sigma_t_t, n_t)
 
         del mu_t_t, Sigma_t_t
 
         # Shrink + invert pooled covariance
-        Sigma_shrunk, self._delta = self.shrink_fn(self.Sigma_pool_t, self.n_pool, d)
+        Sigma_shrunk, self._delta = self.shrink_fn(self.Sigma_pool_t, max(self.cov_dof, 1), d)
 
         # Pseudo-inverse via eigendecomposition
         eigvals, eigvecs = torch.linalg.eigh(Sigma_shrunk)

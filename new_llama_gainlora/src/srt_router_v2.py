@@ -16,6 +16,11 @@ import torch
 
 HAS_CUDA = torch.cuda.is_available()
 DEVICE_DEFAULT = "cuda" if HAS_CUDA else "cpu"
+COVARIANCE_MODE = "within_class"
+
+
+def _covariance_dof(n: int) -> int:
+    return max(int(n) - 1, 0)
 
 
 def _shrink_oas(cov: torch.Tensor, n: int, d: int) -> Tuple[torch.Tensor, float]:
@@ -64,13 +69,14 @@ def welford_pooled_update(
     mu_old: torch.Tensor,
     cov_old: torch.Tensor,
     n_old: int,
+    dof_old: int,
     mu_new: torch.Tensor,
     cov_new: torch.Tensor,
     n_new: int,
-) -> Tuple[torch.Tensor, torch.Tensor, int]:
+) -> Tuple[torch.Tensor, torch.Tensor, int, int]:
     total = n_old + n_new
-    if total <= 1:
-        return mu_old, cov_old, n_old
+    if total <= 0:
+        return mu_old, cov_old, n_old, dof_old
 
     target_device = mu_new.device
     if mu_old.device != target_device:
@@ -80,10 +86,17 @@ def welford_pooled_update(
         cov_new = cov_new.to(target_device)
 
     mu_pool = (n_old * mu_old + n_new * mu_new) / total
-    delta = mu_new - mu_old
-    cross = (n_old * n_new / total) * torch.outer(delta, delta)
-    cov_pool = ((n_old - 1) * cov_old + (n_new - 1) * cov_new + cross) / max(total - 1, 1)
-    return mu_pool, cov_pool, total
+    dof_new = _covariance_dof(n_new)
+    total_dof = dof_old + dof_new
+    if total_dof <= 0:
+        cov_pool = torch.zeros_like(cov_new)
+    elif dof_old <= 0:
+        cov_pool = cov_new.clone()
+    elif dof_new <= 0:
+        cov_pool = cov_old.clone()
+    else:
+        cov_pool = ((dof_old * cov_old) + (dof_new * cov_new)) / total_dof
+    return mu_pool, cov_pool, total, total_dof
 
 
 class TaskSignature:
@@ -153,6 +166,7 @@ class PooledMahalanobisRouter:
         self._mu_pool_t: Optional[torch.Tensor] = None
         self._Sigma_pool_t: Optional[torch.Tensor] = None
         self._n_pool = 0
+        self._cov_dof = 0
         self._Sigma_inv_t: Optional[torch.Tensor] = None
         self._delta = 0.0
         self._eigvals: Optional[np.ndarray] = None
@@ -214,11 +228,13 @@ class PooledMahalanobisRouter:
             self._mu_pool_t = mu_t_t.clone()
             self._Sigma_pool_t = Sigma_t_t.clone()
             self._n_pool = n_t
+            self._cov_dof = _covariance_dof(n_t)
         else:
-            self._mu_pool_t, self._Sigma_pool_t, self._n_pool = welford_pooled_update(
+            self._mu_pool_t, self._Sigma_pool_t, self._n_pool, self._cov_dof = welford_pooled_update(
                 self._mu_pool_t,
                 self._Sigma_pool_t,
                 self._n_pool,
+                self._cov_dof,
                 mu_t_t,
                 Sigma_t_t,
                 n_t,
@@ -226,7 +242,7 @@ class PooledMahalanobisRouter:
 
         del mu_t_t, Sigma_t_t
 
-        Sigma_shrunk_t, self._delta = self.shrink_fn(self._Sigma_pool_t, self._n_pool, d)
+        Sigma_shrunk_t, self._delta = self.shrink_fn(self._Sigma_pool_t, max(self._cov_dof, 1), d)
         eigvals, eigvecs = torch.linalg.eigh(Sigma_shrunk_t)
         eigvals = torch.clamp(eigvals, min=1e-6 * eigvals.abs().max().item())
         idx = torch.argsort(eigvals, descending=True)
@@ -312,8 +328,10 @@ class PooledMahalanobisRouter:
             "shrinkage": self.shrinkage,
             "delta": self._delta,
             "n_pool": self._n_pool,
+            "cov_dof": self._cov_dof,
+            "covariance_mode": COVARIANCE_MODE,
             "par": par,
-            "par_d_ratio": par / 4096 if self._n_pool > 0 else 0.0,
+            "par_d_ratio": par / 4096 if self._cov_dof > 0 else 0.0,
         }
 
     def save(self, path: str):
@@ -325,8 +343,10 @@ class PooledMahalanobisRouter:
             Sigma_pool=self._Sigma_pool_t.cpu().numpy() if self._Sigma_pool_t is not None else np.array([]),
             Sinv_pool=self._Sigma_inv_t.cpu().numpy() if self._Sigma_inv_t is not None else np.array([]),
             n_pool=np.array([self._n_pool]),
+            cov_dof=np.array([self._cov_dof]),
             shrinkage=self.shrinkage,
             delta=np.array([self._delta]),
+            covariance_mode=np.array([COVARIANCE_MODE]),
             task_ids=list(self._signatures_by_id.keys()),
             pca_components=np.array([self.pca_components or -1]),
             pca_mean=self._pca_mean.cpu().numpy() if self._pca_mean is not None else np.array([]),
@@ -339,6 +359,14 @@ class PooledMahalanobisRouter:
         self.shrink_fn = _SHRINK_METHODS[self.shrinkage]
         self._delta = float(data.get("delta", [0.0])[0])
         self._n_pool = int(data.get("n_pool", [0])[0])
+        covariance_mode = str(data.get("covariance_mode", np.array(["union_legacy"]))[0])
+        if covariance_mode != COVARIANCE_MODE:
+            raise ValueError(
+                f"Router state at {path} uses covariance_mode={covariance_mode}. "
+                "Regenerate router statistics with within-class pooled covariance "
+                "to keep runtime and offline verification aligned."
+            )
+        self._cov_dof = int(data.get("cov_dof", [0])[0])
 
         mu_p = data["mu_pool"]
         self._mu_pool_t = torch.from_numpy(mu_p).float().to(self.dev) if mu_p.size > 0 else None
