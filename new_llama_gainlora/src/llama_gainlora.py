@@ -756,6 +756,7 @@ class LlamaModel(LlamaPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         input_ids_wo_label: Optional[torch.LongTensor] = None,
+        srt_input_ids: Optional[torch.LongTensor] = None,
     ) -> Union[Tuple, BaseModelOutputWithPast]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
@@ -834,7 +835,13 @@ class LlamaModel(LlamaPreTrainedModel):
         key_attention_weights = None
         self.key_attention_weights = None
         if not self.prompt_config["run_single"]:
-            source_input_ids = input_ids_wo_label if input_ids_wo_label is not None else input_ids
+            source_input_ids = (
+                srt_input_ids
+                if srt_input_ids is not None
+                else input_ids_wo_label
+                if input_ids_wo_label is not None
+                else input_ids
+            )
             source_attention_mask = self._get_source_attention_mask(source_input_ids)
             source_embeds = self.embed_tokens(source_input_ids)
 
@@ -1041,6 +1048,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         self,
         input_ids: torch.LongTensor = None,
         input_ids_wo_label: Optional[torch.LongTensor] = None,
+        srt_input_ids: Optional[torch.LongTensor] = None,
         generation_config=None,
         logits_processor=None,
         stopping_criteria=None,
@@ -1066,6 +1074,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         return super().generate(
             input_ids=input_ids,
             input_ids_wo_label=input_ids_wo_label,
+            srt_input_ids=srt_input_ids,
             generation_config=generation_config,
             logits_processor=logits_processor,
             stopping_criteria=stopping_criteria,
@@ -1093,6 +1102,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         input_ids_wo_label: Optional[torch.LongTensor] = None,
+        srt_input_ids: Optional[torch.LongTensor] = None,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         r"""
         Args:
@@ -1141,6 +1151,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
             input_ids_wo_label=input_ids_wo_label,
+            srt_input_ids=srt_input_ids,
         )
 
         hidden_states = outputs[0]
@@ -1201,6 +1212,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
             model_inputs = {"input_ids": input_ids}
 
         input_ids_wo_label = kwargs.get("input_ids_wo_label", None)
+        srt_input_ids = kwargs.get("srt_input_ids", None)
 
         model_inputs.update(
             {
@@ -1209,6 +1221,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
                 "use_cache": kwargs.get("use_cache"),
                 "attention_mask": attention_mask,
                 "input_ids_wo_label": input_ids_wo_label,
+                "srt_input_ids": srt_input_ids,
             }
         )
         return model_inputs

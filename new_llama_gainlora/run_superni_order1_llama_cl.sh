@@ -46,6 +46,7 @@ MAX_TARGET_LENGTH=${MAX_TARGET_LENGTH:-50}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-50}
 MAX_TRAIN_SAMPLES=${MAX_TRAIN_SAMPLES:-}     # default: no cap; set e.g. 500 for quick runs
 SRT_SHRINKAGE=${SRT_SHRINKAGE:-"ridge"}    # PooledMahalanobis shrinkage method
+SRT_PROFILE=${SRT_PROFILE:-"legacy_ablation"}
 SRT_MAX_EMB_SAMPLES=${SRT_MAX_EMB_SAMPLES:-2000}  # increased for better Σ estimate (was 200)
 SRT_PCA_COMPONENTS=${SRT_PCA_COMPONENTS:-}  # PCA dims before Mahalanobis (e.g. 128); empty = no PCA
 
@@ -141,6 +142,7 @@ for ((TASK_ID=0; TASK_ID<NUM_TASKS; TASK_ID++)); do
         --max_target_length      ${MAX_TARGET_LENGTH} \
         --max_new_tokens         ${MAX_NEW_TOKENS} \
         --srt_shrinkage          ${SRT_SHRINKAGE} \
+        --srt_profile            ${SRT_PROFILE} \
         --srt_max_emb_samples    ${SRT_MAX_EMB_SAMPLES} \
         ${SRT_PCA_COMPONENTS:+--srt_pca_components ${SRT_PCA_COMPONENTS}} \
         --use_srt_router \

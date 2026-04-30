@@ -40,6 +40,7 @@ from transformers import Trainer
 from llama_route_extractor import (
     build_superni_source_prompt,
     extract_route_embeddings_from_texts,
+    resolve_srt_profile,
 )
 from srt_router_v2 import SRTRouter
 from baseline_metrics import compute_metrics
@@ -79,6 +80,7 @@ class SRTSGWITrainer(Trainer):
         srt_load_path: Optional[str] = None,
         srt_skip_forward: bool = False,
         srt_pca_components: Optional[int] = None,
+        srt_profile: str = "runtime_llama",
         # ── in-training evaluation (best-model selection) ──
         dev_samples: Optional[List[dict]] = None,
         tokenizer: Any = None,
@@ -96,6 +98,7 @@ class SRTSGWITrainer(Trainer):
         self.srt_load_path = srt_load_path
         self.srt_skip_forward = srt_skip_forward
         self.srt_pca_components = srt_pca_components
+        self.srt_profile = srt_profile
         self.srt_router: Optional[SRTRouter] = None
         # ── best-model tracking (replaces load_best_model_at_end for CausalLM) ──
         self.dev_samples = dev_samples or []
@@ -379,13 +382,18 @@ class SRTSGWITrainer(Trainer):
             f"  [SRT] → Forward extraction ({n_samples} samples, "
             f"batch_size={self.srt_batch_size})"
         )
+        route_max_length, route_add_special_tokens = resolve_srt_profile(
+            self.srt_profile,
+            self.max_source_length,
+        )
         embs = extract_route_embeddings_from_texts(
             encoder_frozen=encoder_frozen,
             tokenizer=self.tokenizer,
             texts=prompts,
             batch_size=self.srt_batch_size,
-            max_length=self.max_source_length,
+            max_length=route_max_length,
             device=device,
+            add_special_tokens=route_add_special_tokens,
         )
         if embs.shape[0] == 0:
             return torch.empty(0), []

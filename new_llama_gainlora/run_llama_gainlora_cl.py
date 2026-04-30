@@ -82,6 +82,7 @@ CLInstructions = _dataset_module.CLInstructions
 from llama_gainlora import LlamaForCausalLM                    # noqa: E402
 from frozen_extractor import FrozenLlamaExtractor              # noqa: E402
 from sgwi_srt_trainer import SRTSGWITrainer                    # noqa: E402
+from llama_route_extractor import resolve_srt_profile          # noqa: E402
 from baseline_metrics import (                                  # noqa: E402
     compute_grouped_metrics as compute_grouped_metrics_local,
     compute_metrics as compute_metrics_local,
@@ -169,10 +170,21 @@ class CLCausalTaskCollator:
     for SRT routing inside LlamaModel.forward().
     """
 
-    def __init__(self, tokenizer, max_source_length: int, max_target_length: int):
+    def __init__(
+        self,
+        tokenizer,
+        max_source_length: int,
+        max_target_length: int,
+        srt_profile: str = "runtime_llama",
+    ):
         self.tokenizer = tokenizer
         self.max_source_length = max_source_length
         self.max_target_length = max_target_length
+        self.srt_profile = srt_profile
+        self.srt_max_source_length, self.srt_add_special_tokens = resolve_srt_profile(
+            srt_profile,
+            max_source_length,
+        )
         self.pad_id = (
             tokenizer.pad_token_id
             if tokenizer.pad_token_id is not None
@@ -183,6 +195,7 @@ class CLCausalTaskCollator:
         prepared = []
         max_full_len = 0
         max_src_len = 0
+        max_srt_len = 0
 
         for feature in features:
             instance = feature["Instance"]
@@ -195,6 +208,12 @@ class CLCausalTaskCollator:
                 truncation=True,
                 max_length=self.max_source_length,
             )["input_ids"]
+            srt_prompt_ids = self.tokenizer(
+                prompt,
+                add_special_tokens=self.srt_add_special_tokens,
+                truncation=True,
+                max_length=self.srt_max_source_length,
+            )["input_ids"]
             target_ids = self.tokenizer(
                 target,
                 add_special_tokens=False,
@@ -205,29 +224,34 @@ class CLCausalTaskCollator:
             full_ids = prompt_ids + target_ids
             labels   = [-100] * len(prompt_ids) + target_ids
 
-            prepared.append((prompt_ids, full_ids, labels))
+            prepared.append((prompt_ids, srt_prompt_ids, full_ids, labels))
             max_full_len = max(max_full_len, len(full_ids))
             max_src_len  = max(max_src_len,  len(prompt_ids))
+            max_srt_len  = max(max_srt_len,  len(srt_prompt_ids))
 
         batch_input_ids   = []
         batch_attn_mask   = []
         batch_labels      = []
         batch_src_ids     = []
+        batch_srt_ids     = []
 
-        for prompt_ids, full_ids, labels in prepared:
+        for prompt_ids, srt_prompt_ids, full_ids, labels in prepared:
             full_pad = max_full_len - len(full_ids)
             src_pad  = max_src_len  - len(prompt_ids)
+            srt_pad  = max_srt_len  - len(srt_prompt_ids)
 
             batch_input_ids.append([self.pad_id] * full_pad + full_ids)
             batch_attn_mask.append([0] * full_pad + [1] * len(full_ids))
             batch_labels.append(   [-100] * full_pad + labels)
             batch_src_ids.append(  [self.pad_id] * src_pad + prompt_ids)
+            batch_srt_ids.append(  [self.pad_id] * srt_pad + srt_prompt_ids)
 
         return {
             "input_ids":         torch.tensor(batch_input_ids, dtype=torch.long),
             "attention_mask":    torch.tensor(batch_attn_mask,  dtype=torch.long),
             "labels":            torch.tensor(batch_labels,     dtype=torch.long),
             "input_ids_wo_label":torch.tensor(batch_src_ids,    dtype=torch.long),
+            "srt_input_ids":     torch.tensor(batch_srt_ids,    dtype=torch.long),
         }
 
 
@@ -397,7 +421,12 @@ def generate_predictions_cl(
 
     device = next(model.parameters()).device
     pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
-    collator = CLCausalTaskCollator(tokenizer, max_source_length, max_target_length)
+    collator = CLCausalTaskCollator(
+        tokenizer,
+        max_source_length,
+        max_target_length,
+        srt_profile=getattr(model.model, "srt_profile", "runtime_llama"),
+    )
 
     gen_cfg = copy.deepcopy(model.generation_config)
     gen_cfg.max_length        = None
@@ -438,12 +467,14 @@ def generate_predictions_cl(
         batch = {k: v.to(device) for k, v in batch.items()}
         refs = [s["Instance"]["label"] for s in batch_samples]
         input_length = batch["input_ids_wo_label"].shape[1]
+        routing_input_ids = batch.get("srt_input_ids", batch["input_ids_wo_label"])
 
         model.reset_srt_debug_log()
         with torch.no_grad():
             generated = model.generate(
                 input_ids          = batch["input_ids_wo_label"],
                 input_ids_wo_label = batch["input_ids_wo_label"],  # source for SRT routing
+                srt_input_ids      = routing_input_ids,
                 attention_mask     = (batch["input_ids_wo_label"] != pad_id).long(),
                 generation_config  = gen_cfg,
             )
@@ -587,6 +618,16 @@ def generate_predictions_cl(
             print(line + " " * max(0, box_width + 3 - len(line)) + "│")
         overall_slot_acc = overall_slot_correct / overall_total * 100 if overall_total > 0 else 0.0
         overall_label_acc = overall_label_correct / overall_total * 100 if overall_total > 0 else 0.0
+        macro_slot_acc = (
+            sum(stats["slot_correct"] / stats["total"] for stats in srt_routing_stats.values())
+            / len(srt_routing_stats)
+            * 100
+        )
+        macro_label_acc = (
+            sum(stats["label_correct"] / stats["total"] for stats in srt_routing_stats.values())
+            / len(srt_routing_stats)
+            * 100
+        )
         print("  ├" + "─"*box_width + "┤")
         summary_line = (
             f"  │  OVERALL: slot_acc={overall_slot_acc:5.1f}% ({overall_slot_correct:3d}/{overall_total:3d})  "
@@ -594,6 +635,11 @@ def generate_predictions_cl(
             f"disagree={overall_disagree:3d}"
         )
         print(summary_line + " " * max(0, box_width + 3 - len(summary_line)) + "│")
+        macro_line = (
+            f"  │  MACRO:   slot_acc={macro_slot_acc:5.1f}%  "
+            f"label_acc={macro_label_acc:5.1f}%"
+        )
+        print(macro_line + " " * max(0, box_width + 3 - len(macro_line)) + "│")
         print("  └" + "─"*box_width + "┘")
     else:
         print("  [SRT] No routing data captured.")
@@ -729,6 +775,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--srt_shrinkage",      type=str, default="ridge",
                         choices=["ridge", "oas", "lw", "none"],
                         help="PooledMahalanobis shrinkage method (default: ridge)")
+    parser.add_argument("--srt_profile",        type=str, default="runtime_llama",
+                        choices=["runtime_llama", "legacy_ablation"],
+                        help="Routing extractor profile. legacy_ablation mirrors the old offline ablation extractor.")
     parser.add_argument("--srt_max_emb_samples",type=int,   default=500)
     parser.add_argument("--srt_pca_components", type=int, default=None,
                         help="PCA dims before Mahalanobis (e.g. 128). Reduces 4096→128 for stable Σ estimate.")
@@ -826,6 +875,7 @@ def main() -> None:
         tokenizer         = tokenizer,
         max_source_length = args.max_source_length,
         max_target_length = args.max_target_length,
+        srt_profile       = args.srt_profile,
     )
 
     # ── prompt_config for LlamaForCausalLM ────────────────────────────────
@@ -855,6 +905,7 @@ def main() -> None:
     )
     model.config.pad_token_id = tokenizer.pad_token_id
     model.config.use_cache = False
+    model.model.srt_profile = args.srt_profile
 
     # ── FIX: ensure task-local params start from clean init ────────────────
     _n_reinit = 0
@@ -988,6 +1039,7 @@ def main() -> None:
         srt_load_path      = args.srt_load_path,
         srt_skip_forward   = args.srt_skip_forward,
         srt_pca_components = getattr(args, 'srt_pca_components', None),
+        srt_profile        = args.srt_profile,
         # in-training eval for best-model selection (mirrors T5 load_best_model_at_end)
         dev_samples        = dev_samples,
         tokenizer          = tokenizer,
