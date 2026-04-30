@@ -749,7 +749,7 @@ def parse_args() -> argparse.Namespace:
 
     # ── Training ───────────────────────────────────────────────────────────
     parser.add_argument("--per_device_train_batch_size", type=int,   default=1)
-    parser.add_argument("--per_device_eval_batch_size",  type=int,   default=1)
+    parser.add_argument("--per_device_eval_batch_size",  type=int,   default=4)
     parser.add_argument("--gradient_accumulation_steps", type=int,   default=32)
     parser.add_argument("--learning_rate",               type=float, default=5e-5)
     parser.add_argument("--num_train_epochs",            type=float, default=100)
@@ -757,21 +757,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--logging_steps",               type=int,   default=10)
     parser.add_argument("--seed",                        type=int,   default=42)
     parser.add_argument("--bf16",        action="store_true", default=True)
-    parser.add_argument(
-        "--gradient_checkpointing",
-        dest="gradient_checkpointing",
-        action="store_true",
-        default=True,
-    )
-    parser.add_argument(
-        "--no_gradient_checkpointing",
-        dest="gradient_checkpointing",
-        action="store_false",
-        help="Disable gradient checkpointing.",
-    )
+    parser.add_argument("--gradient_checkpointing", action="store_true")
     parser.add_argument(
         "--deepspeed", type=str,
-        default=str(CONTINUAL_DIR / "new_gainlora" / "configs" / "ds_configs" / "stage2_cpu_offload.config"),
+        default=str(CONTINUAL_DIR / "new_gainlora" / "configs" / "ds_configs" / "stage2.config"),
     )
     parser.add_argument("--use_auth_token", action="store_true")
     parser.add_argument(
