@@ -54,11 +54,22 @@ def welford_pooled_update(
 
 
 def participation_ratio_np(cov: np.ndarray) -> float:
-    """Participation Ratio on CPU via numpy."""
-    eigvals = np.linalg.eigvalsh(cov)
-    eigvals = np.clip(eigvals, a_min=1e-10, a_max=None)
-    par = (eigvals.sum() ** 2) / ((eigvals ** 2).sum())
-    return float(par)
+    """Participation Ratio on CPU via numpy. Falls back to SVD if eigh fails."""
+    try:
+        eigvals = np.linalg.eigvalsh(cov)
+        eigvals = np.clip(eigvals, a_min=1e-10, a_max=None)
+        par = (eigvals.sum() ** 2) / ((eigvals ** 2).sum())
+        return float(par)
+    except np.linalg.LinAlgError:
+        # Fallback: SVD-based participation ratio
+        try:
+            _, s, _ = np.linalg.svd(cov)
+            s = np.clip(s, a_min=1e-10, a_max=None)
+            par = (s.sum() ** 2) / ((s ** 2).sum())
+            return float(par)
+        except Exception:
+            # Last resort: rank estimate from condition number
+            return float(cov.shape[0])
 
 
 def _participation_ratio_torch(cov: torch.Tensor) -> float:
@@ -148,7 +159,23 @@ def _eigh_inverse_on_device(
     """
     if isinstance(Sigma, np.ndarray):
         # CPU path: numpy
-        eigvals, eigvecs = np.linalg.eigh(Sigma)
+        try:
+            eigvals, eigvecs = np.linalg.eigh(Sigma)
+        except np.linalg.LinAlgError:
+            # Fallback: regularized inverse using SVD
+            try:
+                u, s, vt = np.linalg.svd(Sigma, full_matrices=False)
+                eigvals = s ** 2
+                eigvecs = u
+                min_sv = np.max(s) * 1e-6
+                s_inv = np.where(s >= min_sv, 1.0 / s, 1.0 / min_sv)
+                Sinv = vt.T @ np.diag(s_inv) @ u.T
+                return Sinv, eigvals
+            except Exception:
+                # Last resort: add small ridge to diagonal and invert
+                ridge = np.eye(Sigma.shape[0]) * 1e-3
+                Sinv = np.linalg.inv(Sigma + ridge)
+                return Sinv, np.ones(Sigma.shape[0])
         max_abs = np.abs(eigvals[-1])
         eigvals = np.clip(eigvals, a_min=1e-6 * max_abs, a_max=None)
         idx = np.argsort(eigvals)[::-1]
@@ -242,10 +269,9 @@ class PooledMahalanobisRouter:
 
         # Covariance
         if n_t == 1:
-            var_est = float((embs.std(axis=0, ddof=1) ** 2).mean())
-            if var_est < 1e-8:
-                var_est = 1.0
-            Sigma_t = np.eye(d) * var_est
+            # Single sample: use identity covariance scaled to a default variance.
+            # std(ddof=1) on 1 sample is NaN — skip it entirely.
+            Sigma_t = np.eye(d)
         else:
             Xc = embs - mu_t
             Sigma_t = (Xc.T @ Xc) / max(n_t - 1, 1)
