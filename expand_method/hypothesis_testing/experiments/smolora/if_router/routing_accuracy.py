@@ -75,7 +75,8 @@ def _load_ins_emb(path, task_names, emb_dim, sep):
         return ins_emb
     else:
         print(f"  [Synthetic mode] Generating {len(task_names)} embeddings (dim={emb_dim}, sep={sep})")
-        return _generate_synthetic_ins_emb(task_names, emb_dim=emb_dim, sep=sep)
+        embs = _generate_synthetic_ins_emb(task_names, emb_dim=emb_dim, sep=sep)
+        return np.array(embs)
 
 
 def main():
