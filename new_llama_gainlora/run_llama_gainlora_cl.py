@@ -1111,7 +1111,8 @@ def main() -> None:
     logger.info("*** Prediction ***")
 
     # Continual_eval: rerun all seen tasks with the current SRT router active.
-    seen_task_names = task_order[: cur_task_id + 1]
+    eval_task_pos = task_order.index(cur_task)
+    seen_task_names = task_order[: eval_task_pos + 1]
     continual_samples = build_continual_eval_samples(
         args.data_dir,
         args.task_config_dir.parent,
