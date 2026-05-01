@@ -60,16 +60,21 @@ def participation_ratio_np(cov: np.ndarray) -> float:
         eigvals = np.clip(eigvals, a_min=1e-10, a_max=None)
         par = (eigvals.sum() ** 2) / ((eigvals ** 2).sum())
         return float(par)
-    except np.linalg.LinAlgError:
-        # Fallback: SVD-based participation ratio
+    except Exception:
+        # Fallback: SVD-based participation ratio (handles ill-conditioned matrices)
         try:
             _, s, _ = np.linalg.svd(cov)
             s = np.clip(s, a_min=1e-10, a_max=None)
             par = (s.sum() ** 2) / ((s ** 2).sum())
             return float(par)
         except Exception:
-            # Last resort: rank estimate from condition number
-            return float(cov.shape[0])
+            # Last resort: approximate rank from condition number
+            try:
+                s = np.linalg.svd(cov, compute_uv=False)
+                cond = float(s[0] / max(s[-1], 1e-12))
+                return min(float(cov.shape[0]), max(1.0, cond * 1e-3))
+            except Exception:
+                return float(cov.shape[0])
 
 
 def _participation_ratio_torch(cov: torch.Tensor) -> float:
@@ -161,7 +166,7 @@ def _eigh_inverse_on_device(
         # CPU path: numpy
         try:
             eigvals, eigvecs = np.linalg.eigh(Sigma)
-        except np.linalg.LinAlgError:
+        except Exception:
             # Fallback: regularized inverse using SVD
             try:
                 u, s, vt = np.linalg.svd(Sigma, full_matrices=False)
@@ -190,7 +195,23 @@ def _eigh_inverse_on_device(
     else:
         Sigma_t = torch.from_numpy(Sigma).to(dtype)
 
-    eigvals, eigvecs = torch.linalg.eigh(Sigma_t)
+    try:
+        eigvals, eigvecs = torch.linalg.eigh(Sigma_t)
+    except Exception:
+        # Fallback: SVD-based pseudo-inverse
+        try:
+            u, s, vt = torch.linalg.svd(Sigma_t, full_matrices=False)
+            eigvals = s ** 2
+            eigvecs = u
+            min_sv = s[0] * 1e-6
+            s_inv = torch.where(s >= min_sv, 1.0 / s, 1.0 / min_sv)
+            Sinv = vt.T @ torch.diag(s_inv) @ u.T
+            return Sinv, eigvals.cpu().numpy()
+        except Exception:
+            ridge = torch.eye(Sigma_t.shape[0], dtype=dtype, device=Sigma_t.device) * 1e-3
+            Sinv = torch.linalg.inv(Sigma_t + ridge)
+            return Sinv, torch.ones(Sigma_t.shape[0], dtype=dtype, device=Sigma_t.device)
+
     max_abs = torch.abs(eigvals[-1])
     eigvals = torch.clamp(eigvals, min=1e-6 * max_abs)
     idx = torch.argsort(eigvals, descending=True)
