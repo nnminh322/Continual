@@ -195,6 +195,11 @@ def main():
     print(f"  {'Method':30}  {'Final':>7}  {'Avg':>7}{hdr}")
     print(f"  {'-'*75}")
 
+    if n == 0:
+        print("  (no tasks processed — check --data_root and --task_names)")
+        print(f"{'='*75}")
+        return
+
     def ts(key):
         return "  ".join(f"{r[key]*100:6.1f}%" for r in all_results)
     def av(key):
