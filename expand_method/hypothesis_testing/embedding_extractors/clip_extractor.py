@@ -61,7 +61,12 @@ class CLIPVisionExtractor:
         self.model = AutoModel.from_pretrained(model_name, torch_dtype=self.dtype)
         self.model = self.model.to(self._device).eval()
 
-        self.embedding_dim = self.model.config.hidden_size
+        self.embedding_dim = getattr(
+            self.model.config, "hidden_size",
+            getattr(self.model.config, "vision_config", None) and
+            getattr(self.model.config.vision_config, "hidden_size", None)
+            or getattr(self.model.config, "projection_dim", 768)
+        )
 
     @property
     def device(self) -> str:
