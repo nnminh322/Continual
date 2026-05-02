@@ -92,6 +92,43 @@ def build_clip_srt_router(
 def load_smolora_model(model_path: str, model_base: str, device: str):
     """Load SMoLoRA model."""
     import torch
+
+    # Check paths exist
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(
+            f"model_path does not exist: {model_path}\n"
+            f"  → Run SMoLoRA training first (Option B requires trained checkpoint)\n"
+            f"  → On server: export SMOLORA_REPO=/path/to/SMoLoRA\n"
+            f"  → Then: python experiments/smolora/vu_router/end_to_end.py ..."
+        )
+    if not os.path.exists(model_base):
+        raise FileNotFoundError(
+            f"model_base does not exist: {model_base}\n"
+            f"  → This should be the Vicuna-7B model directory"
+        )
+
+    # Add SMoLoRA repo to sys.path so 'llava' can be imported
+    smolora_repo = os.environ.get("SMOLORA_REPO", "")
+    if smolora_repo and os.path.exists(smolora_repo):
+        sys.path.insert(0, smolora_repo)
+    else:
+        possible_paths = [
+            Path(__file__).parent.parent.parent.parent.parent / "MINGLE",
+            Path(model_path).parent / "SMoLoRA",
+            Path(model_base).parent / "SMoLoRA",
+        ]
+        for p in possible_paths:
+            if p.exists():
+                sys.path.insert(0, str(p))
+                break
+        else:
+            raise RuntimeError(
+                f"Cannot find SMoLoRA 'llava' module.\n"
+                f"  → Set SMOLORA_REPO=/path/to/SMoLoRA before running, or\n"
+                f"  → Ensure 'llava' is in the SMoLoRA subdirectory next to your checkpoint.\n"
+                f"  Checked: {[str(p) for p in possible_paths]}"
+            )
+
     from llava.model.builder import load_pretrained_model
     from PEFT_SMoLoRA.peft.tuners.smolora import SMoLoraLinear
 

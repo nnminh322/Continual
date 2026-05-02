@@ -185,6 +185,12 @@ def main():
     print(f"\n{'='*75}")
     print(f"  HiDe-LLaVA Cosine → SRT — Final Routing Accuracy ({n} tasks, {args.device})")
     print(f"{'='*75}")
+    if n == 0:
+        print("  No images found — cannot compute routing accuracy.")
+        print("  Check --data_root points to a directory containing task subfolders")
+        print(f"  with image files (jpg/png). Current: {args.data_root}")
+        print(f"{'='*75}")
+        return
     hdr = "  " + "  ".join(f"{'T'+str(i+1):>7}" for i in range(n))
     print(f"  {'Method':30}  {'Final':>7}  {'Avg':>7}{hdr}")
     print(f"  {'-'*75}")

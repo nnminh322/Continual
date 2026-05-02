@@ -236,6 +236,11 @@ def main():
                 d_dual = args.alpha * d_vu + (1 - args.alpha) * d_if
                 preds_dual.append(d_dual.argmin(axis=1).astype(np.int64))
 
+        if not all_gt:
+            print(f"\n  [{step_idx+1}/{len(args.task_names)}] {task_name}"
+                  f"  — no test images, skipping")
+            continue
+
         all_gt = np.concatenate(all_gt)
         preds_vu_srt = np.concatenate(preds_vu_srt)
         preds_vu_cos = np.concatenate(preds_vu_cos)
@@ -291,6 +296,10 @@ def main():
     print(f"\n{'='*75}")
     print(f"  SMoLoRA Dual — Final Routing Accuracy ({n} tasks, {args.device})")
     print(f"{'='*75}")
+    if n == 0:
+        print("  No images found — check --data_root and --task_names.")
+        print(f"{'='*75}")
+        return
     hdr = "  " + "  ".join(f"{'T'+str(i+1):>7}" for i in range(n))
     print(f"  {'Method':30}  {'Final':>7}  {'Avg':>7}{hdr}")
     print(f"  {'-'*75}")
