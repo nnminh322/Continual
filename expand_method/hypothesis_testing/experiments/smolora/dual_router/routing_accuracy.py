@@ -32,11 +32,72 @@ from srt_router.metrics import (
 from embedding_extractors.clip_extractor import CLIPVisionExtractor
 
 
+# ── Default instruction strings (from SMoLoRA ins_gen.py) ──────────────────────
+DEFAULT_INSTRUCTIONS = [
+    "Answer with the option's letter from the given choices directly.",   # 0: ScienceQA
+    "Answer the question using a single word or phrase.",                # 1: TextVQA
+    "What is happening in the presented picture?\nPlease describe it in one complete sentence.",  # 2: Flickr30k
+    "What is the object in the image?\nAnswer the question using a single word or phrase.",       # 3: ImageNet
+    "Answer the question using a single word or phrase.",                # 4: GQA
+    "Answer the question using a single word or phrase.",              # 5: VQAv2
+    "What is the background of the image?\nAnswer the question using a single word or phrase.",  # 6: Place365
+]
+
+
+def _generate_ins_emb_from_strings(instructions: list, model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
+    """Generate ins_emb from instruction strings (same as SMoLoRA ins_gen.py)."""
+    try:
+        import torch
+        from transformers import AutoTokenizer, AutoModel
+    except ImportError:
+        return None
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModel.from_pretrained(model_name)
+    model.eval()
+    encoded = tokenizer(instructions, padding=True, truncation=True, return_tensors="pt")
+    with torch.no_grad():
+        output = model(**encoded)
+    token_emb = output[0]
+    mask_expanded = encoded["attention_mask"].unsqueeze(-1).expand(token_emb.size()).float()
+    embeddings = torch.sum(token_emb * mask_expanded, 1) / torch.clamp(mask_expanded.sum(1), min=1e-9)
+    return embeddings.cpu().numpy().astype(np.float32)
+
+
+def _load_ins_emb(path: str | None, n_tasks: int) -> np.ndarray:
+    """Load or generate ins_emb. Falls back to synthetic if unavailable."""
+    if path is not None and Path(path).exists():
+        with open(path, "rb") as f:
+            raw = pickle.load(f)
+        ins_emb = np.array(raw)
+        if ins_emb.ndim == 1:
+            ins_emb = ins_emb.reshape(1, -1)
+        return ins_emb
+    generated = _generate_ins_emb_from_strings(DEFAULT_INSTRUCTIONS)
+    if generated is not None:
+        print(f"  [Generated] ins_emb from {len(DEFAULT_INSTRUCTIONS)} instruction strings")
+        return generated
+    print(f"  [Synthetic] ins_emb: {n_tasks} × 384 Gaussian centroids")
+    rng = np.random.RandomState(42)
+    d = 384
+    embs = []
+    for i in range(n_tasks):
+        direction = rng.randn(d)
+        direction /= (np.linalg.norm(direction) + 1e-12)
+        centroid = direction * 2.0 * i + rng.randn(d) * 0.1
+        embs.append(centroid.astype(np.float32))
+    return np.array(embs)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="SMoLoRA Dual Router — Routing Accuracy (GPU)")
-    parser.add_argument("--ins_emb", type=str, required=True)
-    parser.add_argument("--data_root", type=str, required=True)
-    parser.add_argument("--task_names", type=str, nargs="+", required=True)
+    parser.add_argument("--ins_emb", type=str, default="ins_emb_single.pkl",
+                       help="Path to ins_emb_single.pkl (auto-generated if missing)")
+    parser.add_argument("--data_root", type=str,
+                       default="/data/zqwang/moe_cl_data/dataset",
+                       help="Root with task image subdirs. Default: SMoLoRA server. "
+                            "Set to 'synthetic' to skip VU routing.")
+    parser.add_argument("--task_names", type=str, nargs="+",
+                       default=["ScienceQA", "TextVQA", "GQA", "VQAv2", "Flickr30k", "ImageNet", "Place365"])
     parser.add_argument("--clip_model", type=str,
                        default="openai/clip-vit-large-patch14-336")
     parser.add_argument("--output_dir", type=str, default="results_smolora_dual")
@@ -79,30 +140,35 @@ def main():
     print(f"    Device: {args.device}")
 
     # Load ins_emb
-    with open(args.ins_emb, "rb") as f:
-        ins_emb_raw = pickle.load(f)
-    ins_emb = np.array(ins_emb_raw)
-    if ins_emb.ndim == 1:
-        ins_emb = ins_emb.reshape(1, -1)
+    ins_emb = _load_ins_emb(args.ins_emb, len(args.task_names))
+    print(f"  ins_emb: {ins_emb.shape}")
 
-    # Load CLIP (GPU)
+    # Load CLIP + images
     clip_ext = CLIPVisionExtractor(model_name=args.clip_model, device=args.device, dtype="float16")
+    print(f"  CLIP: {clip_ext}")
 
     # Extract image embeddings
     task_img_train = {}
     task_img_test = {}
 
-    for task_name in tqdm(args.task_names, desc="  Extracting images"):
-        paths = collect_images(Path(args.data_root), task_name, args.n_train + args.n_test)
-        if len(paths) < 2:
-            continue
-        rng = np.random.RandomState(hash(task_name) % (2**32))
-        idx = rng.permutation(len(paths))
-        split = max(2, int(len(idx) * 0.8))
-        train_paths = [paths[i] for i in idx[:split]]
-        test_paths = [paths[i] for i in idx[split: split + args.n_test]]
-        task_img_train[task_name] = clip_ext.extract_from_paths(train_paths, batch_size=args.batch_size)
-        task_img_test[task_name] = clip_ext.extract_from_paths(test_paths, batch_size=args.batch_size)
+    use_vu = (args.data_root != "synthetic")
+
+    if use_vu:
+        for task_name in tqdm(args.task_names, desc="  Extracting images"):
+            paths = collect_images(Path(args.data_root), task_name, args.n_train + args.n_test)
+            if len(paths) < 2:
+                print(f"  [WARN] {task_name}: only {len(paths)} images — skipping VU for this task")
+                continue
+            rng = np.random.RandomState(hash(task_name) % (2**32))
+            idx = rng.permutation(len(paths))
+            split = max(2, int(len(idx) * 0.8))
+            train_paths = [paths[i] for i in idx[:split]]
+            test_paths = [paths[i] for i in idx[split: split + args.n_test]]
+            task_img_train[task_name] = clip_ext.extract_from_paths(train_paths, batch_size=args.batch_size)
+            task_img_test[task_name] = clip_ext.extract_from_paths(test_paths, batch_size=args.batch_size)
+            print(f"  {task_name}: {len(train_paths)} train, {len(test_paths)} test  dim={clip_ext.embedding_dim}")
+    else:
+        print("  [Synthetic mode] VU routing skipped — data_root=synthetic")
 
     print(f"\n{'='*75}")
     print(f"  SMoLoRA Dual Router — Routing Accuracy")

@@ -1,13 +1,17 @@
 """
-VQAv2 scoring — adapted from SMoLoRA eval_vqav2.py.
+VQAv2 scoring — adapted verbatim from SMoLoRA eval_vqav2.py.
 
 Metric: Exact match accuracy (case-insensitive).
 Logic: pred.upper() == ground_truth.upper()
+
+This is the SMoLoRA metric — NOT the TextVQA soft metric
+(which uses EvalAIAnswerProcessor + 10-way human annotator matching).
+For TextVQA scoring, use scoring/textvqa.py instead.
 """
 from __future__ import annotations
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 
 def score_vqav2(
@@ -16,7 +20,11 @@ def score_vqav2(
     output_file: Optional[str] = None,
 ) -> Dict:
     """
-    Score VQAv2 predictions.
+    Score VQAv2 predictions (exact match, case-insensitive).
+
+    Matches SMoLoRA eval_vqav2.py exactly:
+        if pred.upper() == ground_truth.upper():
+            right += 1
 
     Args:
         result_file: Path to model predictions (.jsonl, one JSON per line).
@@ -62,14 +70,3 @@ def score_vqav2(
             json.dump(result, f, indent=2)
 
     return result
-
-
-def score_textvqa(
-    result_file: str,
-    annotation_file: str,
-    output_file: Optional[str] = None,
-) -> Dict:
-    """
-    Score TextVQA predictions. Same logic as VQAv2 (exact match, case-insensitive).
-    """
-    return score_vqav2(result_file, annotation_file, output_file)

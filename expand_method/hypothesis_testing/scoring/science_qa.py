@@ -25,38 +25,27 @@ def extract_answer_letter(
     """
     Extract the answer letter (A/B/C/D/E) from generated text.
 
-    Logic (from SMoLoRA eval_science_qa.py):
-        1. If the text IS an option letter, return it
-        2. If text starts with "X. " (e.g., "C. Something"), extract X
-        3. Otherwise, search for the first option letter in text
-        4. If none found, return "FAILED"
+    Matches SMoLoRA eval_science_qa.py exactly (lines 65-75):
+        1. If text IS an option letter → return it
+        2. If text starts with "X. " → extract X
+        3. Else regex \\b(\\w)\\b → return first match uppercased
+        4. Else "FAILED"
     """
     generated_text = generated_text.strip()
 
-    # Direct match
+    # Pattern 1: exact match (e.g., "C")
     if generated_text in options:
         return generated_text
 
-    # "X. " prefix pattern (e.g., "C. The answer is ...")
-    pattern = re.compile(r"^([A-E])\.\s*")
-    match = pattern.match(generated_text)
-    if match:
-        return match.group(1)
+    # Pattern 2: "X. " prefix (e.g., "C. The answer is ...")
+    if len(generated_text) >= 3 and generated_text[0] in options and generated_text[1:3] == ". ":
+        return generated_text[0]
 
-    # "The answer is X." pattern
-    pattern2 = re.compile(r"\b([A-E])\b")
-    matches = pattern2.findall(generated_text)
+    # Pattern 3: regex find first word boundary letter
+    pattern = re.compile(r"\b([A-E])\b")
+    matches = pattern.findall(generated_text)
     if matches:
-        # Return the first match that appears early in the text
-        for m in matches:
-            pos = generated_text.find(m)
-            if pos < 30:  # First 30 chars
-                return m
-
-    # Search for any option letter in text
-    for opt in options:
-        if opt in generated_text:
-            return opt
+        return matches[0].upper()
 
     return "FAILED"
 

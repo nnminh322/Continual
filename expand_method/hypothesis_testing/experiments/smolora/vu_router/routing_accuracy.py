@@ -32,7 +32,11 @@ from embedding_extractors.clip_extractor import CLIPVisionExtractor
 
 def parse_args():
     parser = argparse.ArgumentParser(description="SMoLoRA VU Router — Routing Accuracy (GPU)")
-    parser.add_argument("--data_root", type=str, required=True)
+    parser.add_argument("--data_root", type=str,
+                       default="/data/zqwang/moe_cl_data/dataset",
+                       help="Root directory with task image subdirs. "
+                            "Default: /data/zqwang/moe_cl_data/dataset (SMoLoRA server). "
+                            "Each task's images must be in: data_root/task_name/")
     parser.add_argument("--task_names", type=str, nargs="+", required=True)
     parser.add_argument("--clip_model", type=str,
                        default="openai/clip-vit-large-patch14-336")

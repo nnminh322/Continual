@@ -1,173 +1,112 @@
 # SRT Hypothesis Testing — GPU Setup & Run Guide
 
 ## Mục lục
-1. [Clone & Environment Setup](#1-clone--environment-setup)
-2. [Cấu trúc Project](#2-cấu-trúc-project)
-3. [Quick Start: Chạy ngay không cần trained checkpoint](#3-quick-start-chạy-ngay-không-cần-trained-checkpoint)
-4. [Option A: Routing Accuracy (không cần model)](#4-option-a-routing-accuracy-không-cần-model)
-5. [Option B: End-to-End Evaluation (cần trained checkpoint)](#5-option-b-end-to-end-evaluation-cần-trained-checkpoint)
-6. [Hướng dẫn chi tiết từng experiment](#6-hướng-dẫn-chi-tiết-từng-experiment)
-7. [Đọc kết quả](#7-đọc-kết-quả)
-8. [GPU Requirements](#8-gpu-requirements)
+1. [Setup](#1-setup--environment)
+2. [Tổng quan kiểm định](#2-tổng-quan-kiểm-định)
+3. [Option A: Routing Accuracy](#3-option-a-routing-accuracy-routing-accuracy-trên-embeddings-thật)
+4. [Option B: End-to-End](#4-option-b-end-to-end-cần-trained-checkpoint)
+5. [Data paths chuẩn](#5-data-paths-chuẩn-từ-2-repo-gốc)
+6. [Scoring metrics đúng](#6-scoring-metrics-đúng-từ-repo-gốc)
+7. [Interpret kết quả](#7-interpret-kết-quả)
 
 ---
 
-## 1. Clone & Environment Setup
+## 1. Setup & Environment
 
-### 1.1 Clone repository
 ```bash
-# Từ thư mục expand_method (đã có sẵn từ trước)
-cd /path/to/expand_method
-# hypothesis_testing đã nằm trong expand_method/
-
-# Nếu chưa có, clone:
-git clone https://github.com/your-repo/expand_method.git
-cd expand_method
-```
-
-### 1.2 Tạo Python 3.12 environment (GPU)
-```bash
-# Tạo conda environment với Python 3.12
+# Tạo conda environment
 conda create -n srt_exp python=3.12 -y
 conda activate srt_exp
 
-# Cài PyTorch với CUDA support
+# Cài PyTorch CUDA 12.1
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
-# Cài dependencies cho hypothesis_testing
+# Cài package
 cd hypothesis_testing
-pip install -e .    # hoặc: pip install -r requirements.txt
+pip install -e .
 
-# Dependencies chính:
-#   torch>=2.0.0 (GPU acceleration)
-#   transformers>=4.30.0
-#   numpy>=1.24.0
-#   Pillow>=9.0.0
-#   sentence-transformers>=2.2.0
-#   tqdm>=4.65.0
-#   scikit-learn>=1.3.0
-```
-
-### 1.3 Verify GPU access
-```bash
-python3 -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); \
-    print(f'GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"N/A\"}')"
-# Output mong đợi:
-#   CUDA available: True
-#   GPU: Tesla T4  (hoặc GPU của bạn)
-```
-
-### 1.4 Verify packages
-```bash
-cd hypothesis_testing
-python3 -c "
-from srt_router.pooled_mahalanobis import PooledMahalanobisRouter
-from embedding_extractors.clip_extractor import CLIPVisionExtractor
-from srt_router.metrics import compute_routing_accuracy
-print('✓ All imports OK — GPU pipeline ready')
-"
+# Verify GPU
+python3 -c "import torch; print(f'CUDA: {torch.cuda.is_available()}')"
 ```
 
 ---
 
-## 2. Cấu trúc Project
+## 2. Tổng quan kiểm định
 
-```
-expand_method/
-└── hypothesis_testing/
-    ├── srt_router/                    # Core SRT router
-    │   ├── pooled_mahalanobis.py     # GPU-accelerated Mahalanobis router
-    │   ├── metrics.py                # Routing accuracy metrics
-    │   └── adapters.py              # Model-specific SRT adapters
-    ├── embedding_extractors/
-    │   └── clip_extractor.py        # CLIP ViT CLS embeddings (GPU)
-    ├── scoring/                      # VQA accuracy scoring
-    ├── experiments/
-    │   ├── smolora/
-    │   │   ├── if_router/            # SMoLoRA IF Router
-    │   │   │   ├── routing_accuracy.py  # Option A
-    │   │   │   └── end_to_end.py         # Option B
-    │   │   ├── vu_router/           # SMoLoRA VU Router
-    │   │   │   ├── routing_accuracy.py
-    │   │   │   └── end_to_end.py
-    │   │   └── dual_router/          # SMoLoRA Dual Router (VU+IF)
-    │   │       ├── routing_accuracy.py
-    │   │       └── end_to_end.py
-    │   └── hide/
-    │       └── cosine_router/       # HiDe-LLaVA Cosine → SRT
-    │           ├── routing_accuracy.py
-    │           └── end_to_end.py
-    └── requirements.txt
-```
+### Data sources (từ 2 repo gốc)
+
+| Experiment | Data | Baseline | SRT Method |
+|-----------|------|----------|------------|
+| **SMoLoRA IF Router** | `ins_emb_single.pkl` (384-dim, Sentence-BERT on real instructions) | Cosine similarity | SRT-Mahal Ridge/LW |
+| **SMoLoRA VU Router** | CLIP ViT-L/14 image features (1024-dim) on real images | Cosine similarity | SRT-Mahal Ridge/LW |
+| **SMoLoRA Dual Router** | CLIP image features + ins_emb | Cosine VU + Cosine IF | SRT-VU + SRT-IF |
+| **HiDe-LLaVA Cosine→SRT** | CLIP ViT-L/14 image features | Cosine (original HiDe) | SRT-Mahal |
+
+### Baseline routing comparison
+
+| Component | Original Method (trong repo gốc) | Baseline trong kiểm định |
+|-----------|----------------------------------|--------------------------|
+| SMoLoRA IF gate | `nn.Linear(384, 4)` → argmax | Cosine on ins_emb |
+| SMoLoRA VU gate | `nn.Linear(hidden_dim, 4)` → argmax | Cosine on CLIP features |
+| HiDe-LLaVA router | Cosine similarity | Cosine (ORIGINAL) |
+
+> **Note**: IF router dùng Cosine baseline thay vì learned linear vì Option A không có training. Cosine là upper bound cho learned linear (nếu cosine không phân biệt được, learned linear cũng khó). SRT Mahalanobis test cùng feature space → kết quả có ý nghĩa.
+
+### Scoring metrics (y chang SMoLoRA/HiDe-LLaVA gốc)
+
+| Dataset | Metric | Source |
+|---------|--------|--------|
+| **VQAv2** | Exact match, case-insensitive | SMoLoRA `eval_vqav2.py` |
+| **TextVQA** | 10-way soft matching (EvalAIProcessor) | SMoLoRA `eval_textvqa.py` |
+| **ScienceQA** | Letter extraction (A/B/C/D/E), exact match | SMoLoRA `eval_science_qa.py` |
+| **GQA** | Balanced accuracy, case-sensitive | SMoLoRA `eval_gqa.py` |
+| **Flickr30k** | CIDEr score | SMoLoRA `eval_flickr30k_cider.py` |
+| **ImageNet** | Substring match, case-insensitive | SMoLoRA `eval_ImagetNet.py` |
+| **Place365** | Substring match, case-insensitive | SMoLoRA `eval_ImagetNet.py` |
 
 ---
 
-## 3. Quick Start: Chạy ngay không cần trained checkpoint
+## 3. Option A: Routing Accuracy (routing accuracy trên embeddings thật)
 
-**SMoLoRA IF Router** là experiment nhanh nhất — chỉ cần `ins_emb_single.pkl`:
+**Không cần trained checkpoint.** Test trên instruction embeddings và image embeddings thật từ dataset.
+
+### 3.1 Generate ins_emb_single.pkl (1 lần đầu)
 
 ```bash
 cd hypothesis_testing
 
-# Tìm ins_emb pickle (nếu chưa có, tạo dummy)
-# ins_emb_single.pkl chứa 7 task embeddings (384-dim) từ Sentence-BERT
+python scripts/generate_ins_emb.py \
+    --model sentence-transformers/all-MiniLM-L6-v2 \
+    --output ins_emb_single.pkl
+```
 
-# Chạy Option A — IF Router (routing accuracy, ~1 phút)
+File này chứa 7×384 embeddings cho 7 instruction strings từ SMoLoRA.
+
+### 3.2 SMoLoRA IF Router
+
+Test SRT Mahalanobis vs Cosine trên **instruction embeddings thật**.
+
+```bash
 python experiments/smolora/if_router/routing_accuracy.py \
-    --ins_emb path/to/ins_emb_single.pkl \
-    --task_names ScienceQA TextVQA GQA VQAv2 Flickr30k ImageNet Place365 \
+    --ins_emb ins_emb_single.pkl \
+    --task_order ScienceQA TextVQA GQA VQAv2 Flickr30k ImageNet Place365 \
     --shrinkage ridge \
     --device cuda \
-    --n_samples 100 \
+    --n_samples 200 \
     --noise_std 0.1
-
-# Output mẫu:
-# [GPU] Tesla T4  15.6GB  === CL Routing [SMoLoRA IF Router] ===
-#     Backbone: SMoLoRA (IF Router)
-#     Shrinkage: ridge
-#     Device: cuda
-#
-#   [1/7] ScienceQA  (n=7, n/d=0.02, pool=7)
-#     Cosine (ORIGINAL)
-#     SRT-Mahal_RIDGE (NEW)
-#     RESULT Cosine (ORIGINAL)              macro= 71.43%  [100.0%  42.9%]
-#     RESULT SRT-Mahal_RIDGE (NEW)        macro= 85.71%  [100.0%  71.4%]
-#   ...
-#
-# ===========================================================================
-#   SMoLoRA IF — Final Routing Accuracy (7 tasks, cuda)
-# ===========================================================================
-#   Method                              Final      Avg  T1     T2     T3  ...
-#   ------------------------------------------------------------------------
-#   Cosine (ORIGINAL)                   71.43%   79.59%  100.0%  71.4% ...
-#   SRT-Mahal_RIDGE (NEW)              85.71%   89.47%  100.0%  85.7% ...
-#   Delta (SRT - Original)             +14.29%  +9.88%  +0.0%  +14.3% ...
-# ===========================================================================
 ```
 
----
+- ins_emb: real 384-dim embeddings từ sentence-transformers (đúng SMoLoRA)
+- Baseline: Cosine similarity (proxy cho original IF gate)
+- Test: SRT Mahalanobis
 
-## 4. Option A: Routing Accuracy (không cần model)
+### 3.3 SMoLoRA VU Router (cần ảnh thật)
 
-**Nguyên lý**: Test SRT routing trên embeddings đã extract sẵn, không cần trained model.
+Test SRT Mahalanobis vs Cosine trên **CLIP image features thật**.
 
-### 4.1 SMoLoRA IF Router (nhanh nhất)
-```bash
-python experiments/smolora/if_router/routing_accuracy.py \
-    --ins_emb /path/to/ins_emb_single.pkl \
-    --task_names ScienceQA TextVQA GQA VQAv2 \
-    --shrinkage ridge \
-    --device cuda
-```
-
-**Đầu vào**: `ins_emb_single.pkl` — 7 embeddings 384-dim (Sentence-BERT)
-**So sánh**: Cosine (ORIGINAL) vs SRT-Mahal (NEW)
-**Tốc độ**: ~30 giây
-
-### 4.2 SMoLoRA VU Router (cần ảnh)
 ```bash
 python experiments/smolora/vu_router/routing_accuracy.py \
-    --data_root /path/to/task/images \
+    --data_root /data/zqwang/moe_cl_data/dataset \
     --task_names ScienceQA TextVQA GQA VQAv2 \
     --clip_model openai/clip-vit-large-patch14-336 \
     --shrinkage ridge \
@@ -176,50 +115,54 @@ python experiments/smolora/vu_router/routing_accuracy.py \
     --n_test 200
 ```
 
-**Đầu vào**: Thư mục chứa ảnh của từng task
-**So sánh**: Cosine (ORIGINAL) vs SRT-Mahal (NEW)
-**Tốc độ**: ~2-5 phút (tùy số ảnh)
+- Features: CLIP ViT-L/14-336 image embeddings (1024-dim)
+- Baseline: Cosine similarity
+- Test: SRT Mahalanobis
 
-### 4.3 SMoLoRA Dual Router (VU + IF)
+### 3.4 SMoLoRA Dual Router (VU + IF)
+
 ```bash
 python experiments/smolora/dual_router/routing_accuracy.py \
-    --ins_emb /path/to/ins_emb_single.pkl \
-    --data_root /path/to/task/images \
+    --ins_emb ins_emb_single.pkl \
+    --data_root /data/zqwang/moe_cl_data/dataset \
     --task_names ScienceQA TextVQA GQA VQAv2 \
     --clip_model openai/clip-vit-large-patch14-336 \
-    --shrinkage ridge \
     --alpha 0.5 \
+    --shrinkage ridge \
     --device cuda
 ```
 
-**So sánh**: Cosine VU (ORIGINAL) vs SRT-VU (NEW) vs SRT-Dual (NEW)
-**Tốc độ**: ~3-7 phút
+### 3.5 HiDe-LLaVA Cosine → SRT
 
-### 4.4 HiDe-LLaVA Cosine → SRT
 ```bash
 python experiments/hide/cosine_router/routing_accuracy.py \
-    --data_root /path/to/task/images \
+    --data_root /data/zqwang/moe_cl_data/dataset \
     --task_names ScienceQA TextVQA GQA VQAv2 VizWiz TextCaps \
     --clip_model openai/clip-vit-large-patch14-336 \
     --shrinkage ridge \
     --device cuda
 ```
 
-**So sánh**: Cosine HiDe (ORIGINAL) vs SRT-Mahal (NEW)
-**Tốc độ**: ~5-10 phút
-
 ---
 
-## 5. Option B: End-to-End Evaluation (cần trained checkpoint)
+## 4. Option B: End-to-End (cần trained checkpoint)
 
-**Nguyên lý**: Load trained SMoLoRA/HiDe-LLaVA → inject SRT routing → chạy VQA generation → so sánh accuracy.
+**Cần trained SMoLoRA hoặc HiDe-LLaVA checkpoint.**
 
-### 5.1 SMoLoRA IF Router (End-to-End)
+Workflow:
+1. Train bằng code gốc SMoLoRA/HiDe-LLaVA → get checkpoint
+2. Load checkpoint vào framework
+3. Inject SRT routing (thay routing decision)
+4. Run VQA generation trên test set
+5. Score với ground truth bằng metrics y chang repo gốc
+
+### 4.1 SMoLoRA IF (End-to-End)
+
 ```bash
 python experiments/smolora/if_router/end_to_end.py \
     --model_path /path/to/smolora/checkpoint \
     --model_base /path/to/vicuna-7b \
-    --ins_emb /path/to/ins_emb_single.pkl \
+    --ins_emb ins_emb_single.pkl \
     --task_order ScienceQA TextVQA GQA VQAv2 \
     --routing_mode all \
     --scoring_func vqav2 \
@@ -227,274 +170,180 @@ python experiments/smolora/if_router/end_to_end.py \
     --output_dir results_smolora_if_e2e
 ```
 
-**Lưu ý**:
-- `--routing_mode all` chạy cả 3 modes: `original`, `srt`, `oracle`
-- `--scoring_func` có thể là `vqav2`, `science_qa`, hoặc `gqa`
+### 4.2 SMoLoRA VU (End-to-End)
 
-### 5.2 SMoLoRA VU Router (End-to-End)
 ```bash
 python experiments/smolora/vu_router/end_to_end.py \
     --model_path /path/to/smolora/checkpoint \
     --model_base /path/to/vicuna-7b \
     --clip_model openai/clip-vit-large-patch14-336 \
-    --task_images_root /path/to/task/images \
+    --task_images_root /data/zqwang/moe_cl_data/dataset \
     --task_order ScienceQA TextVQA GQA VQAv2 \
     --routing_mode all \
     --device cuda
 ```
 
-### 5.3 HiDe-LLaVA Cosine → SRT (End-to-End)
+---
+
+## 5. Data Paths chuẩn từ 2 repo gốc
+
+### SMoLoRA (server: `/data/zqwang/moe_cl_data/`)
+
 ```bash
-python experiments/hide/cosine_router/end_to_end.py \
-    --model_path /path/to/hide/checkpoint \
-    --model_base /path/to/vicuna-7b \
-    --clip_model openai/clip-vit-large-patch14-336 \
-    --task_images_root /path/to/task/images \
-    --task_order ScienceQA TextVQA GQA VQAv2 VizWiz TextCaps \
-    --routing_mode all \
-    --device cuda
+# Images (shared across all datasets)
+export SMOLORA_DATA=/data/zqwang/moe_cl_data/dataset
+
+# ins_emb_single.pkl (tạo bằng scripts/generate_ins_emb.py)
+# Image subdirs trong $SMOLORA_DATA:
+ScienceQA/      # ảnh science
+TextVQA/         # ảnh textVQA
+GQA/             # ảnh GQA
+images/          # COCO val2014 (VQAv2)
+flickr30k_images/ # Flickr30k
+
+# Question/annotation JSONs
+/data/zqwang/moe_cl_data/CVIT_benchmark/Instructions_Single/
+├── ScienceQA/test.json
+├── VQAv2/val.json
+├── GQA/test.json
+├── TextVQA/val.json
+└── Flickr30k/val.json
+
+# Ground truth cho ScienceQA
+/data/zqwang/moe_cl_data/dataset/ScienceQA/
+├── pid_splits.json
+└── problems.json
+```
+
+### HiDe-LLaVA (placeholder: `/your_path/`)
+
+```bash
+export HIDE_DATA=/your_path/datasets
+
+# Question files
+/your_path/
+├── ScienceQA/test.json
+├── VQAv2/test.json
+├── GQA/test.json
+├── TextVQA/val.json
+├── VizWiz/test.json
+├── TextCaps/test.json
+└── Grounding/test.json
 ```
 
 ---
 
-## 6. Hướng dẫn chi tiết từng experiment
+## 6. Scoring Metrics đúng từ repo gốc
 
-### 6.1 SMoLoRA IF Router — Chạy lần đầu
-
-**Bước 1: Tìm ins_emb pickle**
-```bash
-# Thường nằm ở:
-ls expand_method/SMoLoRA/llava/eval/ins_emb_single.pkl
-# hoặc:
-ls expand_method/SMoLoRA/exp/*/ins_emb_single.pkl
+### VQAv2 — Exact match
+```python
+# scoring/vqav2.py — verbatim from SMoLoRA eval_vqav2.py
+if pred.upper() == ground_truth.upper():
+    correct += 1
+accuracy = correct / total * 100
 ```
 
-**Bước 2: Chạy với 2 shrinkage methods**
-```bash
-# Ridge (mặc định, recommended)
-python experiments/smolora/if_router/routing_accuracy.py \
-    --ins_emb /path/to/ins_emb_single.pkl \
-    --task_names ScienceQA TextVQA GQA VQAv2 \
-    --shrinkage ridge --device cuda
-
-# Ledoit-Wolf
-python experiments/smolora/if_router/routing_accuracy.py \
-    --ins_emb /path/to/ins_emb_single.pkl \
-    --task_names ScienceQA TextVQA GQA VQAv2 \
-    --shrinkage lw --device cuda
+### TextVQA — 10-way soft matching
+```python
+# scoring/textvqa.py — verbatim from SMoLoRA eval_textvqa.py
+# EvalAIAnswerProcessor: normalize text (lowercase, strip, expand contractions)
+# For each unique processed answer among 10 reference answers:
+#   score = min(1, #matching_other_annotators / 3)
+# Final: mean of all prediction scores
 ```
 
-**Bước 3: So sánh kết quả**
-```bash
-# Kết quả lưu ở:
-ls results_smolora_if/smolora_if_routing_ridge_cuda.json
-ls results_smolora_if/smolora_if_routing_lw_cuda.json
+### ScienceQA — Letter extraction
+```python
+# scoring/science_qa.py — verbatim from SMoLoRA eval_science_qa.py
+# 1. If text IS option letter (A-E) → use it
+# 2. If text starts with "X. " → extract X
+# 3. Else regex \b(\w)\b → first match uppercased
+# 4. Else FAILED
 ```
 
-### 6.2 SMoLoRA VU Router — Cần dataset images
-
-**Chuẩn bị data**:
-```bash
-# Cấu trúc thư mục:
-data_root/
-├── ScienceQA/
-│   ├── image001.jpg
-│   ├── image002.png
-│   └── ...
-├── TextVQA/
-│   ├── ...
-├── GQA/
-│   └── ...
-└── VQAv2/
-    └── ...
-```
-
-**Chạy**:
-```bash
-python experiments/smolora/vu_router/routing_accuracy.py \
-    --data_root /path/to/your/task/images \
-    --task_names ScienceQA TextVQA GQA VQAv2 \
-    --clip_model openai/clip-vit-large-patch14-336 \
-    --shrinkage ridge \
-    --device cuda \
-    --n_train 500 \
-    --n_test 200
-```
-
-### 6.3 Dual Router — Kết hợp VU + IF
-
-```bash
-python experiments/smolora/dual_router/routing_accuracy.py \
-    --ins_emb /path/to/ins_emb_single.pkl \
-    --data_root /path/to/task/images \
-    --task_names ScienceQA TextVQA GQA VQAv2 \
-    --clip_model openai/clip-vit-large-patch14-336 \
-    --shrinkage ridge \
-    --alpha 0.5 \
-    --device cuda
-
-# Thử different alpha values:
-for alpha in 0.3 0.5 0.7; do
-    python experiments/smolora/dual_router/routing_accuracy.py \
-        --ins_emb /path/to/ins_emb_single.pkl \
-        --data_root /path/to/task/images \
-        --task_names ScienceQA TextVQA GQA VQAv2 \
-        --alpha $alpha \
-        --device cuda
-done
+### GQA — Balanced accuracy
+```python
+# scoring/gqa.py — verbatim from SMoLoRA eval_gqa.py
+# Only isBalanced=True questions
+# case-sensitive string equality
+# accuracy = sum(correct) / len(questions) * 100
 ```
 
 ---
 
-## 7. Đọc kết quả
+## 7. Interpret kết quả
 
-### 7.1 JSON output structure
-```json
-{
-  "method": "SMoLoRA IF Router",
-  "ins_emb_path": "path/to/ins_emb_single.pkl",
-  "n_tasks": 7,
-  "task_names": ["ScienceQA", "TextVQA", ...],
-  "shrinkage": "ridge",
-  "device": "cuda",
-  "results": {
-    "step_1": {
-      "task": "ScienceQA",
-      "accuracy_srt": 1.0,
-      "accuracy_cosine": 1.0,
-      "per_task_srt": {"ScienceQA": 1.0}
-    },
-    "step_2": {
-      "task": "TextVQA",
-      "accuracy_srt": 0.857,
-      "accuracy_cosine": 0.714,
-      "per_task_srt": {"ScienceQA": 1.0, "TextVQA": 0.714}
-    }
-  }
-}
-```
+### Khi nào SRT tốt hơn baseline?
 
-### 7.2 In-place print output format
-```
-[GPU] Tesla T4  15.6GB  === CL Routing [SMoLoRA IF Router] ===
-    Backbone: SMoLoRA (IF Router)
-    Shrinkage: ridge
-    Device: cuda
-
-  [1/7] ScienceQA  (n=7, n/d=0.02, pool=7)
-    Cosine (ORIGINAL)
-    SRT-Mahal_RIDGE (NEW)
-    RESULT Cosine (ORIGINAL)              macro= 71.43%  [100.0%  42.9%]
-    RESULT SRT-Mahal_RIDGE (NEW)        macro= 85.71%  [100.0%  71.4%]
-
-  ...
-
-==========================================================================
-  SMoLoRA IF — Final Routing Accuracy (7 tasks, cuda)
-==========================================================================
-  Method                              Final      Avg  T1     T2     T3  ...
-  ------------------------------------------------------------------------
-  Cosine (ORIGINAL)                   71.43%   79.59%  100.0%  71.4% ...
-  SRT-Mahal_RIDGE (NEW)              85.71%   89.47%  100.0%  85.7% ...
-  Delta (SRT - Original)             +14.29%   +9.88%  +0.0%  +14.3% ...
-==========================================================================
-```
-
-### 7.3 Interpretation
-
-| Symbol | Ý nghĩa |
+| Signal | Ý nghĩa |
 |--------|---------|
-| `macro=X%` | Routing accuracy trung bình trên tất cả task đã thấy |
-| `T1...TN` | Per-task accuracy breakdown |
-| `ORIGINAL` | Method routing gốc (Cosine) |
-| `NEW` | SRT Mahalanobis routing |
-| `Delta` | Cải thiện = SRT - ORIGINAL |
-| `(n=X, n/d=Y)` | Sample size và ratio (n/d < 0.1 → shrinkage quan trọng) |
+| `delta > 0` | SRT routing accuracy cao hơn baseline |
+| `n/d < 0.1` | High-dimensional regime → shrinkage quan trọng → SRT có lợi thế lớn |
+| `delta tăng theo số task` | Tasks càng nhiều, feature overlap càng cao → SRT phân biệt tốt hơn |
 
-**Khi nào SRT tốt hơn Cosine?**
-- Khi `n/d` ratio nhỏ (ít sample per task, high-dimensional embeddings)
-- Khi inter-task overlap cao
-- Khi tasks gần nhau trong embedding space
+### Từ Option A đến thực tế
 
----
+> **Nếu SRT routing accuracy > Cosine routing accuracy trong Option A,
+> thì thực tế apply SRT routing cũng sẽ tốt hơn baseline.**
 
-## 8. GPU Requirements
+**Lý do:**
+1. IF Router: Cả SRT và Cosine dùng **cùng feature space** (ins_emb 384-dim). Nếu SRT Mahalanobis phân biệt task tốt hơn trong cùng space, thì khi apply vào SMoLoRA (thay cosine bằng SRT), routing sẽ tốt hơn → chọn đúng expert → VQA accuracy cao hơn.
 
-| Experiment | VRAM tối thiểu | Model loading |
-|---|---|---|
-| SMoLoRA IF (Option A) | ~1 GB | Không cần model |
-| SMoLoRA VU (Option A) | ~4 GB | CLIP ViT-L/14-336 |
-| SMoLoRA Dual (Option A) | ~4 GB | CLIP ViT-L/14-336 |
-| HiDe-LLaVA (Option A) | ~4 GB | CLIP ViT-L/14-336 |
-| SMoLoRA IF (Option B) | ~16 GB | Vicuna-7B + adapters |
-| SMoLoRA VU (Option B) | ~16 GB | Vicuna-7B + adapters |
-| HiDe-LLaVA (Option B) | ~16 GB | Vicuna-7B + HiDe adapters |
+2. VU Router: CLIP features test trên image space. Nếu SRT vượt Cosine, nó capture structure tốt hơn trong feature space đó. Apply vào LLM hidden space sẽ cần Option B để confirm.
 
-**Recommended GPU**: NVIDIA A100 (40/80GB) hoặc RTX 3090/4090 (24GB)
-**Minimum**: NVIDIA T4 (16GB) — đủ cho Option A
+3. HiDe-LLaVA: Direct replacement — HiDe gốc dùng cosine, SRT thay cosine → routing accuracy cao hơn → VQA accuracy cao hơn.
+
+### Next steps sau khi có checkpoint
+
+1. Chạy Option B end-to-end với trained checkpoint
+2. So sánh VQA accuracy: SRT routing vs original routing vs oracle
+3. Nếu Option B confirm: integrate SRT routing vào SMoLoRA/HiDe-LLaVA training loop
 
 ---
 
-## Tóm tắt lệnh chạy nhanh
+## Tóm tắt lệnh nhanh
 
 ```bash
-cd expand_method/hypothesis_testing
+cd hypothesis_testing
 
-# ── Option A: Routing Accuracy (không cần trained checkpoint) ──
+# Generate ins_emb (1 lần)
+python scripts/generate_ins_emb.py --output ins_emb_single.pkl
 
-# 1. SMoLoRA IF Router (nhanh nhất)
+# ── Option A: Routing Accuracy ──
+
+# 1. IF Router (nhanh nhất, không cần ảnh)
 python experiments/smolora/if_router/routing_accuracy.py \
-    --ins_emb path/to/ins_emb_single.pkl \
-    --task_names ScienceQA TextVQA GQA VQAv2 \
-    --shrinkage ridge --device cuda
+    --ins_emb ins_emb_single.pkl \
+    --task_order ScienceQA TextVQA GQA VQAv2 \
+    --shrinkage ridge --device cpu
 
-# 2. SMoLoRA VU Router (cần ảnh)
+# 2. VU Router (cần ảnh)
 python experiments/smolora/vu_router/routing_accuracy.py \
-    --data_root path/to/images \
+    --data_root /data/zqwang/moe_cl_data/dataset \
     --task_names ScienceQA TextVQA GQA VQAv2 \
     --clip_model openai/clip-vit-large-patch14-336 \
     --shrinkage ridge --device cuda
 
-# 3. SMoLoRA Dual Router
+# 3. Dual Router
 python experiments/smolora/dual_router/routing_accuracy.py \
-    --ins_emb path/to/ins_emb_single.pkl \
-    --data_root path/to/images \
+    --ins_emb ins_emb_single.pkl \
+    --data_root /data/zqwang/moe_cl_data/dataset \
     --task_names ScienceQA TextVQA GQA VQAv2 \
     --clip_model openai/clip-vit-large-patch14-336 \
     --alpha 0.5 --device cuda
 
-# 4. HiDe-LLaVA Cosine → SRT
+# 4. HiDe-LLaVA
 python experiments/hide/cosine_router/routing_accuracy.py \
-    --data_root path/to/images \
+    --data_root /data/zqwang/moe_cl_data/dataset \
     --task_names ScienceQA TextVQA GQA VQAv2 VizWiz TextCaps \
     --clip_model openai/clip-vit-large-patch14-336 \
     --device cuda
 
-# ── Option B: End-to-End (cần trained checkpoint) ──
-
-# SMoLoRA IF (all routing modes)
+# ── Option B: End-to-End (cần checkpoint) ──
 python experiments/smolora/if_router/end_to_end.py \
-    --model_path path/to/checkpoint \
-    --model_base path/to/vicuna-7b \
-    --ins_emb path/to/ins_emb_single.pkl \
+    --model_path /path/to/checkpoint \
+    --model_base /path/to/vicuna-7b \
+    --ins_emb ins_emb_single.pkl \
     --task_order ScienceQA TextVQA GQA VQAv2 \
     --routing_mode all --scoring_func vqav2
-
-# SMoLoRA VU (all routing modes)
-python experiments/smolora/vu_router/end_to_end.py \
-    --model_path path/to/checkpoint \
-    --model_base path/to/vicuna-7b \
-    --clip_model openai/clip-vit-large-patch14-336 \
-    --task_images_root path/to/images \
-    --task_order ScienceQA TextVQA GQA VQAv2 \
-    --routing_mode all
-
-# HiDe-LLaVA (all routing modes)
-python experiments/hide/cosine_router/end_to_end.py \
-    --model_path path/to/hide/checkpoint \
-    --model_base path/to/vicuna-7b \
-    --clip_model openai/clip-vit-large-patch14-336 \
-    --task_images_root path/to/images \
-    --task_order ScienceQA TextVQA GQA VQAv2 VizWiz TextCaps \
-    --routing_mode all
 ```
