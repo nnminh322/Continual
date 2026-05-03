@@ -34,10 +34,15 @@ def mean_pooling(model_output, attention_mask):
 
 def encode_instructions(instructions, model_name):
     """Encode instruction strings using Sentence-BERT."""
+    import warnings
     from transformers import AutoTokenizer, AutoModel
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModel.from_pretrained(model_name)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*position_ids.*")
+        warnings.filterwarnings("ignore", message=".*LOAD REPORT.*")
+        warnings.filterwarnings("ignore", message=".*UNEXPECTED.*")
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModel.from_pretrained(model_name)
     model.eval()
 
     encoded = tokenizer(instructions, padding=True, truncation=True, return_tensors="pt")

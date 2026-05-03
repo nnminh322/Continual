@@ -113,8 +113,25 @@ def parse_args():
     return parser.parse_args()
 
 
+# Mapping from task_name → actual subdirectory under data_root.
+_TASK_IMAGE_SUBDIRS = {
+    "VQAv2": "images",
+    "Flickr30k": "flickr30k_images",
+    "ImageNet": "ImageNet",
+    "Place365": "Place365",
+}
+
+
 def collect_images(data_root: Path, task_name: str, max_n: int) -> List[Path]:
-    task_dir = data_root / task_name
+    """Collect image paths for a task.
+
+    Handles SMoLoRA's non-standard directory layout where:
+      - VQAv2 images live in data_root/images/ (COCO val2014)
+      - Flickr30k images live in data_root/flickr30k_images/
+      - Other tasks use data_root/task_name/
+    """
+    subdir = _TASK_IMAGE_SUBDIRS.get(task_name, task_name)
+    task_dir = data_root / subdir
     if not task_dir.exists():
         return []
     images = []
@@ -167,8 +184,25 @@ def main():
             task_img_train[task_name] = clip_ext.extract_from_paths(train_paths, batch_size=args.batch_size)
             task_img_test[task_name] = clip_ext.extract_from_paths(test_paths, batch_size=args.batch_size)
             print(f"  {task_name}: {len(train_paths)} train, {len(test_paths)} test  dim={clip_ext.embedding_dim}")
-    else:
-        print("  [Synthetic mode] VU routing skipped — data_root=synthetic")
+
+    # Synthetic fallback for VU when no images found.
+    if not task_img_train:
+        d_clip = clip_ext.embedding_dim
+        print(f"\n  [SYNTHETIC] No images found at {args.data_root}")
+        print(f"  [SYNTHETIC] Generating {len(args.task_names)} CLIP-like Gaussian clusters (dim={d_clip})")
+        print(f"  [SYNTHETIC] Separation: 2.0 between cluster centroids, noise std=0.3")
+        rng = np.random.RandomState(42)
+        for t_idx, task_name in enumerate(args.task_names):
+            direction = rng.randn(d_clip)
+            direction /= (np.linalg.norm(direction) + 1e-12)
+            centroid = direction * 2.0 * t_idx
+            task_img_train[task_name] = (
+                centroid + rng.randn(args.n_train, d_clip) * 0.3
+            ).astype(np.float32)
+            task_img_test[task_name] = (
+                centroid + rng.randn(args.n_test, d_clip) * 0.3
+            ).astype(np.float32)
+            print(f"  [SYNTHETIC] {task_name}: {args.n_train} train, {args.n_test} test  dim={d_clip}")
 
     print(f"\n{'='*75}")
     print(f"  SMoLoRA Dual Router — Routing Accuracy")

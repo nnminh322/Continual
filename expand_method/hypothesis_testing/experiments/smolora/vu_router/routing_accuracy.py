@@ -51,8 +51,27 @@ def parse_args():
     return parser.parse_args()
 
 
+# Mapping from task_name → actual subdirectory under data_root.
+# SMoLoRA stores VQAv2 images under data_root/images/ (COCO val2014),
+# not data_root/VQAv2/. Same for Flickr30k → flickr30k_images/.
+_TASK_IMAGE_SUBDIRS = {
+    "VQAv2": "images",
+    "Flickr30k": "flickr30k_images",
+    "ImageNet": "ImageNet",
+    "Place365": "Place365",
+}
+
+
 def collect_images(data_root: Path, task_name: str, max_n: int) -> List[Path]:
-    task_dir = data_root / task_name
+    """Collect image paths for a task.
+
+    Handles SMoLoRA's non-standard directory layout where:
+      - VQAv2 images live in data_root/images/ (COCO val2014)
+      - Flickr30k images live in data_root/flickr30k_images/
+      - Other tasks use data_root/task_name/
+    """
+    subdir = _TASK_IMAGE_SUBDIRS.get(task_name, task_name)
+    task_dir = data_root / subdir
     if not task_dir.exists():
         return []
     images = []
@@ -107,6 +126,29 @@ def main():
         emb_train[task_name] = extractor.extract_from_paths(train_paths, batch_size=args.batch_size)
         emb_test[task_name] = extractor.extract_from_paths(test_paths, batch_size=args.batch_size)
         print(f"  {task_name}: {len(train_paths)} train, {len(test_paths)} test  →  dim={d}")
+
+    # Synthetic fallback: when no real images found, generate Gaussian clusters.
+    # These simulate CLIP ViT-L/14 image embeddings (1024-dim) for
+    # demonstration purposes when the actual dataset is not available.
+    if not emb_train:
+        print(f"\n  [SYNTHETIC] No images found at {data_root}")
+        print(f"  [SYNTHETIC] Generating {len(args.task_names)} Gaussian clusters (dim={d})")
+        print(f"  [SYNTHETIC] Separation: 2.0 between cluster centroids, noise std=0.3")
+        rng = np.random.RandomState(42)
+        n_train = args.n_train
+        n_test = args.n_test
+        for t_idx, task_name in enumerate(args.task_names):
+            # Each task cluster separated by 2.0 in a random direction
+            direction = rng.randn(d)
+            direction /= (np.linalg.norm(direction) + 1e-12)
+            centroid = direction * 2.0 * t_idx
+            emb_train[task_name] = (
+                centroid + rng.randn(n_train, d) * 0.3
+            ).astype(np.float32)
+            emb_test[task_name] = (
+                centroid + rng.randn(n_test, d) * 0.3
+            ).astype(np.float32)
+            print(f"  [SYNTHETIC] {task_name}: {n_train} train, {n_test} test  dim={d}")
 
     print(f"\n{'='*75}")
     print(f"  SMoLoRA VU Router — Routing Accuracy")

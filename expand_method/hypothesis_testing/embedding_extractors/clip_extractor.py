@@ -56,9 +56,15 @@ class CLIPVisionExtractor:
         }
         self.dtype = dtype_map.get(dtype, torch.float16)
 
-        # Load model and processor
-        self.processor = AutoImageProcessor.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name, torch_dtype=self.dtype)
+        # Load model and processor — suppress CLIP load report (UNEXPECTED warnings are cosmetic)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*UNEXPECTED.*")
+            warnings.filterwarnings("ignore", message=".*position_ids.*")
+            warnings.filterwarnings("ignore", message=".*LOAD REPORT.*")
+            warnings.filterwarnings("ignore", message=".*torch_dtype.*")
+            self.processor = AutoImageProcessor.from_pretrained(model_name)
+            self.model = AutoModel.from_pretrained(model_name, dtype=self.dtype)
         self.model = self.model.to(self._device).eval()
 
         self.embedding_dim = getattr(

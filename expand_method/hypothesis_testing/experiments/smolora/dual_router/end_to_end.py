@@ -60,8 +60,16 @@ def parse_args():
     return parser.parse_args()
 
 
+_TASK_IMAGE_SUBDIRS = {
+    "VQAv2": "images",
+    "Flickr30k": "flickr30k_images",
+}
+
+
 def collect_task_images(data_root: Path, task_name: str, max_n: int) -> List[Path]:
-    task_dir = data_root / task_name
+    """Collect image paths for a task. Handles SMoLoRA's non-standard layout."""
+    subdir = _TASK_IMAGE_SUBDIRS.get(task_name, task_name)
+    task_dir = data_root / subdir
     if not task_dir.exists():
         return []
     extensions = ["*.jpg", "*.jpeg", "*.png", "*.JPEG", "*.JPG", "*.PNG"]

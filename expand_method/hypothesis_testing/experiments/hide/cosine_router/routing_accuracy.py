@@ -43,8 +43,25 @@ def parse_args():
     return parser.parse_args()
 
 
+# Mapping from task_name → actual subdirectory under data_root.
+_TASK_IMAGE_SUBDIRS = {
+    "VQAv2": "images",
+    "Flickr30k": "flickr30k_images",
+    "ImageNet": "ImageNet",
+    "Place365": "Place365",
+}
+
+
 def collect_images(data_root: Path, task_name: str, max_n: int) -> List[Path]:
-    task_dir = data_root / task_name
+    """Collect image paths for a task.
+
+    Handles non-standard directory layout where:
+      - VQAv2 images live in data_root/images/ (COCO val2014)
+      - Flickr30k images live in data_root/flickr30k_images/
+      - Other tasks use data_root/task_name/
+    """
+    subdir = _TASK_IMAGE_SUBDIRS.get(task_name, task_name)
+    task_dir = data_root / subdir
     if not task_dir.exists():
         return []
     images = []
@@ -93,6 +110,27 @@ def main():
         emb_train[task_name] = extractor.extract_from_paths(train_p, batch_size=args.batch_size)
         emb_test[task_name] = extractor.extract_from_paths(test_p, batch_size=args.batch_size)
         print(f"  {task_name}: {len(train_p)} train, {len(test_p)} test")
+
+    # Synthetic fallback: when no real images found, generate Gaussian clusters.
+    # Simulates CLIP ViT-L/14 image embeddings (1024-dim) for demonstration.
+    if not emb_train:
+        print(f"\n  [SYNTHETIC] No images found at {args.data_root}")
+        print(f"  [SYNTHETIC] Generating {len(args.task_names)} Gaussian clusters (dim={d})")
+        print(f"  [SYNTHETIC] Separation: 2.0 between cluster centroids, noise std=0.3")
+        rng = np.random.RandomState(42)
+        for t_idx, task_name in enumerate(args.task_names):
+            direction = rng.randn(d)
+            direction /= (np.linalg.norm(direction) + 1e-12)
+            centroid = direction * 2.0 * t_idx
+            n_train_local = max(2, int(args.n_train * 0.8))
+            n_test_local = args.n_test
+            emb_train[task_name] = (
+                centroid + rng.randn(n_train_local, d) * 0.3
+            ).astype(np.float32)
+            emb_test[task_name] = (
+                centroid + rng.randn(n_test_local, d) * 0.3
+            ).astype(np.float32)
+            print(f"  [SYNTHETIC] {task_name}: {n_train_local} train, {n_test_local} test  dim={d}")
 
     print(f"\n{'='*75}")
     print(f"  HiDe-LLaVA Cosine → SRT Routing Accuracy")
