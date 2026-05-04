@@ -2,14 +2,27 @@
 
 ## Môi trường
 
+### Cách 1: pipenv (khuyến nghị)
+
 ```bash
-conda env create -f environment.yaml
-conda activate python3_8
+cd expand_method_ComputerVision/InfLoRA
+pip install pipenv
+pipenv install torch==1.10.0 timm==0.6.7 numpy==1.23.5 scikit-learn==1.0 scipy==1.7.1 pillow tqdm ipdb pyyaml
+pipenv install torch==1.10.0+cu113 torchvision==0.11.1+cu113 -f https://download.pytorch.org/whl/torch_stable.html  # CUDA 11.3
+pipenv run python main.py --config configs/srt_inflora.json --device 0
 ```
 
-Yêu cầu: Python 3.8, PyTorch 1.10, timm 0.6.7, numpy 1.23.5, scikit-learn 1.0.
+### Cách 2: pip thuần
 
-> **Không upgrade các thư viện này.** Môi trường đã được verified. Việc upgrade dẫn đến dependency break không cần thiết cho experiment này.
+```bash
+pip install torch==1.10.0 timm==0.6.7 numpy==1.23.5 scikit-learn==1.0 scipy==1.7.1 pillow tqdm ipdb pyyaml
+
+# Hoặc với CUDA
+pip install torch==1.10.0+cu113 torchvision==0.11.1+cu113 -f https://download.pytorch.org/whl/torch_stable.html
+pip install timm==0.6.7 numpy==1.23.5 scikit-learn==1.0 scipy==1.7.1 pillow tqdm ipdb pyyaml
+```
+
+> **Lưu ý:** PyTorch 1.10 chỉ hỗ trợ Python ≤ 3.9. Nếu máy bạn dùng Python 3.10+, cần dùng PyTorch 1.13+ (nhưng có thể có breaking changes với một số API cũ).
 
 ---
 
@@ -163,31 +176,44 @@ Log file: `.log` cùng thư mục với checkpoint.
 
 **1. `ModuleNotFoundError: No module named 'timm'`**
 ```bash
-# Chắc chắn đang trong đúng conda env
-conda activate python3_8
-python -c "import timm; print(timm.__version__)"
+# Kiểm tra đã cài đủ packages
+pip list | grep -E "torch|timm|numpy|sklearn"
+
+# Nếu thiếu, cài lại
+pip install timm==0.6.7 torch==1.10.0
 ```
 
 **2. `CUDA out of memory`**
 ```bash
-# Giảm batch_size trong config, ví dụ:
+# Giảm batch_size trong config:
 # "batch_size": 64
 
 # Hoặc chạy trên GPU khác
-bash run_srt_inflora.sh 1 0
+bash run_srt_inflora.sh cifar100 1 0
 ```
 
 **3. Data not found**
 ```bash
 # Dataset được tải tự động bởi torchvision.
-# Kiểm tra: data/ directory tồn tại
+# Kiểm tra:
 ls data/
 ```
 
 **4. Lỗi pretrained weight**
 ```bash
 # timm sẽ tự tải ViT weights từ internet.
-# Nếu có vấn đề mạng, weights được cache tại ~/.cache/huggingface/
+# Cache tại: ~/.cache/huggingface/ hoặc ~/.cache/torch/
+```
+
+**5. Python version quá cao**
+```
+# Nếu gặp lỗi với PyTorch 1.10 trên Python > 3.9:
+pip install torch --upgrade
+
+# Hoặc tạo virtualenv với Python 3.8
+python3.8 -m venv venv38
+source venv38/bin/activate
+pip install torch==1.10.0 timm==0.6.7 ...
 ```
 
 ---
@@ -196,9 +222,11 @@ ls data/
 
 ```
 InfLoRA/
-├── models/sinet_srt_inflora.py   # SRT_Router + SiNet_SRT model
-├── methods/srt_inflora.py        # SRT_InfLoRA learner
-├── configs/srt_inflora.json     # CIFAR-100 config
-├── run_srt_inflora.sh           # Bash script chạy nhanh
-└── run_guide.md                  # File này
+├── models/sinet_srt_inflora.py      # SRT_Router + SiNet_SRT model
+├── methods/srt_inflora.py           # SRT_InfLoRA learner
+├── configs/srt_inflora.json         # CIFAR-100 config
+├── configs/domainnet_srt_inflora.json  # DomainNet config
+├── Pipfile                         # pipenv dependencies
+├── run_srt_inflora.sh             # Bash script chạy nhanh
+└── run_guide.md                   # File này
 ```
