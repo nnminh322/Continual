@@ -45,9 +45,9 @@ esac
 
 # ── Check environment ─────────────────────────────────────────────────────
 if ! python -c "import timm; import torch; import numpy" 2>/dev/null; then
-    echo "[ERROR] Missing dependencies. Run:"
-    echo "    conda env create -f environment.yaml"
-    echo "    conda activate python3_8"
+    echo "[ERROR] Missing dependencies. Install with:"
+    echo "    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121"
+    echo "    pip install timm numpy scikit-learn scipy pillow tqdm ipdb pyyaml"
     exit 1
 fi
 
