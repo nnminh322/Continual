@@ -438,7 +438,7 @@ def _create_vit_lora(variant, pretrained=False, **kwargs):
             if checkpoint_filter_fn:
                 state_dict = checkpoint_filter_fn(state_dict, model)
             load_result = self.load_state_dict(state_dict, strict=False)
-            _logger.info(f'Loaded custom .npz pretrained weights. Missing: {load_result.missing_keys}')
+            print(f'[sinet_srt_inflora] Loaded .npz pretrained weights. Missing: {load_result.missing_keys}')
 
         model.load_pretrained = custom_load_pretrained.__get__(model, type(model))
         from timm.models._builder import load_pretrained
