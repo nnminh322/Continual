@@ -436,7 +436,7 @@ def _create_vit_lora(variant, pretrained=False, **kwargs):
         def custom_load_pretrained(self, pretrained_loc):
             state_dict = load_npz_pretrained(pretrained_loc)
             if checkpoint_filter_fn:
-                state_dict = checkpoint_filter_fn(state_dict)
+                state_dict = checkpoint_filter_fn(state_dict, model)
             load_result = self.load_state_dict(state_dict, strict=False)
             _logger.info(f'Loaded custom .npz pretrained weights. Missing: {load_result.missing_keys}')
 
