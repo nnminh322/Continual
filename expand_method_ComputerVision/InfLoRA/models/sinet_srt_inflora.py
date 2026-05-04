@@ -11,7 +11,7 @@ Pipeline:
   Training:  forward_train() uses current task LoRA (known from ground truth)
   Inference: forward_inference() uses SRT router → argmin Mahalanobis → selected LoRA
 """
-
+from functools import partial
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -191,7 +191,7 @@ class ViT_Frozen(nn.Module):
         Returns: [B, D] CLS token
         """
         with torch.no_grad():
-            x_out, _ = self.vit(x, task_id=-1)  # returns (seq, None)
+            x_out, _ = self.vit(x, -1)  # returns (seq, None), task_id=-1 skips LoRA
             return x_out[:, 0, :]  # [B, D] CLS token
 
 
