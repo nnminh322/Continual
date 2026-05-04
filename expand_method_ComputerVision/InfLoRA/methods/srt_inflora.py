@@ -1,15 +1,17 @@
 """
-SRT_InfLoRA: InfLoRA with SRT routing + SGWI warm-init.
+SRT_InfLoRA: InfLoRA with SRT routing + SGWI warm-init (V2: Pooled Mahalanobis).
 
 Replaces InfLoRA's task-ID cumulative LoRA + GPM/DualGPM with:
-  - SRT: ZCA whitening + L2 routing on frozen backbone mean-pooled embeddings
+  - SRT: Pooled Mahalanobis routing on frozen backbone mean-pooled embeddings
+    (no ZCA whitening — simpler, same theoretical grounding)
+  - Ridge shrinkage on Σ_pool each time a new task is added
   - SGWI: Warm-init for new task LoRA via SVD of weighted ΔW
   - Train both A and B matrices (InfLoRA freezes A)
   - No GPM/DualGPM
 
 Pipeline per task:
   1. Train LoRA A/B + classifier for current task
-  2. Extract mean-pooled frozen backbone embeddings → SRT router (ZCA + L2)
+  2. Extract mean-pooled frozen backbone embeddings → SRT router
   3. SGWI warm-init for next task: ΔW = Σ_s w_s·ΔW_s → SVD → A_new, B_new
 """
 
@@ -85,7 +87,16 @@ class SRT_InfLoRA(BaseLearner):
         self._update_srt_router()
 
     def _extract_frozen_embeddings(self, loader):
-        """Extract mean-pooled features from frozen backbone."""
+        """
+        Extract mean-pooled frozen backbone embeddings (no normalization).
+
+        Returns: (embeddings, targets)
+          embeddings: (N, D) — mean over all tokens (CLS + patches),
+                       extracted WITHOUT fc_norm to preserve hyper-sphere geometry.
+          targets: (N,) — class labels
+
+        Matches T5 extraction: hidden = encoder.last_hidden_state → mean(all tokens).
+        """
         self._network.to(self._device)
         self._network.eval()
         emb_list, tgt_list = [], []
@@ -93,12 +104,13 @@ class SRT_InfLoRA(BaseLearner):
         for _, (_, inputs, targets) in enumerate(loader):
             inputs = inputs.to(self._device)
             with torch.no_grad():
+                # extract_frozen_vector returns (B, D) mean-pooled per sample
                 feats = self._network.extract_frozen_vector(inputs)
             emb_list.append(feats.cpu().numpy())
             tgt_list.append(targets.numpy())
 
-        embeddings = np.concatenate(emb_list, axis=0)     # [N, D]
-        targets = np.concatenate(tgt_list, axis=0)         # [N]
+        embeddings = np.concatenate(emb_list, axis=0)     # (N, D)
+        targets = np.concatenate(tgt_list, axis=0)         # (N,)
         return embeddings, targets
 
     def _train(self, train_loader, test_loader):
@@ -120,7 +132,6 @@ class SRT_InfLoRA(BaseLearner):
         if self._cur_task > 0:
             self._sgwi_warm_init(cur_task)
 
-        # Debug: list trainable params
         trainable = [n for n, p in self._network.named_parameters() if p.requires_grad]
         logging.info('Trainable params for task {}: {}'.format(cur_task, trainable))
 
@@ -158,17 +169,18 @@ class SRT_InfLoRA(BaseLearner):
 
     def _sgwi_warm_init(self, new_task: int):
         """
-        SGWI warm-init for new_task's lora_A and lora_B.
+        SGWI warm-init for new_task's lora_A and lora_B (V2: Pooled Mahalanobis).
 
-        Follows the original code_srt_sgwi_v1/src/sgwi_trainer.py exactly:
+        Follows the canonical implementation exactly:
 
-        1. Extract current task embeddings → current centroid (raw space)
-        2. Compute Mahalanobis distance to each past task centroid in pooled space
-           (This is what the ORIGINAL uses — NOT ZCA-whitened L2)
-        3. Softmax → SGWI weights (median heuristic temperature)
-        4. ΔW = Σ_s w_s · ΔW_s → SVD
-           - A_new = √S[:r] · V^T[:r, :]   (captures top-r input directions)
-           - B_warm = ΔW @ A_cur^T @ (A_cur @ A_cur^T + εI)⁻¹  (least-squares)
+        1. Extract current task embeddings → current centroid μ_cur
+        2. Compute Pooled Mahalanobis distance from μ_cur to each past task centroid μ_s
+           using the router's pooled Σ⁻¹ (shared across all tasks)
+        3. Softmax → SGWI weights (median heuristic temperature τ)
+        4. ΔW = Σ_s w_s · ΔW_s → SVD:
+             A_new = √S[:r] · V^T[:r, :]    (top-r input directions)
+             B_warm = ΔW @ A^T @ (AA^T + εI)⁻¹  (least-squares)
+        5. Copy A_new, B_warm into task new_task's LoRA matrices
         """
         rank = self.args["rank"]
         device = next(self._network.parameters()).device
@@ -178,42 +190,39 @@ class SRT_InfLoRA(BaseLearner):
             logging.info('[SGWI] Task 0: no prior tasks, skipping warm-init.')
             return
 
-        # ── Step 1: Extract current task embeddings → raw centroid ──
+        # ── Step 1: Current task centroid ────────────────────────────────
         cur_emb, _ = self._extract_frozen_embeddings(self.train_loader)
-        cur_centroid = cur_emb.mean(axis=0)  # raw centroid
+        current_mu = cur_emb.mean(axis=0)  # (D,) — centroid of current task
 
-        # ── Step 2: Compute Mahalanobis distance to each past task ──
-        # Use pooled covariance if available (Mahalanobis-like distance)
-        # This is exactly what the original _compute_sgwi_weights() does
-        distances = []
-        for t_id in sorted(router.signatures.keys()):
-            sig = router.signatures[t_id]
-            diff = cur_centroid - sig.mu_raw  # distance from raw centroid to raw centroid
-            if router._Sigma_pool is not None:
-                try:
-                    cov_inv = np.linalg.inv(router._Sigma_pool + 1e-6 * np.eye(len(diff)))
-                    d = float(diff @ cov_inv @ diff)
-                except np.linalg.LinAlgError:
-                    d = float(np.sum(diff ** 2))
-            else:
-                d = float(np.sum(diff ** 2))
-            distances.append(d)
+        # ── Step 2: Pooled Mahalanobis distance to each past task ──────
+        Sinv = router._Sinv  # pooled Σ⁻¹ (D, D)
 
-        # Trivial case: only 1 past task
+        distances = {}
+        for t_id, sig in router.signatures.items():
+            diff = current_mu - sig.mu  # (D,)
+            # Mahalanobis = diffᵀ Σ⁻¹ diff
+            diff_Sinv = diff @ Sinv
+            d = float((diff * diff_Sinv).sum())
+            distances[t_id] = d
+
+        if not distances:
+            logging.warning('[SGWI] No distances computed. Skipping warm-init.')
+            return
+
+        # Trivial: only 1 past task
         if len(distances) == 1:
-            weights = [1.0]
+            weights = {k: 1.0 for k in distances}
         else:
             # Softmax with τ = median heuristic
-            tau = float(np.median(distances)) + 1e-8
-            weights = [math.exp(-d / tau) for d in distances]
-            Z = sum(weights) + 1e-12
-            weights = [w / Z for w in weights]
+            tau = float(np.median(list(distances.values()))) + 1e-8
+            weights = {k: math.exp(-d / tau) for k, d in distances.items()}
+            Z = sum(weights.values()) + 1e-12
+            weights = {k: w / Z for k, w in weights.items()}
 
-        past_task_ids = sorted(router.signatures.keys())
-        srt_weights = {t_id: w for t_id, w in zip(past_task_ids, weights)}
-        logging.info(f'[SGWI] Weights for task {new_task}: {[f"{t}:{w:.3f}" for t, w in srt_weights.items()]}')
+        logging.info(f'[SGWI] Weights for task {new_task}: '
+                     f'{", ".join(f"t{k}:{v:.3f}" for k, v in weights.items())}')
 
-        # ── Step 3: Apply SGWI to each Attention_LoRA_SRT module ──
+        # ── Step 3 & 4: Apply SGWI to each Attention_LoRA_SRT module ──
         for module in self._network.modules():
             if not isinstance(module, Attention_LoRA_SRT):
                 continue
@@ -224,7 +233,7 @@ class SRT_InfLoRA(BaseLearner):
 
             # Weighted ΔW = Σ_s w_s · ΔW_s
             weighted_delta = None
-            for s_idx, (t_id, w) in enumerate(srt_weights.items()):
+            for s_idx, (t_id, w) in enumerate(weights.items()):
                 if s_idx >= len(delta_ws) or delta_ws[s_idx] is None:
                     continue
                 delta = delta_ws[s_idx].to(device)
@@ -238,31 +247,25 @@ class SRT_InfLoRA(BaseLearner):
                 logging.debug(f'[SGWI] weighted_delta ≈ 0 (norm={delta_norm:.2e}), skipping')
                 continue
 
-            # ── SVD decomposition of ΔW ──
+            # SVD of ΔW
             try:
                 U, S, Vt = torch.linalg.svd(weighted_delta.float(), full_matrices=False)
                 r = min(rank, len(S))
 
-                # A_new = √S[:r] · V^T[:r, :]  (top-r input directions)
+                # A_new = √S[:r] · V^T[:r, :]  (captures top-r input directions)
                 A_new = torch.sqrt(S[:r] + 1e-12).unsqueeze(1) * Vt[:r, :]
 
-                # ── B_warm via least-squares (given current A is initialized from SVD) ──
-                # B_warm = ΔW @ A^T @ (A @ A^T + εI)⁻¹
-                # This finds B that best reconstructs ΔW given the A from SVD
-                A_cur = A_new.to(device)  # [r, in_dim]
-                AtA = A_cur @ A_cur.T    # [r, r]
+                # B_warm via least-squares: B_warm = ΔW @ A^T @ (AA^T + εI)⁻¹
+                A_cur = A_new.to(device)  # (r, in_dim)
+                AtA = A_cur @ A_cur.T    # (r, r)
                 eps_mat = 1e-4 * torch.eye(A_cur.shape[0], device=device)
-                B_warm = weighted_delta.to(device) @ A_cur.T @ torch.linalg.inv(AtA + eps_mat)  # [out, r]
+                B_warm = weighted_delta.to(device) @ A_cur.T @ torch.linalg.inv(AtA + eps_mat)  # (out, r)
 
                 with torch.no_grad():
-                    module.lora_A_k[new_task].weight.copy_(
-                        A_new.to(module.lora_A_k[new_task].weight.device))
-                    module.lora_A_v[new_task].weight.copy_(
-                        A_new.to(module.lora_A_v[new_task].weight.device))
-                    module.lora_B_k[new_task].weight.copy_(
-                        B_warm.to(module.lora_B_k[new_task].weight.device))
-                    module.lora_B_v[new_task].weight.copy_(
-                        B_warm.to(module.lora_B_v[new_task].weight.device))
+                    module.lora_A_k[new_task].weight.copy_(A_new.to(module.lora_A_k[new_task].weight.device))
+                    module.lora_A_v[new_task].weight.copy_(A_new.to(module.lora_A_v[new_task].weight.device))
+                    module.lora_B_k[new_task].weight.copy_(B_warm.to(module.lora_B_k[new_task].weight.device))
+                    module.lora_B_v[new_task].weight.copy_(B_warm.to(module.lora_B_v[new_task].weight.device))
 
                 logging.info(f'[SGWI] Task {new_task} warm-init: r={r}, ΔW_norm={delta_norm:.4f}, '
                              f'S[0]={S[0].item():.4f}, A_norm={A_new.norm().item():.4f}, '
@@ -280,15 +283,15 @@ class SRT_InfLoRA(BaseLearner):
     def _update_srt_router(self):
         """
         Extract mean-pooled frozen backbone embeddings and register with SRT router.
-        SRT router stores {μ_t, Σ_t}, fits ZCA whitening, and re-whitens all tasks.
+        SRT router stores {μ_t, Σ_t}, updates pooled Σ, applies ridge shrinkage.
         """
         cur_task = self._network.numtask - 1
         embeddings, _ = self._extract_frozen_embeddings(self.train_loader)
-        self._srt_router.add_task(cur_task, embeddings)
+        sig = self._srt_router.add_task(cur_task, embeddings)
 
         s = self._srt_router.summary()
-        logging.info(f'[SRT] Router: n_tasks={s["n_tasks"]}, pool_n={s["pool_n"]}, '
-                     f'avg_PaR={s["avg_par"]}, mode={s["mode"]}')
+        logging.info(f'[SRT] Router: n_tasks={s["n_tasks"]}, n_pool={s["n_pool"]}, '
+                     f'avg_PaR={s["avg_par"]:.1f}, shrink_delta={s["delta"]:.4f}')
 
     def train_function(self, train_loader, test_loader, optimizer, scheduler):
         prog_bar = tqdm(range(self.run_epoch))
@@ -337,6 +340,12 @@ class SRT_InfLoRA(BaseLearner):
     def _eval_cnn(self, loader):
         """
         Evaluate using SRT routing on mean-pooled frozen backbone features.
+
+        For each sample:
+          1. Extract mean-pooled frozen backbone embedding h (D,)
+          2. Route: argmin_t (h - μ_t)ᵀ Σ_pool⁻¹ (h - μ_t)
+          3. Apply predicted task's LoRA + classifier
+          4. Map to global class index
         """
         self._network.eval()
         y_pred, y_true = [], []
@@ -348,13 +357,13 @@ class SRT_InfLoRA(BaseLearner):
             batch_size = inputs.shape[0]
 
             with torch.no_grad():
-                # Extract mean-pooled frozen backbone features
-                frozen_feats = self._network.extract_frozen_vector(inputs)  # [B, D]
-                frozen_np = frozen_feats.cpu().numpy()
+                # (B, D) mean-pooled frozen backbone features — matches T5 extraction
+                frozen_feats = self._network.extract_frozen_vector(inputs)
+                frozen_np = frozen_feats.cpu().numpy()  # (B, D)
 
-                # SRT route: argmin L2 in whitened space
-                pred_tasks_np = self._srt_router.route(frozen_np)  # [B] numpy
-                pred_tasks = torch.from_numpy(pred_tasks_np).to(self._device)  # [B]
+                # SRT route: Pooled Mahalanobis, returns (B,) task indices
+                pred_tasks_np = self._srt_router.route(frozen_np)
+                pred_tasks = torch.from_numpy(pred_tasks_np).to(self._device)
 
                 # Compute logits for each predicted task
                 outputs = []
@@ -363,13 +372,13 @@ class SRT_InfLoRA(BaseLearner):
                     out = self._network.image_encoder(inputs[b:b+1], task=t)
                     out = self._network.classifier_pool[t](out['features'])
                     outputs.append(out)
-                outputs = torch.cat(outputs, dim=0)  # [B, class_num]
+                outputs = torch.cat(outputs, dim=0)  # (B, class_num)
 
                 # Global prediction: local_class + task_offset
                 task_offset = pred_tasks.cpu() * self.class_num
                 task_offset = task_offset.clamp(max=(self._network.numtask - 1) * self.class_num)
-                local_pred = outputs.argmax(dim=1)    # [B]
-                predicts = (local_pred + task_offset).view(-1)  # [B] global class
+                local_pred = outputs.argmax(dim=1)    # (B,)
+                predicts = (local_pred + task_offset).view(-1)  # (B,) global class
 
                 y_pred.append(predicts.cpu().numpy())
                 y_true.append(targets.cpu().numpy())

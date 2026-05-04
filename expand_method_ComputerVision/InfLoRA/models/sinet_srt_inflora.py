@@ -29,8 +29,11 @@ from models.srt_router import SRT_Router
 class ViT_Frozen(nn.Module):
     """
     Frozen ViT using ViT_lora_co with task_id=-1 to skip LoRA entirely.
-    Extracts MEAN-POOLED embeddings across all tokens (CLS + patches).
-    This is the SRT routing signal — geometric aggregation of frozen backbone output.
+    Extracts mean-pooled embeddings across all tokens (CLS + patches)
+    WITHOUT fc_norm — matches T5's encoder extraction approach exactly.
+
+    T5:  hidden = encoder.last_hidden_state → mean(all tokens)
+    ViT: hidden = blocks + norm → mean(all tokens, NO fc_norm)
     """
 
     def __init__(self, args):
@@ -48,14 +51,23 @@ class ViT_Frozen(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Extract mean-pooled embedding from frozen backbone.
-        Mean-pools across ALL tokens (CLS + patch tokens).
-        This is the SRT routing signal — aggregate of frozen backbone output.
-        Returns: [B, D] mean-pooled embedding
+        Extract mean-pooled embeddings from frozen backbone WITHOUT fc_norm.
+
+        Matches T5 extraction logic exactly:
+          T5:  hidden = encoder.last_hidden_state → mean(all tokens)
+          ViT: hidden = blocks + norm → mean(all tokens)
+
+        We call forward_features() directly to avoid fc_norm (LayerNorm)
+        which destroys the anisotropic hyper-sphere geometry that SRT exploits.
+
+        Returns: [B, D] mean-pooled embedding (no normalization applied)
         """
         with torch.no_grad():
-            x_out, _ = self.vit(x, -1)  # (B, seq_len+1, D), task_id=-1 skips LoRA
-            return x_out.mean(dim=1)  # [B, D] mean-pooled
+            # forward_features returns (B, seq+1, D) after blocks + final norm
+            # task=-1 skips LoRA in Attention_LoRA_SRT
+            hidden = self.vit.forward_features(x, task=-1)  # (B, seq+1, D)
+            # Mean pooling over ALL tokens (CLS + patches) — matches T5 approach
+            return hidden.mean(dim=1)  # (B, D) — no fc_norm, no LayerNorm applied
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -356,16 +368,12 @@ class SiNet_SRT(nn.Module):
             for _ in range(args["total_sessions"])
         ])
 
-        # SRT Router — initialized with params from config
-        # srt_shrinkage: "ridge" → use_shrink=True, shrink_factor=0.1 (matches original)
-        # srt_metric_mode: "hard" → ZCA whitening + L2
-        srt_shrink = args.get("srt_shrinkage", "ridge") == "ridge"
-        srt_metric = args.get("srt_metric_mode", "hard")
+        # SRT Router V2: Pooled Mahalanobis with ridge shrinkage.
+        # shrinkage from config: "ridge" → use ridge shrinkage (default)
+        # No ZCA whitening — simpler, same theoretical grounding.
         self.srt_router = SRT_Router(
             embed_dim=args["embd_dim"],
-            mode=srt_metric,
-            use_shrink=srt_shrink,
-            shrink_factor=0.1,
+            shrinkage=args.get("srt_shrinkage", "ridge"),
         )
 
         self.numtask = 0
