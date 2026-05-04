@@ -411,12 +411,41 @@ def _create_vit_lora(variant, pretrained=False, **kwargs):
     if repr_size is not None and num_classes != default_num_classes:
         repr_size = None
 
+    # Build model without auto-loading pretrained weights
     model = build_model_with_cfg(
-        VisionTransformerLoRA, variant, pretrained,
+        VisionTransformerLoRA, variant, pretrained=False,
         pretrained_cfg=pretrained_cfg,
         representation_size=repr_size,
         pretrained_filter_fn=checkpoint_filter_fn,
         **kwargs)
+
+    # Handle .npz pretrained weights (timm 1.x changed from custom_load='npz' to custom_load=True)
+    if pretrained and pretrained_cfg.url and pretrained_cfg.url.endswith('.npz'):
+        import numpy as np
+
+        def load_npz_pretrained(path):
+            npz = np.load(path)
+            # Convert .npz to PyTorch state dict
+            from collections import OrderedDict
+            sd = OrderedDict()
+            for k, v in npz.items():
+                if isinstance(v, np.ndarray):
+                    sd[k] = torch.from_numpy(v)
+            return sd
+
+        def custom_load_pretrained(self, pretrained_loc):
+            state_dict = load_npz_pretrained(pretrained_loc)
+            if checkpoint_filter_fn:
+                state_dict = checkpoint_filter_fn(state_dict)
+            load_result = self.load_state_dict(state_dict, strict=False)
+            _logger.info(f'Loaded custom .npz pretrained weights. Missing: {load_result.missing_keys}')
+
+        model.load_pretrained = custom_load_pretrained.__get__(model, type(model))
+        from timm.models._builder import load_pretrained
+        cfg_dict = pretrained_cfg.to_dict()
+        cfg_dict['custom_load'] = True
+        load_pretrained(model, pretrained_cfg=cfg_dict, num_classes=default_num_classes)
+
     return model
 
 
