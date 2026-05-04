@@ -2,27 +2,38 @@
 
 ## Môi trường
 
+Python 3.12 | PyTorch 2.x | NumPy 2.x | timm 1.x
+
 ### Cách 1: pipenv (khuyến nghị)
 
 ```bash
 cd expand_method_ComputerVision/InfLoRA
 pip install pipenv
-pipenv install torch==1.10.0 timm==0.6.7 numpy==1.23.5 scikit-learn==1.0 scipy==1.7.1 pillow tqdm ipdb pyyaml
-pipenv install torch==1.10.0+cu113 torchvision==0.11.1+cu113 -f https://download.pytorch.org/whl/torch_stable.html  # CUDA 11.3
+pipenv install
 pipenv run python main.py --config configs/srt_inflora.json --device 0
 ```
 
 ### Cách 2: pip thuần
 
 ```bash
-pip install torch==1.10.0 timm==0.6.7 numpy==1.23.5 scikit-learn==1.0 scipy==1.7.1 pillow tqdm ipdb pyyaml
+pip install torch>=2.0.0 timm>=1.0.0 numpy>=2.0.0 scikit-learn>=1.0 scipy>=1.10 pillow>=9.0 tqdm>=4.0 ipdb>=0.13 pyyaml>=6.0
 
-# Hoặc với CUDA
-pip install torch==1.10.0+cu113 torchvision==0.11.1+cu113 -f https://download.pytorch.org/whl/torch_stable.html
-pip install timm==0.6.7 numpy==1.23.5 scikit-learn==1.0 scipy==1.7.1 pillow tqdm ipdb pyyaml
+# Với CUDA (GPU NVIDIA)
+pip install torch>=2.0.0 torchvision>=0.19.0 --index-url https://download.pytorch.org/whl/cu121
+
+# Thử nghiệm nhanh
+pipenv run python -c "import torch, timm, numpy; print(f'torch={torch.__version__}, timm={timm.__version__}, numpy={numpy.__version__}')"
 ```
 
-> **Lưu ý:** PyTorch 1.10 chỉ hỗ trợ Python ≤ 3.9. Nếu máy bạn dùng Python 3.10+, cần dùng PyTorch 1.13+ (nhưng có thể có breaking changes với một số API cũ).
+### Cách 3: conda/mamba (nếu có)
+
+```bash
+mamba create -n srt_inflora python=3.12 -y
+mamba activate srt_inflora
+mamba install pytorch torchvision timm numpy scikit-learn scipy pillow tqdm pyyaml ipdb -c pytorch -c conda-forge
+```
+
+> **Lưu ý:** `nn.DataParallel` trong trainer.py là deprecated trong PyTorch 2.x nhưng vẫn hoạt động. Nếu cần multi-GPU production, thay bằng `torchrun` hoặc `DistributedDataParallel`.
 
 ---
 

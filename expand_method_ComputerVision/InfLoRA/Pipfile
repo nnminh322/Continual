@@ -4,15 +4,15 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-torch = "==1.10.0"
-timm = "==0.6.7"
-numpy = "==1.23.5"
-scikit-learn = "==1.0"
-scipy = "==1.7.1"
-pillow = "==9.4.0"
-tqdm = "==4.62.3"
-ipdb = "==0.13.9"
-pyyaml = "==6.0"
+torch = ">=2.0.0"
+timm = ">=1.0.0"
+numpy = ">=2.0.0"
+scikit-learn = ">=1.0"
+scipy = ">=1.10"
+pillow = ">=9.0"
+tqdm = ">=4.0"
+ipdb = ">=0.13"
+pyyaml = "*"
 
 [requires]
-python_version = "3.8"
+python_version = "3.12"
