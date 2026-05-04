@@ -416,7 +416,6 @@ def _create_vit_lora(variant, pretrained=False, **kwargs):
         pretrained_cfg=pretrained_cfg,
         representation_size=repr_size,
         pretrained_filter_fn=checkpoint_filter_fn,
-        pretrained_custom_load='npz' in pretrained_cfg.url,
         **kwargs)
     return model
 
