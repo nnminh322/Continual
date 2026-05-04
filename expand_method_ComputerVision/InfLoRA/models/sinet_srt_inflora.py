@@ -19,146 +19,7 @@ import math
 from typing import List, Optional
 
 from models.vit_inflora import VisionTransformer, PatchEmbed, resolve_pretrained_cfg, build_model_with_cfg, checkpoint_filter_fn
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SRT Router: Pooled Mahalanobis with Ridge Shrinkage
-# ─────────────────────────────────────────────────────────────────────────────
-
-class SRT_Router:
-    """
-    Pooled Mahalanobis router with ridge shrinkage.
-
-    Maintains per-task centroids and pooled covariance updated via Welford-Hart.
-    Ridge shrinkage: δ = d / (n_pooled + d),  Σ_shrunk = (1-δ)·Σ_pool + δ·(tr(Σ)/d)·I
-    Routing: argmin_i (x - μ_i)^T Σ^{-1} (x - μ_i)
-    """
-
-    def __init__(self, embed_dim: int, device=None):
-        self.embed_dim = embed_dim
-        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
-
-        self._centroids: List[torch.Tensor] = []   # [T, D]
-        self._task_sigmas: List[torch.Tensor] = []  # per-task Sigma [D, D]
-        self._task_counts: List[int] = []           # per-task sample count
-
-        self._mu_pool: Optional[torch.Tensor] = None   # pooled mean [D]
-        self._Sigma_pool: Optional[torch.Tensor] = None # pooled cov [D, D]
-        self._n_pool = 0
-
-        self._precision: Optional[torch.Tensor] = None  # Σ^{-1} [D, D]
-        self._shrinkage_delta = 0.0
-
-    def _welford_update(
-        self,
-        mu_old: torch.Tensor,
-        Sigma_old: torch.Tensor,
-        n_old: int,
-        mu_new: torch.Tensor,
-        Sigma_new: torch.Tensor,
-        n_new: int,
-    ):
-        """Welford-Hart pooled covariance update."""
-        total = n_old + n_new
-        if total <= 1:
-            return mu_old, Sigma_old, n_old
-
-        mu_pool = (n_old * mu_old + n_new * mu_new) / total
-        delta = mu_new - mu_old
-        cross = (n_old * n_new / total) * torch.ger(delta, delta)
-        cov_pool = ((n_old - 1) * Sigma_old + (n_new - 1) * Sigma_new + cross) / max(total - 1, 1)
-        return mu_pool, cov_pool, total
-
-    def _ridge_shrink(self, Sigma: torch.Tensor, n: int, d: int):
-        """Ridge shrinkage: δ = d / (n + d),  Σ_shrunk = (1-δ)·Σ + δ·(tr(Σ)/d)·I"""
-        delta = d / (n + d + 1e-10)
-        tr_s = torch.trace(Sigma).item()
-        target = (tr_s / d) * torch.eye(d, device=Sigma.device, dtype=Sigma.dtype)
-        return (1 - delta) * Sigma + delta * target, delta
-
-    def _update_precision(self):
-        """Compute Σ_pool⁻¹ via eigendecomposition after ridge shrinkage."""
-        if self._Sigma_pool is None:
-            return
-        d = self.embed_dim
-        Sigma_shrunk, self._shrinkage_delta = self._ridge_shrink(self._Sigma_pool, self._n_pool, d)
-        # Eigendecomposition for numerical stability
-        eigvals, eigvecs = torch.linalg.eigh(Sigma_shrunk)
-        eigvals = torch.clamp(eigvals, min=1e-6 * eigvals.abs().max().item())
-        idx = torch.argsort(eigvals, descending=True)
-        eigvals = eigvals[idx]
-        eigvecs = eigvecs[:, idx]
-        self._precision = eigvecs @ torch.diag(1.0 / eigvals) @ eigvecs.T
-
-    def add_task(self, task_id: int, embeddings: torch.Tensor):
-        """
-        Register a task with its frozen CLS embeddings.
-
-        Args:
-            task_id: task index (0-based)
-            embeddings: [N, D] frozen CLS embeddings from the current task
-        """
-        n_t, d = embeddings.shape
-        assert d == self.embed_dim, f"Embedding dim {d} != router embed_dim {self.embed_dim}"
-
-        # Per-task centroid and covariance
-        mu_t = embeddings.mean(dim=0)
-        Xc = embeddings - mu_t
-        Sigma_t = (Xc.T @ Xc) / max(n_t - 1, 1)
-
-        self._centroids.append(mu_t.cpu())
-        self._task_sigmas.append(Sigma_t.cpu())
-        self._task_counts.append(n_t)
-
-        # Welford-Hart pooled update
-        if self._n_pool == 0:
-            self._mu_pool = mu_t.clone()
-            self._Sigma_pool = Sigma_t.clone()
-            self._n_pool = n_t
-        else:
-            self._mu_pool, self._Sigma_pool, self._n_pool = self._welford_update(
-                self._mu_pool, self._Sigma_pool, self._n_pool,
-                mu_t, Sigma_t, n_t,
-            )
-
-        # Recompute precision
-        self._update_precision()
-
-    def route(self, features: torch.Tensor) -> torch.Tensor:
-        """
-        Route features to the nearest task centroid via Mahalanobis distance.
-
-        Args:
-            features: [B, D] frozen CLS embeddings
-
-        Returns:
-            task_indices: [B] argmin Mahalanobis per sample
-        """
-        if len(self._centroids) == 0:
-            raise RuntimeError("SRT_Router: no tasks registered.")
-        if self._precision is None:
-            raise RuntimeError("SRT_Router: precision not computed.")
-
-        device = features.device
-        centroids = torch.stack([c.to(device) for c in self._centroids], dim=0)  # [T, D]
-        precision = self._precision.to(device)
-
-        # Mahalanobis squared: [B, T]
-        diff = features.unsqueeze(1) - centroids.unsqueeze(0)  # [B, T, D]
-        maha_sq = (diff @ precision * diff).sum(dim=-1)        # [B, T]
-
-        return maha_sq.argmin(dim=-1)  # [B]
-
-    @property
-    def n_tasks(self) -> int:
-        return len(self._centroids)
-
-    def summary(self) -> dict:
-        return {
-            "n_tasks": self.n_tasks,
-            "n_pool": self._n_pool,
-            "shrinkage_delta": self._shrinkage_delta,
-        }
+from models.srt_router import SRT_Router
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -168,7 +29,8 @@ class SRT_Router:
 class ViT_Frozen(nn.Module):
     """
     Frozen ViT using ViT_lora_co with task_id=-1 to skip LoRA entirely.
-    Used ONLY for extracting frozen CLS embeddings for SRT router.
+    Extracts MEAN-POOLED embeddings across all tokens (CLS + patches).
+    This is the SRT routing signal — geometric aggregation of frozen backbone output.
     """
 
     def __init__(self, args):
@@ -178,7 +40,7 @@ class ViT_Frozen(nn.Module):
             patch_size=16, embed_dim=args["embd_dim"], depth=12, num_heads=12,
             n_tasks=args["total_sessions"], rank=args["rank"],
         )
-        # Use ViT_lora_co directly: task_id=-1 skips LoRA, giving true frozen backbone output
+        # Use ViT_lora_co: task_id=-1 skips LoRA → true frozen backbone
         self.vit = _create_vit_lora('vit_base_patch16_224_in21k', pretrained=True, **model_kwargs)
         for param in self.vit.parameters():
             param.requires_grad = False
@@ -186,13 +48,14 @@ class ViT_Frozen(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Extract CLS token from frozen backbone.
-        task_id=-1 skips LoRA completely.
-        Returns: [B, D] CLS token
+        Extract mean-pooled embedding from frozen backbone.
+        Mean-pools across ALL tokens (CLS + patch tokens).
+        This is the SRT routing signal — aggregate of frozen backbone output.
+        Returns: [B, D] mean-pooled embedding
         """
         with torch.no_grad():
-            x_out, _ = self.vit(x, -1)  # returns (seq, None), task_id=-1 skips LoRA
-            return x_out[:, 0, :]  # [B, D] CLS token
+            x_out, _ = self.vit(x, -1)  # (B, seq_len+1, D), task_id=-1 skips LoRA
+            return x_out.mean(dim=1)  # [B, D] mean-pooled
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -493,8 +356,17 @@ class SiNet_SRT(nn.Module):
             for _ in range(args["total_sessions"])
         ])
 
-        # SRT Router
-        self.srt_router = SRT_Router(embed_dim=args["embd_dim"])
+        # SRT Router — initialized with params from config
+        # srt_shrinkage: "ridge" → use_shrink=True, shrink_factor=0.1 (matches original)
+        # srt_metric_mode: "hard" → ZCA whitening + L2
+        srt_shrink = args.get("srt_shrinkage", "ridge") == "ridge"
+        srt_metric = args.get("srt_metric_mode", "hard")
+        self.srt_router = SRT_Router(
+            embed_dim=args["embd_dim"],
+            mode=srt_metric,
+            use_shrink=srt_shrink,
+            shrink_factor=0.1,
+        )
 
         self.numtask = 0
 
