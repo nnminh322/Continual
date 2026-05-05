@@ -27,7 +27,7 @@ import torch.utils.checkpoint
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, IMAGENET_INCEPTION_MEAN, IMAGENET_INCEPTION_STD
 from timm.models.helpers import build_model_with_cfg, resolve_pretrained_cfg, named_apply, adapt_input_conv, checkpoint_seq
 from timm.models.layers import PatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
-from timm.models.registry import register_model
+from timm.models.registry import register_model as timm_register_model
 
 _logger = logging.getLogger(__name__)
 
@@ -39,7 +39,10 @@ def register_model_safely(fn):
             message=rf"Overwriting {fn.__name__} in registry.*",
             category=UserWarning,
         )
-        return register_model(fn)
+        return timm_register_model(fn)
+
+
+register_model = register_model_safely
 
 
 def _cfg(url='', **kwargs):

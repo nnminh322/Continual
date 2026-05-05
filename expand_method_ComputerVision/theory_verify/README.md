@@ -15,6 +15,8 @@ python expand_method_ComputerVision/theory_verify/extract_embeddings.py \
   --descriptor cls
 ```
 
+If DomainNet is mounted somewhere else, add `--data_path /actual/mount/root` so the extractor can resolve the YAML paths correctly.
+
 Useful descriptor ablations:
 - `cls`: matches the current runtime path.
 - `mean_patch`: average of patch tokens only.

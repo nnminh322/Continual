@@ -300,17 +300,31 @@ class iDomainNet(iData):
     def _resolve_image_path(self, path):
         path = str(path).replace('\\', '/')
 
-        if os.path.isabs(path) and os.path.exists(path):
-            return path
-        if os.path.exists(path):
-            return path
+        candidates = []
+
+        def add_candidate(candidate):
+            candidate = str(candidate).replace('\\', '/')
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
+
+        add_candidate(path)
+        if path.startswith('data/'):
+            add_candidate(path[len('data/'):])
+        if path.startswith('data/DomainNet/'):
+            add_candidate(path[len('data/DomainNet/'):])
+
+        for candidate in candidates:
+            if os.path.isabs(candidate) and os.path.exists(candidate):
+                return candidate
+            if os.path.exists(candidate):
+                return candidate
 
         data_root = self.args.get('data_path') if self.args is not None else None
         if data_root:
-            tail = path.split('/', 2)[-1] if path.startswith('data/') else path
-            candidate = os.path.join(data_root, tail)
-            if os.path.exists(candidate):
-                return candidate
+            for candidate_tail in candidates:
+                candidate = os.path.join(data_root, candidate_tail)
+                if os.path.exists(candidate):
+                    return candidate
 
         return path
 

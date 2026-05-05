@@ -33,6 +33,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--descriptor", default="cls",
                         choices=["cls", "mean_patch", "cls_mean_concat"],
                         help="Frozen descriptor to save. 'cls' matches the current runtime path.")
+    parser.add_argument("--data_path", default=None,
+                        help="Optional override for config['data_path'] when the dataset is mounted elsewhere.")
     parser.add_argument("--device", default=None,
                         help="Torch device. Examples: 0, cuda:0, cpu. Defaults to cuda:0 when available.")
     parser.add_argument("--batch_size", type=int, default=None,
@@ -155,20 +157,29 @@ def main() -> None:
 
     data_args = dict(config)
     data_args["seed"] = seed
-    data_manager = DataManager(
-        data_args["dataset"],
-        data_args["shuffle"],
-        seed,
-        data_args["init_cls"],
-        data_args["increment"],
-        data_args,
-    )
+    if args.data_path is not None:
+        data_args["data_path"] = args.data_path
+    try:
+        data_manager = DataManager(
+            data_args["dataset"],
+            data_args["shuffle"],
+            seed,
+            data_args["init_cls"],
+            data_args["increment"],
+            data_args,
+        )
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            f"{exc}\n"
+            f"The DomainNet dataset is not mounted where the config expects it. "
+            f"Pass --data_path to the actual root or mount the dataset at the configured path.") from exc
     data_args["class_order"] = data_manager._class_order
 
     backbone = ViT_Frozen(data_args).to(device)
     backbone.eval()
 
     print(f"[setup] device={device} requested_num_workers={requested_num_workers} effective_num_workers={num_workers}")
+    print(f"[setup] data_path={data_args.get('data_path')}")
 
     output_root = Path(args.output_root)
     run_dir = output_root / build_run_name(data_args, args.descriptor)
