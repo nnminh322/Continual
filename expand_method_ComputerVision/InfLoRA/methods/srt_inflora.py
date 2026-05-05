@@ -1,18 +1,25 @@
 """
-SRT_InfLoRA: InfLoRA with SRT routing + SGWI warm-init (V2: Pooled Mahalanobis).
+SRT_InfLoRA: InfLoRA with SRT routing + SGWI warm-init (ZCA Whitening V1).
 
 Replaces InfLoRA's task-ID cumulative LoRA + GPM/DualGPM with:
-  - SRT: Pooled Mahalanobis routing on frozen backbone mean-pooled embeddings
-    (no ZCA whitening — simpler, same theoretical grounding)
-  - Ridge shrinkage on Σ_pool each time a new task is added
-  - SGWI: Warm-init for new task LoRA via SVD of weighted ΔW
+  - SRT: ZCA Whitening routing on frozen backbone CLS token embeddings
+  - ZCA Whitening: W_zca = V @ Λ^{-1/2} @ V^T from pooled Σ → spherizes embeddings
+  - SGWI: Warm-init for new task LoRA via Mahalanobis distance between centroids
   - Train both A and B matrices (InfLoRA freezes A)
   - No GPM/DualGPM
 
 Pipeline per task:
   1. Train LoRA A/B + classifier for current task
-  2. Extract mean-pooled frozen backbone embeddings → SRT router
-  3. SGWI warm-init for next task: ΔW = Σ_s w_s·ΔW_s → SVD → A_new, B_new
+  2. Extract CLS token embeddings from frozen backbone → SRT router
+  3. SGWI warm-init for next task: Mahalanobis ΔW → SVD → A_new, B_new
+  4. Inference: ZCA whitening → L2 distance to whitened centroids → hard route
+
+Mathematical identity with NLP (T5):
+  - NLP: h(x) = mean_pool(Frozen_T5(x))
+  - Vision: h(x) = CLS_token(Frozen_ViT(x))   ← same algorithm after this step
+  - Task Signature: μ_t = mean(h), Σ_t = cov(h)   ← identical
+  - SGWI: d_Mahalanobis(μ_cur, μ_s) → SVD Fusion   ← identical
+  - Inference: ZCA Whitening → L2 distance   ← identical
 """
 
 import torch
@@ -195,14 +202,11 @@ class SRT_InfLoRA(BaseLearner):
         current_mu = cur_emb.mean(axis=0)  # (D,) — centroid of current task
 
         # ── Step 2: Pooled Mahalanobis distance to each past task ──────
-        Sinv = router._Sinv  # pooled Σ⁻¹ (D, D)
-
+        # Use ZCA-based Mahalanobis: Σ⁻¹ = W_zca @ W_zca.T
+        # This is the same metric used in the T5/SRT SGWI implementation.
         distances = {}
         for t_id, sig in router.signatures.items():
-            diff = current_mu - sig.mu  # (D,)
-            # Mahalanobis = diffᵀ Σ⁻¹ diff
-            diff_Sinv = diff @ Sinv
-            d = float((diff * diff_Sinv).sum())
+            d = router.mahalanobis_distance(current_mu, sig.mu)
             distances[t_id] = d
 
         if not distances:
@@ -346,10 +350,12 @@ class SRT_InfLoRA(BaseLearner):
           2. Route: argmin_t (h - μ_t)ᵀ Σ_pool⁻¹ (h - μ_t)
           3. Apply predicted task's LoRA + classifier
           4. Map to global class index
+          5. Track task routing accuracy (predicted task vs true task)
         """
         self._network.eval()
         y_pred, y_true = [], []
         y_pred_with_task = []
+        task_correct, task_total = 0, 0
 
         for _, (_, inputs, targets) in enumerate(loader):
             inputs = inputs.to(self._device)
@@ -365,6 +371,9 @@ class SRT_InfLoRA(BaseLearner):
                 pred_tasks_np = self._srt_router.route(frozen_np)
                 pred_tasks = torch.from_numpy(pred_tasks_np).to(self._device)
 
+                # True task from label
+                true_tasks = targets // self.class_num  # (B,) — ground truth task ID
+
                 # Compute logits for each predicted task
                 outputs = []
                 for b in range(batch_size):
@@ -373,6 +382,10 @@ class SRT_InfLoRA(BaseLearner):
                     out = self._network.classifier_pool[t](out['features'])
                     outputs.append(out)
                 outputs = torch.cat(outputs, dim=0)  # (B, class_num)
+
+                # Task routing accuracy
+                task_correct += pred_tasks.eq(true_tasks).cpu().sum().item()
+                task_total += batch_size
 
                 # Global prediction: local_class + task_offset
                 task_offset = pred_tasks.cpu() * self.class_num
@@ -391,13 +404,14 @@ class SRT_InfLoRA(BaseLearner):
                 predicts_with_task = predicts_with_task + (targets // self.class_num) * self.class_num
                 y_pred_with_task.append(predicts_with_task.cpu().numpy())
 
-        return np.concatenate(y_pred), np.concatenate(y_pred_with_task), np.concatenate(y_true)
+        task_accy = 100.0 * task_correct / max(task_total, 1)
+        return np.concatenate(y_pred), np.concatenate(y_pred_with_task), np.concatenate(y_true), task_accy
 
     def eval_task(self):
-        cnn_accy, cnn_accy_with_task, y_true = self._eval_cnn(self.test_loader)
+        cnn_accy, cnn_accy_with_task, y_true, task_accy = self._eval_cnn(self.test_loader)
         cnn_result = self._evaluate(cnn_accy, y_true)
         cnn_result_with_task = self._evaluate(cnn_accy_with_task, y_true)
-        return cnn_result, cnn_result_with_task, None, 0.0
+        return cnn_result, cnn_result_with_task, None, task_accy
 
 
 class CosineSchedule:

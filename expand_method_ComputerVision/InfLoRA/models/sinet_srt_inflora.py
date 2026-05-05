@@ -29,11 +29,11 @@ from models.srt_router import SRT_Router
 class ViT_Frozen(nn.Module):
     """
     Frozen ViT using ViT_lora_co with task_id=-1 to skip LoRA entirely.
-    Extracts mean-pooled embeddings across all tokens (CLS + patches)
-    WITHOUT fc_norm — matches T5's encoder extraction approach exactly.
+    Extracts CLS token embedding (index 0) WITHOUT fc_norm.
 
-    T5:  hidden = encoder.last_hidden_state → mean(all tokens)
-    ViT: hidden = blocks + norm → mean(all tokens, NO fc_norm)
+    User's algorithm: "h(x) = Frozen_ViT(x)[CLS_token]"
+    T5:  h(x) = mean_pool(Frozen_T5(x))
+    ViT: h(x) = CLS_token(Frozen_ViT(x))
     """
 
     def __init__(self, args):
@@ -51,23 +51,23 @@ class ViT_Frozen(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Extract mean-pooled embeddings from frozen backbone WITHOUT fc_norm.
+        Extract CLS token from frozen backbone (no LoRA, no fc_norm).
 
-        Matches T5 extraction logic exactly:
-          T5:  hidden = encoder.last_hidden_state → mean(all tokens)
-          ViT: hidden = blocks + norm → mean(all tokens)
+        User's algorithm: "h(x) = Frozen_ViT(x)[CLS_token]"
+        Matches NLP's mean_pool(Frozen_T5(x)) role — the SRT input h(x).
 
         We call forward_features() directly to avoid fc_norm (LayerNorm)
-        which destroys the anisotropic hyper-sphere geometry that SRT exploits.
+        which destroys the anisotropic hyper-sphere geometry that ZCA exploits.
 
-        Returns: [B, D] mean-pooled embedding (no normalization applied)
+        Returns: [B, D] CLS token embedding (no normalization applied)
         """
         with torch.no_grad():
             # forward_features returns (B, seq+1, D) after blocks + final norm
             # task=-1 skips LoRA in Attention_LoRA_SRT
             hidden = self.vit.forward_features(x, task=-1)  # (B, seq+1, D)
-            # Mean pooling over ALL tokens (CLS + patches) — matches T5 approach
-            return hidden.mean(dim=1)  # (B, D) — no fc_norm, no LayerNorm applied
+            # CLS token (index 0) — matches user's spec exactly
+            # User's algorithm: "h(x) = Frozen_ViT(x)[CLS_token]"
+            return hidden[:, 0]  # (B, D)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -368,12 +368,11 @@ class SiNet_SRT(nn.Module):
             for _ in range(args["total_sessions"])
         ])
 
-        # SRT Router V2: Pooled Mahalanobis with ridge shrinkage.
-        # shrinkage from config: "ridge" → use ridge shrinkage (default)
-        # No ZCA whitening — simpler, same theoretical grounding.
+        # SRT Router V1: ZCA Whitening routing.
+        # Matches "Whitening Sentence Representations" (Huang et al., ACL 2021).
+        # W_zca = V @ Λ^{-1/2} @ V^T from pooled Σ → spherizes embeddings.
         self.srt_router = SRT_Router(
             embed_dim=args["embd_dim"],
-            shrinkage=args.get("srt_shrinkage", "ridge"),
         )
 
         self.numtask = 0
