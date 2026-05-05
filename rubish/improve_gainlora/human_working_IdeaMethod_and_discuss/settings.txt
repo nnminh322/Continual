@@ -1,0 +1,42 @@
+Các ràng buộc (settings) cốt lõi của bài toán học liên tục (Continual Learning) trong nghiên cứu này đối với luồng tác vụ (task stream):
+
+1. **Zero-rehearsal / Exemplar-free (Không phát lại dữ liệu):**
+   - KHÔNG được lưu trữ, truy cập, hay sử dụng lại bất kỳ mẫu dữ liệu gốc (raw data samples) nào từ các tác vụ đã học.
+   - KHÔNG được phép sử dụng các mô hình sinh (generative models) để tái tạo dữ liệu giả (pseudo/synthetic data) của các tác vụ cũ nhằm mục đích huấn luyện lại.
+
+2. **Task-Agnostic Inference (Suy luận không có danh tính tác vụ):**
+   - Tại thời điểm suy luận (inference), mô hình KHÔNG được cung cấp bất kỳ thông tin nào về Task ID.
+   - Hệ thống tự chịu trách nhiệm định tuyến (routing) hoặc nhận diện tác vụ đầu vào để xử lý phù hợp.
+
+3. **Subspace/Parameter Isolation (Cô lập tham số/không gian):**
+   - Việc cập nhật tri thức mới (task hiện tại) không được phép can thiệp hoặc ghi đè lên không gian lưu trữ tri thức của các task cũ (catastrophic forgetting).
+   - Thiết kế sử dụng các PEFT module (như LoRA) song song, mỗi task một adapter riêng.
+
+4. **Statistical Signature Allowance (Cho phép lưu trữ Đặc trưng Thống kê):**
+   Đây là điểm nới lỏng quan trọng, được xác lập dựa trên quan sát thực tế về ROOT (GainLoRA):
+   
+   a) **Baseline ROOT đã lưu trữ những gì (đã kiểm chứng trong code):**
+   
+      | Artifact | Bản chất | Nguồn gốc |
+      |----------|----------|-----------|
+      | `reg_{i}.pt` (GPM bases) | SVD bases từ covariance H_l @ H_l^T | PURE DATA STATISTICS — H_l là activation của training data qua encoder layers |
+      | `trans_input/reg_{0,1,2}.pt` | SVD bases từ covariance của activations qua trans_input MLP | PURE DATA STATISTICS — covariance của embedding trung bình training data |
+      | `attention_weights.pkl` | Mean routing weights trên eval data | HYBRID — cần eval data + learned prompt_key |
+      | `previous_trans_input.pt` | Frozen copies của trans_input MLP weights | MODEL PARAMETERS — 102,400 params × task_id |
+      | `prompts_keys_till_now.pt` | Concatenated routing keys | MODEL PARAMETERS — (task_id+1, d_model) |
+      | `lora_weights_{A,B}.pt` | LoRA adapter weights | MODEL PARAMETERS |
+   
+   b) **Nguyên tắc cho phép:**
+      - Bất kỳ đại lượng thống kê nào được trích xuất từ dữ liệu tại thời điểm huấn luyện task đó (covariance matrix, mean vector, SVD bases, class prototypes, distribution parameters) là HỢP LỆ, miễn:
+        (i) Không thể dùng để khôi phục (reconstruct) dữ liệu gốc
+        (ii) Tổng memory budget ≤ ROOT budget
+      - GainLoRA ĐÃ sử dụng data statistics (GPM bases CHÍNH LÀ SVD trên data covariance), do đó đây KHÔNG phải nới lỏng settings mà là XÁC NHẬN lại đúng settings gốc đã tồn tại.
+   
+   c) **Điều THỰC SỰ bị cấm:**
+      - Replay raw samples hoặc synthetic samples vào training loop
+      - Sử dụng generative model để tạo lại pseudo-data
+      - Lưu raw activations (không nén) có thể decode ngược về text
+
+5. **Frozen Backbone (Backbone đóng băng):**
+   - Trọng số W_0 của pretrained model (T5/LLaMA) hoàn toàn frozen.
+   - Chỉ PEFT modules (LoRA adapters + routing components) được cập nhật.

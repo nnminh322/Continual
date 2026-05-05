@@ -1,0 +1,126 @@
+mkdir /dev/shm/test_sam3/
+cd /dev/shm/test_sam3/
+
+git clone -b main --depth 1 https://github.com/nnminh322/Continual.git
+cd Continual/improve_gainlora/
+
+export UV_INSTALL_DIR="/dev/shm/uv_bin"
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="/dev/shm/uv_bin:$PATH"
+export UV_CACHE_DIR="/dev/shm/uv_cache"
+export UV_PYTHON_INSTALL_DIR="/dev/shm/uv_python"
+uv venv -p 3.12 /dev/shm/test_sam3/bbox_test
+
+export HF_HOME="/dev/shm/huggingface"
+mkdir -p $HF_HOME
+
+source /dev/shm/test_sam3/bbox_test/bin/activate
+uv pip install -r requirements.txt --index-strategy unsafe-best-match
+
+huggingface-cli login
+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
+
+python -c "from transformers import LlamaForCausalLM, AutoTokenizer; \
+    path = 'meta-llama/Llama-2-7b-hf'; \
+    cache = '/dev/shm/huggingface'; \
+    tokenizer = AutoTokenizer.from_pretrained(path, cache_dir=cache); \
+    model = LlamaForCausalLM.from_pretrained(path, cache_dir=cache, low_cpu_mem_usage=True)"
+
+
+bash gen_script_superni_order1_llama_specroute.sh 0 meta-llama/Llama-2-7b-hf
+bash gen_script_superni_order2_llama_specroute.sh 0 meta-llama/Llama-2-7b-hf
+
+
+
+ ---
+  Data flow đầy đủ:
+  task t training xong
+    → run_t5.py: trainer.on_task_end(task_order[cur_task_id])
+      → SRT_Trainer._compute_and_store_signature()           
+        → _extract_task_embeddings() → mean-pool encoder hidden states
+        → srt_router.add_task() → {μ_t, Σ_t} + pooled Σ + reshrink all + SRM
+      → SRT_Trainer._replace_attention_routing()                            
+        → model.encoder.srt_router = self.srt_router
+        → model.encoder.srt_n_tasks = len(signatures)
+        → model.encoder.use_srt_routing = True       
+      → trainer.save_srt_signatures(save_path)
+                                              
+  task t+1 inference
+    → model.forward() → encoder.forward()
+      → SRT injection: srt_router.route(h) → (B,) task IDs → one-hot weights
+      → key_attention_weights[:] = srt_weights (override learned routing)   
+                                                                         
+
+Data flow đầy đủ sau cùng:
+  Task t training xong
+    → run_t5.py: trainer.on_task_end(task_order[t])
+      → _compute_and_store_signature()
+        → extract embeddings (frozen backbone mean-pool)
+        → SRTRouter.add_task(task_id=t, h_train)
+          1. μ_t, Σ̂_t = mean/cov of h_train
+          2. Ledoit-Wolf shrink Σ̂_t → Σ_t (BUG E fixed)
+          3. Update pooled Σ_pool (Welford-Hart, no overcount)
+          4. Re-shrink ALL previous: Σ ← (1-α)·Σ_raw + α·Σ_pool (BUG A fixed)
+          5. SRM metric selection (BUG F fixed: use_srm=True)
+      → _replace_attention_routing()
+        → model.encoder.srt_router = router
+        → model.encoder.srt_n_tasks = n
+        → model.encoder.srt_task_id_to_idx = {tid: idx+1}  (BUG C fixed)
+        → model.encoder.use_srt_routing = True
+
+  Task t+1 inference
+    → model.forward() → encoder.forward()
+      → cal_attention() → key_attention_weights (B, 1+N_prev, 1)
+      → SRT injection:
+        h_route = avg_inputs_embeds.squeeze(1).numpy()
+        srt_preds, _ = srt_router.route(h_route)
+        srt_weights = zeros(B, 1+n_prev, 1)
+        for b: pos = srt_task_id_to_idx[srt_preds[b]]   (BUG C fixed)
+               srt_weights[b, pos, 0] = 1.0
+        key_attention_weights[:] = srt_weights          (BUG B fixed: correct 3D shape)
+      → agg_lora_states(..., srt_weights) → per-task LoRA blending
+
+
+---
+  Data flow đầy đủ sau fix cuối:
+
+  Task t training xong → run_t5.py: trainer.on_task_end(task_order[t])
+    → _compute_and_store_signature()
+        extract embeddings → SRTRouter.add_task(task_id=t)
+          μ_t, Σ̂_t = mean/cov(h_train)
+          Ledoit-Wolf shrink Σ̂_t (unconditional)
+          update_pooled Σ_pool (Welford-Hart, correct)
+          _reshrink_all(): Σ ← (1-α)·Σ_raw + α·Σ_pool ← Bug A fixed
+          SRM metric selection (use_srm=True) ← Bug F fixed
+    → _replace_attention_routing()
+        srt_task_id_to_idx = {task_order[t]: 0} ∪ {task_order[i]: i+1 for i < t}
+        ← Bug B.2 fixed (task_order, not sorted)
+        model.encoder.{srt_router, srt_task_id_to_idx, use_srt_routing=True}
+    → save srt_signatures.npz
+
+  Task t+1 inference → model.forward() → encoder.forward()
+    → cal_attention() → key_attention_weights (B, 1+N_prev, 1)
+    → SRT injection:
+        h_route = avg_inputs_embeds.squeeze(1).numpy()
+        srt_preds, _ = srt_router.route(h_route)   (B,) task IDs
+        n_slots = key_attention_weights.shape[1]    ← Bug B.1 fixed
+        srt_weights = zeros(B, n_slots, 1)
+        for b: pos = srt_task_id_to_idx[srt_preds[b]]   ← Bug B.2+B.3 fixed
+              srt_weights[b, pos, 0] = 1.0
+        key_attention_weights[:] = srt_weights
+    → agg_lora_states(srt_weights) → per-task LoRA blend ← PSR now correct
+
+
+ không bạn hiểu nhầm ý của tôi, hãy đọc log, bạn sẽ thấy. vì cách tiếp cận của tôi
+  '/Users/nnminh322/Desktop/personal/Continual/new_gainlora' là việc routing là không training - chỉ là bài toán phân cụm dựa vào khoảng   
+  cách. nên catastrophic forgetting chỉ đến từ 1 lý do duy nhất: routing (phân cụm sai). trong khi thử nghiệm của tôi (dùng embedding
+  train để tính phân phối, embedding test để test độ chính xác phân cụm, đạt ~100% trên T5 và 93-94% trên llama) phân cụm rất tốt, tại
+  sao khi implement lại routing tệ (quan sát log '/Users/nnminh322/Desktop/personal/Continual/log_temp.txt' bạn sẽ thấy task yelp - drop
+  từ 71-> 62 ở task số 3). Tức là nó đã phân cụm sai. Thế thì, nó sai ở đâu? chỉ có 3 trường hợp: ngay từ đầu, thử nghiệm của tôi đã code
+  sai! (log thì print ra whitening với nearest neigborhood l2 đều đạt gần 100% và 93% thật, nhưng liệu code có lỗi gì khiến cho kết quả
+  đó không thực tế không?). Trường hợp 2: việc port cơ chế routing đó từ thử nghiệm - sang thực tế ở
+  '/Users/nnminh322/Desktop/personal/Continual/new_gainlora' làm lỗi, sai, khiến cho routing bị sai! trường hợp 3 (tôi nghĩ ít xảy ra) là
+  do t5 quá nhỏ!? (vì thực tế thử nghiệm trên t5 large-xl, khong thử trên small) - nhưng cũng không loại trừ khả năng nàylog temp tôi
+  chạy là chạy bash gen_script_long_order3_t5_srt_hard.sh 0 google/flan-t5-small. Tôi muốn biết nguyên nhân cặn kẽ, tạo sao trước khi
+  thưc hiện bâtf kỳ thay đổi code nào
+  

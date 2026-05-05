@@ -1,0 +1,4 @@
+tôn chỉ làm việc:
+chỉ cải thiện implement tốt hơn, nhưng không sa vào over engineer, nếu các implement không cải thiện hãy xem lại methodology/idea, đây là công việc research, bám sát vào idea 
+
+cách tiếp cận là apply những kỹ thuật, công nghệ trong toán học, ML trending vào bài toán, xây dựng ra một contributions novelity, đẹp đẽ và logic, chặt chẽ. có toán học,lý thuyết ML, lý thuyết thông tin chống lưng
