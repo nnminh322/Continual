@@ -1,8 +1,0 @@
-{
-  "SuperNI": [
-    {
-      "sampling strategy": "full",
-      "dataset name": "task002_quoref_answer_generation"
-    }
-  ]
-}
