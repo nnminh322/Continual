@@ -21,7 +21,7 @@ def build_transform(is_train, args):
     if is_train:
         scale = (0.05, 1.0)
         ratio = (3. / 4., 4. / 3.)
-        
+
         transform = [
             transforms.RandomResizedCrop(input_size, scale=scale, ratio=ratio),
             transforms.RandomHorizontalFlip(p=0.5),
@@ -37,19 +37,19 @@ def build_transform(is_train, args):
         )
         t.append(transforms.CenterCrop(input_size))
     t.append(transforms.ToTensor())
-    
+
     # return transforms.Compose(t)
     return t
 
 class iCUB(iData):
     use_path = True
-    
+
     train_trsf=[
             transforms.RandomResizedCrop(224, scale=(0.05, 1.0), ratio=(3./4., 4./3.)),
             transforms.RandomHorizontalFlip(p=0.5),
             ]
     test_trsf=[
-        transforms.Resize(256, interpolation=3), 
+        transforms.Resize(256, interpolation=3),
         transforms.CenterCrop(224),
         ]
     common_trsf = [transforms.ToTensor()]
@@ -118,7 +118,7 @@ class iCIFAR100(iData):
     test_trsf = [
         transforms.Resize(224),
         ]
-    
+
     common_trsf = [
         transforms.ToTensor(),
         transforms.Normalize(
@@ -188,13 +188,13 @@ class iIMAGENET_R(iData):
         # load splits from config file
         if not os.path.exists(os.path.join(self.args['data_path'], 'train')) and not os.path.exists(os.path.join(self.args['data_path'], 'train')):
             self.dataset = datasets.ImageFolder(self.args['data_path'], transform=None)
-            
+
             train_size = int(0.8 * len(self.dataset))
             val_size = len(self.dataset) - train_size
-            
+
             train, val = torch.utils.data.random_split(self.dataset, [train_size, val_size])
             train_idx, val_idx = train.indices, val.indices
-    
+
             self.train_file_list = [self.dataset.imgs[i][0] for i in train_idx]
             self.test_file_list = [self.dataset.imgs[i][0] for i in val_idx]
 
@@ -224,7 +224,7 @@ class iIMAGENET_R(iData):
                 os.mkdir(os.path.join(os.path.join(train_folder, c)))
             if not os.path.exists(os.path.join(test_folder, c)):
                 os.mkdir(os.path.join(os.path.join(test_folder, c)))
-        
+
         for path in self.train_file_list:
             if '\\' in path:
                 path = path.replace('\\', '/')
@@ -238,7 +238,7 @@ class iIMAGENET_R(iData):
             src = path
             dst = os.path.join(test_folder, '/'.join(path.split('/')[-2:]))
             move(src, dst)
-        
+
         for c in self.dataset.classes:
             path = os.path.join(self.args['data_path'], c)
             rmtree(path)
@@ -251,7 +251,7 @@ class iIMAGENET_A(iData):
             transforms.RandomHorizontalFlip(p=0.5),
             ]
     test_trsf=[
-        transforms.Resize(256, interpolation=3), 
+        transforms.Resize(256, interpolation=3),
         transforms.CenterCrop(224),
         ]
     common_trsf = [transforms.ToTensor()]
@@ -297,24 +297,57 @@ class iDomainNet(iData):
         self.class_order = class_order
         self.domain_names = ["clipart", "infograph", "painting", "quickdraw", "real", "sketch", ]
 
+    def _resolve_image_path(self, path):
+        path = str(path).replace('\\', '/')
+
+        if os.path.isabs(path) and os.path.exists(path):
+            return path
+        if os.path.exists(path):
+            return path
+
+        data_root = self.args.get('data_path') if self.args is not None else None
+        if data_root:
+            tail = path.split('/', 2)[-1] if path.startswith('data/') else path
+            candidate = os.path.join(data_root, tail)
+            if os.path.exists(candidate):
+                return candidate
+
+        return path
+
     def download_data(self):
         # load splits from config file
-        train_data_config = yaml.load(open('dataloaders/splits/domainnet_train.yaml', 'r'), Loader=yaml.Loader)
-        test_data_config = yaml.load(open('dataloaders/splits/domainnet_test.yaml', 'r'), Loader=yaml.Loader)
-        self.train_data = np.array(train_data_config['data'])
+        train_split = os.path.join(os.path.dirname(__file__), '..', 'dataloaders', 'splits', 'domainnet_train.yaml')
+        test_split = os.path.join(os.path.dirname(__file__), '..', 'dataloaders', 'splits', 'domainnet_test.yaml')
+
+        train_data_config = yaml.load(open(train_split, 'r'), Loader=yaml.Loader)
+        test_data_config = yaml.load(open(test_split, 'r'), Loader=yaml.Loader)
+
+        self.train_data = np.array([self._resolve_image_path(path) for path in train_data_config['data']])
         self.train_targets = np.array(train_data_config['targets'])
-        self.test_data = np.array(test_data_config['data'])
+        self.test_data = np.array([self._resolve_image_path(path) for path in test_data_config['data']])
         self.test_targets = np.array(test_data_config['targets'])
+
+        missing_train = next((path for path in self.train_data if not os.path.exists(path)), None)
+        if missing_train is not None:
+            raise FileNotFoundError(
+                f"DomainNet train sample not found after path resolution: {missing_train}. "
+                f"Check args['data_path']={self.args.get('data_path')!r} and the mounted dataset root.")
+
+        missing_test = next((path for path in self.test_data if not os.path.exists(path)), None)
+        if missing_test is not None:
+            raise FileNotFoundError(
+                f"DomainNet test sample not found after path resolution: {missing_test}. "
+                f"Check args['data_path']={self.args.get('data_path')!r} and the mounted dataset root.")
 
 
 def jpg_image_to_array(image_path):
     """
-    Loads JPEG image into 3D Numpy array of shape 
+    Loads JPEG image into 3D Numpy array of shape
     (width, height, channels)
     """
-    with Image.open(image_path) as image:      
+    with Image.open(image_path) as image:
         image = image.convert('RGB')
         im_arr = np.fromstring(image.tobytes(), dtype=np.uint8)
-        im_arr = im_arr.reshape((image.size[1], image.size[0], 3))                                   
+        im_arr = im_arr.reshape((image.size[1], image.size[0], 3))
     return im_arr
 

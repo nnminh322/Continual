@@ -176,8 +176,9 @@ class DummyDataset(Dataset):
         return len(self.images)
 
     def __getitem__(self, idx):
+        image_path = str(self.images[idx])
         if self.use_path:
-            image = self.trsf(pil_loader(self.images[idx]))
+            image = self.trsf(pil_loader(image_path))
         else:
             image = self.trsf(Image.fromarray(self.images[idx]))
         label = self.labels[idx]

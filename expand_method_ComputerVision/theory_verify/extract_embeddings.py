@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import os
 import random
 from pathlib import Path
 
@@ -69,17 +70,22 @@ def worker_init_fn(worker_id: int) -> None:
 
 
 def build_loader(dataset, batch_size: int, num_workers: int, seed: int):
+    max_workers = min(4, os.cpu_count() or 1)
+    safe_num_workers = min(max(num_workers, 0), max_workers)
     generator = torch.Generator()
     generator.manual_seed(seed)
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=torch.cuda.is_available(),
-        worker_init_fn=worker_init_fn,
-        generator=generator,
-    )
+    loader_kwargs = {
+        "dataset": dataset,
+        "batch_size": batch_size,
+        "shuffle": False,
+        "num_workers": safe_num_workers,
+        "pin_memory": torch.cuda.is_available(),
+        "generator": generator,
+    }
+    if safe_num_workers > 0:
+        loader_kwargs["worker_init_fn"] = worker_init_fn
+        loader_kwargs["persistent_workers"] = True
+    return DataLoader(**loader_kwargs)
 
 
 def extract_split_embeddings(loader, backbone, descriptor: str, device: str, limit_per_split: int | None):
@@ -141,7 +147,8 @@ def main() -> None:
     config, config_path = load_config(args.config)
     seed = int(args.seed if args.seed is not None else config["seed"][0])
     batch_size = int(args.batch_size if args.batch_size is not None else config["batch_size"])
-    num_workers = int(args.num_workers if args.num_workers is not None else config["num_workers"])
+    requested_num_workers = int(args.num_workers if args.num_workers is not None else config["num_workers"])
+    num_workers = min(max(requested_num_workers, 0), min(4, os.cpu_count() or 1))
     device = resolve_torch_device(args.device)
 
     set_seed(seed)
@@ -160,6 +167,8 @@ def main() -> None:
 
     backbone = ViT_Frozen(data_args).to(device)
     backbone.eval()
+
+    print(f"[setup] device={device} requested_num_workers={requested_num_workers} effective_num_workers={num_workers}")
 
     output_root = Path(args.output_root)
     run_dir = output_root / build_run_name(data_args, args.descriptor)
