@@ -379,6 +379,20 @@ class iDomainNet(iData):
         return path
 
     def download_data(self):
+        # Auto-detect DomainNet root if the configured data_path doesn't exist as-is.
+        # This handles Kaggle mounts where the path in the config is a relative placeholder.
+        current_root = self.args.get('data_path') if self.args is not None else None
+        current_root_path = Path(current_root).expanduser() if current_root else None
+        if current_root_path is None or not current_root_path.exists():
+            detected = resolve_domainnet_root(current_root)
+            if detected is not None:
+                print(f"[iDomainNet] auto-detected DomainNet root: {detected}")
+                if self.args is not None:
+                    self.args['data_path'] = detected
+            else:
+                print(f"[iDomainNet] WARNING: could not auto-detect DomainNet root from {current_root!r}. "
+                      f"Proceeding with path resolution; set DOMAINNET_ROOT or pass --data_path to fix this.")
+
         # load splits from config file
         train_split = os.path.join(os.path.dirname(__file__), '..', 'dataloaders', 'splits', 'domainnet_train.yaml')
         test_split = os.path.join(os.path.dirname(__file__), '..', 'dataloaders', 'splits', 'domainnet_test.yaml')
@@ -393,15 +407,21 @@ class iDomainNet(iData):
 
         missing_train = next((path for path in self.train_data if not os.path.exists(path)), None)
         if missing_train is not None:
+            data_root = self.args.get('data_path') if self.args is not None else None
             raise FileNotFoundError(
                 f"DomainNet train sample not found after path resolution: {missing_train}. "
-                f"Check args['data_path']={self.args.get('data_path')!r} and the mounted dataset root.")
+                f"Effective data_path={data_root!r}. "
+                f"Set DOMAINNET_ROOT env var or pass --data_path to the directory containing the domain folders "
+                f"(clipart, infograph, painting, quickdraw, real, sketch).")
 
         missing_test = next((path for path in self.test_data if not os.path.exists(path)), None)
         if missing_test is not None:
+            data_root = self.args.get('data_path') if self.args is not None else None
             raise FileNotFoundError(
                 f"DomainNet test sample not found after path resolution: {missing_test}. "
-                f"Check args['data_path']={self.args.get('data_path')!r} and the mounted dataset root.")
+                f"Effective data_path={data_root!r}. "
+                f"Set DOMAINNET_ROOT env var or pass --data_path to the directory containing the domain folders "
+                f"(clipart, infograph, painting, quickdraw, real, sketch).")
 
 
 def jpg_image_to_array(image_path):
@@ -528,5 +548,19 @@ def resolve_domainnet_root(candidate_root=None):
                 if root.exists():
                     return str(root.resolve())
 
+    # Could not find DomainNet — print diagnostics to help the user locate the dataset.
+    print("[resolve_domainnet_root] WARNING: could not locate DomainNet. Diagnostics:")
+    print(f"  candidate_root={candidate_root!r}")
+    print(f"  DOMAINNET_ROOT env={os.environ.get('DOMAINNET_ROOT')!r}")
+    print(f"  cwd={str(Path.cwd())!r}")
+    for base in [Path('/kaggle/input'), Path('/kaggle/working'), Path('/content'), Path('/mnt/data')]:
+        if base.exists():
+            try:
+                children = [str(c) for c in base.iterdir() if c.is_dir()][:10]
+                print(f"  {base}: {children}")
+            except OSError:
+                print(f"  {base}: (unreadable)")
+        else:
+            print(f"  {base}: does not exist")
     return None
 
