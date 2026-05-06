@@ -248,13 +248,19 @@ def run_incremental_eval(emb_dir: Path, task_specs: list[dict], routers: Ordered
             router.add_task(train_embs)
 
         seen_specs = task_specs[:step_idx + 1]
+
+        # Preload all test splits for the seen specs once to avoid repeated disk reads
+        test_cache: dict[str, np.ndarray] = {}
+        for seen_spec in seen_specs:
+            test_cache[seen_spec["task_name"]] = load_split(emb_dir, seen_spec["task_name"], "test")
+
         for router_name, router in routers.items():
             per_task = OrderedDict()
             total_correct = 0
             total_count = 0
 
             for true_task_idx, seen_spec in enumerate(seen_specs):
-                test_embs = load_split(emb_dir, seen_spec["task_name"], "test")
+                test_embs = test_cache[seen_spec["task_name"]]
                 preds = router.route(test_embs)
                 correct = int((preds == true_task_idx).sum())
                 count = int(test_embs.shape[0])
