@@ -60,6 +60,12 @@ echo "[INFO] Device: $DEVICE"
 echo "[INFO] Seed:   $SEED"
 echo "[INFO] Config: $CONFIG"
 
+if [ -n "${DATA_PATH:-}" ]; then
+    echo "[INFO] DATA_PATH override: $DATA_PATH"
+elif [ -n "${DOMAINNET_ROOT:-}" ] && [ "$BENCHMARK" = "domainnet" ]; then
+    echo "[INFO] DOMAINNET_ROOT override: $DOMAINNET_ROOT"
+fi
+
 # ── Validate config exists ─────────────────────────────────────────────────
 if [ ! -f "$CONFIG" ]; then
     echo "[ERROR] Config not found: $CONFIG"
@@ -67,9 +73,18 @@ if [ ! -f "$CONFIG" ]; then
 fi
 
 # ── Run ───────────────────────────────────────────────────────────────────
+EXTRA_ARGS=()
+if [ -n "${DATA_PATH:-}" ]; then
+    EXTRA_ARGS+=(--data_path "$DATA_PATH")
+elif [ -n "${DOMAINNET_ROOT:-}" ] && [ "$BENCHMARK" = "domainnet" ]; then
+    EXTRA_ARGS+=(--data_path "$DOMAINNET_ROOT")
+fi
+
 python main.py \
     --config "$CONFIG" \
-    --device "$DEVICE"
+    --device "$DEVICE" \
+    --seed "$SEED" \
+    "${EXTRA_ARGS[@]}"
 
 LOGDIR="logs/${BENCHMARK}/"
 echo "[DONE] Results saved under $LOGDIR"

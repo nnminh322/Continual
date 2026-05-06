@@ -3,39 +3,55 @@
 This folder contains offline, zero-rehearsal routing sanity checks for the CV SRT setting.
 
 Protocol:
-- Reuse the original InfLoRA task order from `DataManager`.
+- Reuse the original continual task order from the selected backend.
 - For each task, extract frozen vision embeddings from the current task train split and current task test split.
 - Re-run continual routing offline: at step `t`, fit each router only on train embeddings from tasks `0..t`, then evaluate on all test tasks seen so far.
 - Two extraction backends now exist:
-  - `InfLoRA`: the original ViT-based path already used for DomainNet.
-  - `S-Prompts CLIP`: a new frozen CLIP ViT-B/16 path for true domain-incremental Office-Home.
+  - `S-Prompts CLIP`: a frozen CLIP ViT-B/16 path for true domain-incremental Office-Home.
+  - `SOYO CLIP`: a frozen CLIP path that reuses SOYO's continual `DataManager` for `CORe50` and `CDDB` while bypassing SOYO's selector.
 
 Hypothesis check:
 - Keep the same offline SRT routing logic.
 - Swap only the benchmark and frozen backbone when needed.
-- Primary target for the new CLIP track is `officehome_sprompt_clip`.
-- The older InfLoRA track remains available as `domainnet_natural`.
+- Primary target for the new CLIP track is `soyo_clip_pair`.
 
 Main one-command hypothesis wrapper:
 
 ```bash
 python expand_method_ComputerVision/theory_verify/verify_benchmark_hypothesis.py \
-  --experiment domainnet_natural \
+  --experiment soyo_clip_pair \
   --descriptor cls \
+  --data_path /path/to/parent-containing-CORe50-and-CDDB \
   --reuse_embeddings
 ```
 
-This writes the DomainNet routing report and a hypothesis summary under `expand_method_ComputerVision/theory_verify/results/`.
-If `--data_path` is omitted, the code will also try common Kaggle and local mount locations automatically.
-If auto-detection still fails, pass the directory that contains `data/DomainNet/...`.
+This writes the routing reports and a combined summary under `expand_method_ComputerVision/theory_verify/results/`.
 
-If you explicitly want the old artificial control comparison, you can still run:
+Important:
+- `CORe50` and `CDDB` are not shipped inside the repo.
+- The SOYO repo only contains code and configs.
+- You need to download or mount the datasets separately, then point `--data_path` either to the dataset root itself or to a parent folder that contains `CORe50` and/or `CDDB`.
+- In the current workspace, no local `CORe50` or `CDDB` folder was found automatically.
+
+Quick dataset sources:
+- `CDDB`: use the Hugging Face mirror [nebula/CDDB](https://huggingface.co/datasets/nebula/CDDB). It currently hosts a `CDDB.tar` archive. A scripted download is:
 
 ```bash
-python expand_method_ComputerVision/theory_verify/verify_benchmark_hypothesis.py \
-  --experiment both \
-  --descriptor cls \
-  --reuse_embeddings
+python -m pip install -U "huggingface_hub[cli]"
+mkdir -p /tmp/cddb_hf
+huggingface-cli download nebula/CDDB CDDB.tar --repo-type dataset --local-dir /tmp/cddb_hf
+tar -xf /tmp/cddb_hf/CDDB.tar -C /path/to/parent-containing-CORe50-and-CDDB
+```
+
+- `CORe50`: use the official page [CORe50 Project](https://vlomonaco.github.io/core50/index.html#dataset). For this repo, the minimum required files are `core50_imgs.npz`, `paths.pkl`, `labels.pkl`, and `LUP.pkl`. A direct download is:
+
+```bash
+mkdir -p /path/to/parent-containing-CORe50-and-CDDB/CORe50
+cd /path/to/parent-containing-CORe50-and-CDDB/CORe50
+curl -L -O http://bias.csr.unibo.it/maltoni/download/core50/core50_imgs.npz
+curl -L -O https://vlomonaco.github.io/core50/data/paths.pkl
+curl -L -O https://vlomonaco.github.io/core50/data/labels.pkl
+curl -L -O https://vlomonaco.github.io/core50/data/LUP.pkl
 ```
 
 Office-Home with the frozen CLIP backbone copied from S-Prompts:
@@ -45,6 +61,51 @@ python expand_method_ComputerVision/theory_verify/verify_benchmark_hypothesis.py
   --experiment officehome_sprompt_clip \
   --descriptor cls \
   --task_order Art,Clipart,Product,Real_World \
+  --reuse_embeddings
+```
+
+SOYO-CLIP with the continual streams from `CORe50` and `CDDB`:
+
+```bash
+python expand_method_ComputerVision/theory_verify/verify_benchmark_hypothesis.py \
+  --experiment soyo_clip_pair \
+  --descriptor cls \
+  --data_path /path/to/parent-containing-CORe50-and-CDDB \
+  --reuse_embeddings
+```
+
+Here `/path/to/parent-containing-CORe50-and-CDDB` means a directory shaped like this:
+
+```text
+datasets/
+├── CORe50/
+│   ├── core50_imgs.npz
+│   ├── labels.pkl
+│   ├── LUP.pkl
+│   └── paths.pkl
+└── CDDB/
+    ├── biggan/
+    ├── gaugan/
+    ├── san/
+    ├── whichfaceisreal/
+    └── wild/
+```
+
+You can also run each SOYO benchmark separately:
+
+```bash
+python expand_method_ComputerVision/theory_verify/verify_benchmark_hypothesis.py \
+  --experiment core50_soyo_clip \
+  --descriptor cls \
+  --data_path /path/to/CORe50-or-its-parent \
+  --reuse_embeddings
+```
+
+```bash
+python expand_method_ComputerVision/theory_verify/verify_benchmark_hypothesis.py \
+  --experiment cddb_soyo_clip \
+  --descriptor cls \
+  --data_path /path/to/CDDB-or-its-parent \
   --reuse_embeddings
 ```
 
@@ -68,14 +129,6 @@ python expand_method_ComputerVision/theory_verify/verify_benchmark_hypothesis.py
   --reuse_embeddings
 ```
 
-Extractor:
-
-```bash
-python expand_method_ComputerVision/theory_verify/extract_embeddings.py \
-  --config expand_method_ComputerVision/InfLoRA/configs/domainnet_srt_inflora.json \
-  --descriptor cls
-```
-
 Standalone Office-Home CLIP extractor:
 
 ```bash
@@ -84,7 +137,24 @@ python expand_method_ComputerVision/theory_verify/extract_embeddings_sprompt_cli
   --task_order Art,Clipart,Product,Real_World
 ```
 
-Use `--data_path` whenever DomainNet is mounted outside the path stored in the config, or rely on the automatic fallback to common Kaggle/local roots. The value should be the parent directory of `data/DomainNet`, not the image folder itself.
+Standalone SOYO-CLIP extractor:
+
+```bash
+python expand_method_ComputerVision/theory_verify/extract_embeddings_soyo_clip.py \
+  --config expand_method_ComputerVision/SOYO/configs/core50_soyo_clip.yaml \
+  --descriptor cls \
+  --data_path /path/to/CORe50-or-its-parent
+```
+
+```bash
+python expand_method_ComputerVision/theory_verify/extract_embeddings_soyo_clip.py \
+  --config expand_method_ComputerVision/SOYO/configs/cddb_soyo_clip.yaml \
+  --descriptor cls \
+  --data_path /path/to/CDDB-or-its-parent
+```
+
+For SOYO-based extraction, `--data_path` can point either to the dataset root itself (`CORe50` or `CDDB`) or to a parent directory that contains one of those folders.
+The SOYO extractor currently supports `--descriptor cls` only, because SOYO exposes pooled CLIP image embeddings rather than token grids.
 
 Useful descriptor ablations:
 - `cls`: matches the current runtime path.
@@ -95,7 +165,7 @@ Routing evaluation:
 
 ```bash
 python expand_method_ComputerVision/theory_verify/routing_class.py \
-  --emb_dir expand_method_ComputerVision/theory_verify/embeddings/domainnet__init69__inc69__cls
+  --emb_dir expand_method_ComputerVision/theory_verify/embeddings/core50__soyoclip__init50__inc50__cls
 ```
 
 Routers currently included:
@@ -111,7 +181,7 @@ Debug options:
 - `--routers nearest,online_zca,maha_ridge`: run a subset of routers.
 
 Current intended workflow:
-- Extract DomainNet frozen embeddings with `domainnet_srt_inflora.json` when you want the original InfLoRA comparison.
 - Extract Office-Home frozen CLIP embeddings with `extract_embeddings_sprompt_clip.py` when you want the new CLIP/DIL sanity check.
+- Extract `CORe50` or `CDDB` frozen embeddings with `extract_embeddings_soyo_clip.py` when you want the new SOYO-based continual stream without the original selector.
 - Run offline routing on the extracted directory with `routing_class.py`.
-- Use `verify_benchmark_hypothesis.py --experiment officehome_sprompt_clip` for the new CLIP-first benchmark path.
+- Use `verify_benchmark_hypothesis.py --experiment soyo_clip_pair` as the default path for `CORe50 + CDDB`, or `--experiment officehome_sprompt_clip` if you specifically want Office-Home.

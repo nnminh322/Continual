@@ -1,0 +1,38 @@
+ ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │           SRT ROUTING ACCURACY SUMMARY                                                      │
+  ├──────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │  GT=task1290_xsum_summarization       slot_acc= 99.0%  label_acc= 99.0%  disagree=  0  [slot1=99  slot2=1]│
+  │  GT=task1572_samsum_summary           slot_acc= 85.0%  label_acc= 85.0%  disagree=  0  [slot1=3  slot3=17]│
+  │  GT=task181_outcome_extraction        slot_acc=100.0%  label_acc=100.0%  disagree=  0  [slot0=43]│
+  │  GT=task363_sst2_polarity_classifica  slot_acc=100.0%  label_acc=100.0%  disagree=  0  [slot2=100]│
+  ├──────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │  OVERALL: slot_acc= 98.5% (259/263)  label_acc= 98.5% (259/263)  disagree=  0                    │
+  └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+***** predict metrics *****
+  epoch                                                        =       15.0
+  predict_eval_rougeL                                          =    60.5312
+  predict_eval_rougeL_for_CL                                   =    60.5312
+  predict_eval_rougeL_for_task1290_xsum_summarization          =    32.5183
+  predict_eval_rougeL_for_task1572_samsum_summary              =    36.8449
+  predict_eval_rougeL_for_task181_outcome_extraction           =    68.1621
+  predict_eval_rougeL_for_task363_sst2_polarity_classification =       90.0
+
+
+ ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │           SRT ROUTING ACCURACY SUMMARY                                                      │
+  ├──────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │  GT=task1290_xsum_summarization       slot_acc= 99.0%  label_acc= 99.0%  disagree=  0  [slot1=198  slot2=2]│
+  │  GT=task1572_samsum_summary           slot_acc= 85.0%  label_acc= 85.0%  disagree=  0  [slot1=12  slot3=68]│
+  │  GT=task181_outcome_extraction        slot_acc=100.0%  label_acc=100.0%  disagree=  0  [slot0=43]│
+  │  GT=task363_sst2_polarity_classifica  slot_acc=100.0%  label_acc=100.0%  disagree=  0  [slot2=300]│
+  ├──────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │  OVERALL: slot_acc= 97.8% (609/623)  label_acc= 97.8% (609/623)  disagree=  0                    │
+  └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+***** predict metrics *****
+  epoch                                                        =       15.0
+  predict_eval_rougeL                                          =    62.5919
+  predict_eval_rougeL_for_CL                                   =    62.5919
+  predict_eval_rougeL_for_task1290_xsum_summarization          =    31.2678
+  predict_eval_rougeL_for_task1572_samsum_summary              =    35.2921
+  predict_eval_rougeL_for_task181_outcome_extraction           =    67.8559
+  predict_eval_rougeL_for_task363_sst2_polarity_classification =       90.0

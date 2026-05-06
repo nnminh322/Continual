@@ -20,6 +20,7 @@ THIS_DIR = Path(__file__).resolve().parent
 EXPAND_CV_ROOT = THIS_DIR.parent
 INFLORA_ROOT = EXPAND_CV_ROOT / "InfLoRA"
 SPROMPTS_ROOT = EXPAND_CV_ROOT / "S-Prompts"
+SOYO_ROOT = EXPAND_CV_ROOT / "SOYO"
 WORKSPACE_ROOT = EXPAND_CV_ROOT.parent
 
 
@@ -65,6 +66,16 @@ def ensure_sprompts_imports() -> None:
         sys.path.insert(0, sprompts_path)
 
     os.chdir(SPROMPTS_ROOT)
+
+
+def ensure_soyo_imports() -> None:
+    _purge_workspace_modules(("models", "utils", "methods"))
+
+    soyo_path = str(SOYO_ROOT)
+    if soyo_path not in sys.path:
+        sys.path.insert(0, soyo_path)
+
+    os.chdir(SOYO_ROOT)
 
 
 def load_config(config_path: str) -> tuple[dict, Path]:

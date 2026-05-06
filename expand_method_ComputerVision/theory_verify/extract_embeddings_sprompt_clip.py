@@ -15,7 +15,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 from common import THIS_DIR, SPROMPTS_ROOT, ensure_sprompts_imports, log, resolve_torch_device, set_seed
-from extract_embeddings import build_loader, extract_split_embeddings, save_split, should_enable_multi_gpu
+from embedding_utils import build_loader, extract_split_embeddings, save_split, should_enable_multi_gpu
 
 
 OFFICEHOME_DOMAINS = ("Art", "Clipart", "Product", "Real_World")
