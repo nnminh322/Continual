@@ -50,6 +50,23 @@ python expand_method_ComputerVision/theory_verify/verify_benchmark_hypothesis.py
 
 If `--data_path` is omitted, the code probes common local and Kaggle-style locations for Office-Home roots such as `OfficeHome`, `Office-Home`, or `OfficeHomeDataset_10072016`.
 The path can point either to the dataset root itself or to a parent directory containing it.
+Official download page: https://www.hemanthdv.org/officeHomeDataset.html
+
+Kaggle note:
+- If you attach the dataset as a Kaggle input, the common layout is `/kaggle/input/<dataset-slug>/OfficeHomeDataset_10072016/...`.
+- The extractor now probes one level below `/kaggle/input`, so omission of `--data_path` should often work.
+- If it still misses the mount, pass `--data_path /kaggle/input/<dataset-slug>` explicitly.
+
+Example with an explicit Kaggle path:
+
+```bash
+python expand_method_ComputerVision/theory_verify/verify_benchmark_hypothesis.py \
+  --experiment officehome_sprompt_clip \
+  --descriptor cls \
+  --task_order Art,Clipart,Product,Real_World \
+  --data_path /kaggle/input/<dataset-slug> \
+  --reuse_embeddings
+```
 
 Extractor:
 

@@ -33,6 +33,7 @@ OFFICEHOME_ROOT_NAMES = (
     "OfficeHomeDataset_10072016",
 )
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+OFFICEHOME_DOWNLOAD_URL = "https://www.hemanthdv.org/officeHomeDataset.html"
 
 
 def parse_args() -> argparse.Namespace:
@@ -96,6 +97,17 @@ def _iter_officehome_root_candidates(data_path: str | None):
         for root_name in OFFICEHOME_ROOT_NAMES:
             yield raw / root_name
 
+        if raw.exists() and raw.is_dir():
+            try:
+                child_dirs = [child for child in raw.iterdir() if child.is_dir()]
+            except OSError:
+                child_dirs = []
+
+            for child in child_dirs:
+                yield child
+                for root_name in OFFICEHOME_ROOT_NAMES:
+                    yield child / root_name
+
     common_roots = [
         SPROMPTS_ROOT / "data",
         SPROMPTS_ROOT.parent / "data",
@@ -108,6 +120,19 @@ def _iter_officehome_root_candidates(data_path: str | None):
         yield base
         for root_name in OFFICEHOME_ROOT_NAMES:
             yield base / root_name
+
+        if not base.exists() or not base.is_dir():
+            continue
+
+        try:
+            child_dirs = [child for child in base.iterdir() if child.is_dir()]
+        except OSError:
+            child_dirs = []
+
+        for child in child_dirs:
+            yield child
+            for root_name in OFFICEHOME_ROOT_NAMES:
+                yield child / root_name
 
 
 def _resolve_domain_dirs(root: Path) -> dict[str, Path] | None:
@@ -137,8 +162,12 @@ def resolve_officehome_root(data_path: str | None) -> tuple[Path, dict[str, Path
             return candidate, domain_dirs
 
     raise FileNotFoundError(
-        "Could not locate Office-Home. Checked: {}".format(
-            ", ".join(checked[:20]) + (" ..." if len(checked) > 20 else "")))
+        "Could not locate Office-Home. Checked: {}. "
+        "Download the dataset from {} and either mount it under /kaggle/input or pass "
+        "--data_path to the dataset root or its parent directory, e.g. --data_path /kaggle/input/<dataset-slug>.".format(
+            ", ".join(checked[:20]) + (" ..." if len(checked) > 20 else ""),
+            OFFICEHOME_DOWNLOAD_URL,
+        ))
 
 
 def parse_task_order(raw: str) -> list[str]:
