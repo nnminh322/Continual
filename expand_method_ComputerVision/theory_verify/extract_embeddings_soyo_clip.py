@@ -133,12 +133,24 @@ def _expand_root_candidate(base: Path, root_names: tuple[str, ...]):
             yield child / root_name
 
 
+def _resolve_user_path_variants(raw_path: str) -> list[Path]:
+    path = Path(raw_path).expanduser()
+    if path.is_absolute():
+        return [path]
+
+    return [
+        WORKSPACE_ROOT / path,
+        Path.cwd() / path,
+        path,
+    ]
+
+
 def _iter_dataset_root_candidates(dataset: str, data_path: str | None, config_data_path: str | None):
     root_names = SOYO_DATASET_ROOT_NAMES[dataset]
     bases = []
 
     if data_path:
-        bases.append(Path(data_path).expanduser())
+        bases.extend(_resolve_user_path_variants(data_path))
 
     if config_data_path:
         config_root = Path(config_data_path).expanduser()

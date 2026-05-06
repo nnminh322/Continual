@@ -84,7 +84,7 @@ class CORE50(object):
             print("Loading data... from preload!!!")
             import datetime;print('preload start', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"))
             bin_path = os.path.join(root, 'core50_imgs.bin')
-            
+
             if os.path.exists(bin_path):
                 with open(bin_path, 'rb') as f:
                     self.x = np.fromfile(f, dtype=np.uint8) \
@@ -97,7 +97,7 @@ class CORE50(object):
                     print("Writing bin for fast reloading...")
                     self.x.tofile(bin_path)
             import datetime;print('preload end', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"))
-            
+
 
         print("Loading paths...")
         with open(os.path.join(root, 'paths.pkl'), 'rb') as f:
@@ -152,7 +152,7 @@ class CORE50(object):
         else:
             train_y = self.labels[scen][run][batch]
 
-        train_y = np.asarray(train_y, dtype=np.int)
+        train_y = np.asarray(train_y, dtype=int)
 
         return (train_x, train_y)
 
@@ -171,7 +171,7 @@ class CORE50(object):
         if self.batch == self.nbatch[scen]:
             print('now this batch is test, stop load the train dataset')
             raise StopIteration
-        
+
         print('loading', self.batch + 1, '/', self.nbatch[scen])
         import datetime;print('start', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"), '...')
         # print(self.cumul)  # F
@@ -191,10 +191,10 @@ class CORE50(object):
             #     print(len(self.LUP[scen][run][i])) # 14991-14995-14986-14994-14989-14989-14996-14984 val-44972
             #     # 最后一个是val，包含45000张
             # exit()
-            
+
             # print(train_idx_list)
             # print(len(train_idx_list))  # 14991-14995-14986-14994-14989-14989-14996-14984 (val-44972)
-        
+
         # loading data
         if self.preload: # no
             train_x = np.take(self.x, train_idx_list, axis=0)\
@@ -219,7 +219,7 @@ class CORE50(object):
         else:
             train_y = self.labels[scen][run][batch]
 
-        train_y = np.asarray(train_y, dtype=np.int)
+        train_y = np.asarray(train_y, dtype=int)
         # print(train_y.shape) # (14991, )
 
         # Update state for next iter
@@ -247,7 +247,7 @@ class CORE50(object):
             test_x = self.get_batch_from_paths(test_paths).astype(np.float32)
 
         test_y = self.labels[scen][run][-1]
-        test_y = np.asarray(test_y, dtype=np.int)
+        test_y = np.asarray(test_y, dtype=int)
 
         return test_x, test_y
 

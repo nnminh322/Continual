@@ -32,6 +32,7 @@ Important:
 - The SOYO repo only contains code and configs.
 - You need to download or mount the datasets separately, then point `--data_path` either to the dataset root itself or to a parent folder that contains `CORe50` and/or `CDDB`.
 - In the current workspace, no local `CORe50` or `CDDB` folder was found automatically.
+- Prefer an absolute `--data_path` when possible. If you pass a relative path such as `expand_method_ComputerVision/both_data`, it is resolved from the workspace root.
 
 Quick dataset sources:
 - `CDDB`: use the Hugging Face mirror [nebula/CDDB](https://huggingface.co/datasets/nebula/CDDB). It currently hosts a `CDDB.tar` archive. A scripted download is:
@@ -40,8 +41,13 @@ Quick dataset sources:
 python -m pip install -U "huggingface_hub[cli]"
 mkdir -p /tmp/cddb_hf
 huggingface-cli download nebula/CDDB CDDB.tar --repo-type dataset --local-dir /tmp/cddb_hf
+mkdir -p /path/to/parent-containing-CORe50-and-CDDB
 tar -xf /tmp/cddb_hf/CDDB.tar -C /path/to/parent-containing-CORe50-and-CDDB
 ```
+
+If `tar` prints `Cannot open: No such file or directory`, the usual cause is that the directory passed to `-C` does not exist yet. Create it first with `mkdir -p ...` and rerun only the `tar -xf ...` line.
+
+If `/tmp/cddb_hf/CDDB.tar` is missing when you retry, download it again or use a non-temporary location instead of `/tmp`.
 
 - `CORe50`: use the official page [CORe50 Project](https://vlomonaco.github.io/core50/index.html#dataset). For this repo, the minimum required files are `core50_imgs.npz`, `paths.pkl`, `labels.pkl`, and `LUP.pkl`. A direct download is:
 

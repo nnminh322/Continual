@@ -49,13 +49,16 @@ Quick download with Hugging Face CLI:
 python -m pip install -U "huggingface_hub[cli]"
 mkdir -p dil_dataset/_hf_cddb
 huggingface-cli download nebula/CDDB CDDB.tar --repo-type dataset --local-dir dil_dataset/_hf_cddb
+mkdir -p dil_dataset
 tar -xf dil_dataset/_hf_cddb/CDDB.tar -C dil_dataset
 ```
+
+If you download to a temporary location like `/tmp`, make sure the extraction target already exists before using `tar -C ...`.
 
 Browser-based alternative:
 - Open [nebula/CDDB](https://huggingface.co/datasets/nebula/CDDB).
 - Go to the `Files` tab and download `CDDB.tar`.
-- Extract it under `dil_dataset/`.
+- Create `dil_dataset/` first if needed, then extract it there.
 
 The original project page also links the older Google Drive release: [CDDB Dataset](https://drive.google.com/file/d/1NgB8ytBMFBFwyXJQvdVT_yek1EaaEHrg/view?usp=sharing).
 
