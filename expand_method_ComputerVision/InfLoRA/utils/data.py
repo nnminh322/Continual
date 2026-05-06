@@ -397,6 +397,12 @@ def resolve_domainnet_root(candidate_root=None):
 
         return variants
 
+    def derive_root_from_match(match_path, probe_variant):
+        root = Path(match_path).expanduser()
+        for _ in Path(probe_variant).parts:
+            root = root.parent
+        return root
+
     def load_probe_paths(limit=8):
         split_path = Path(__file__).resolve().parent / '..' / 'dataloaders' / 'splits' / 'domainnet_train.yaml'
         split_path = split_path.resolve()
@@ -449,6 +455,38 @@ def resolve_domainnet_root(candidate_root=None):
 
         if any((root / probe_variant).exists() for probe in probe_paths[:8] for probe_variant in probe_variants(probe)):
             return str(root.resolve())
+
+    recursive_bases = [
+        candidate_root,
+        os.environ.get('DOMAINNET_ROOT'),
+        Path.cwd(),
+        Path.cwd().parent,
+        Path('/kaggle/input'),
+        Path('/kaggle/working'),
+        Path('/content'),
+        Path('/mnt/data'),
+    ]
+
+    for base in recursive_bases:
+        if base is None:
+            continue
+        base = Path(base).expanduser()
+        if not base.exists() or not base.is_dir():
+            continue
+
+        for probe in probe_paths[:4]:
+            for probe_variant in probe_variants(probe):
+                try:
+                    match_path = next(base.rglob(probe_variant), None)
+                except (OSError, RuntimeError):
+                    match_path = None
+
+                if match_path is None or not match_path.exists():
+                    continue
+
+                root = derive_root_from_match(match_path, probe_variant)
+                if root.exists():
+                    return str(root.resolve())
 
     return None
 
