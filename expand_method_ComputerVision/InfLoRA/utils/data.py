@@ -377,22 +377,58 @@ def resolve_domainnet_root(candidate_root=None):
                 return str(resolved.resolve())
         return None
 
-    if candidate_root:
-        resolved = first_existing([candidate_root])
-        if resolved is not None:
-            return resolved
+    def load_probe_paths(limit=8):
+        split_path = Path(__file__).resolve().parent / '..' / 'dataloaders' / 'splits' / 'domainnet_train.yaml'
+        split_path = split_path.resolve()
+        if not split_path.exists():
+            return []
 
-    env_root = os.environ.get('DOMAINNET_ROOT')
-    common_roots = [
-        env_root,
-        Path.cwd() / 'data' / 'DomainNet',
-        Path.cwd() / 'data' / 'domainnet',
-        Path.cwd() / 'DomainNet',
-        Path.cwd() / 'domainnet',
-        Path('/kaggle/input/DomainNet'),
-        Path('/kaggle/input/domainnet'),
-        Path('/kaggle/input/DomainNet/DomainNet'),
-        Path('/kaggle/input/domainnet/DomainNet'),
-    ]
-    return first_existing(common_roots)
+        with open(split_path, 'r') as handle:
+            split_config = yaml.load(handle, Loader=yaml.Loader) or {}
+
+        return [str(path).replace('\\', '/') for path in split_config.get('data', [])[:limit]]
+
+    def iter_candidate_roots():
+        direct_roots = [
+            candidate_root,
+            os.environ.get('DOMAINNET_ROOT'),
+            Path.cwd(),
+            Path.cwd().parent,
+            Path.cwd() / 'data',
+            Path.cwd() / 'datasets',
+            Path('/kaggle/working'),
+            Path('/kaggle/input'),
+            Path('/content'),
+            Path('/mnt/data'),
+        ]
+
+        for root in direct_roots:
+            if root is not None:
+                yield Path(root).expanduser()
+
+        for base in [Path('/kaggle/input'), Path('/kaggle/working'), Path('/content'), Path('/mnt/data')]:
+            if not base.exists():
+                continue
+            try:
+                for child in base.iterdir():
+                    if child.is_dir():
+                        yield child
+            except OSError:
+                continue
+
+    probe_paths = load_probe_paths()
+    if not probe_paths:
+        return first_existing([candidate_root, os.environ.get('DOMAINNET_ROOT')])
+
+    seen = set()
+    for root in iter_candidate_roots():
+        root_key = str(root)
+        if root_key in seen or not root.exists():
+            continue
+        seen.add(root_key)
+
+        if any((root / probe).exists() for probe in probe_paths[:8]):
+            return str(root.resolve())
+
+    return None
 
