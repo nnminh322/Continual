@@ -8,8 +8,8 @@ from pathlib import Path
 
 import numpy as np
 from tqdm.auto import tqdm
-
-from common import THIS_DIR
+from common import THIS_DIR, log
+import time
 
 
 def parse_args() -> argparse.Namespace:
@@ -239,10 +239,12 @@ def build_routers(selection: str) -> OrderedDict[str, object]:
 
 def run_incremental_eval(emb_dir: Path, task_specs: list[dict], routers: OrderedDict[str, object]) -> dict:
     results = {name: [] for name in routers}
+    step_durations: list[float] = []
 
     for step_idx, task_spec in enumerate(tqdm(task_specs, desc="Routing steps", unit="task", dynamic_ncols=True), start=0):
+        step_start = time.time()
         train_embs = load_split(emb_dir, task_spec["task_name"], "train")
-        print(f"[step {step_idx + 1}/{len(task_specs)}] add {task_spec['task_name']} train={train_embs.shape}")
+        log(f"[step {step_idx + 1}/{len(task_specs)}] add {task_spec['task_name']} train={train_embs.shape}")
 
         for router in routers.values():
             router.add_task(train_embs)
@@ -281,6 +283,13 @@ def run_incremental_eval(emb_dir: Path, task_specs: list[dict], routers: Ordered
 
             per_task_str = " | ".join(f"{name}:{acc * 100:.1f}%" for name, acc in per_task.items())
             print(f"    {router_name:24s} macro={macro * 100:6.2f}% micro={micro * 100:6.2f}% [{per_task_str}]")
+
+        # step timing summary
+        step_time = time.time() - step_start
+        step_durations.append(step_time)
+        avg = sum(step_durations) / len(step_durations)
+        remaining = avg * (len(task_specs) - (step_idx + 1))
+        log(f"[timing] finished step {step_idx + 1}/{len(task_specs)} in {step_time:.1f}s; avg {avg:.1f}s; est remaining {remaining/60:.1f}min")
 
     return results
 

@@ -5,6 +5,7 @@ import importlib
 import json
 import os
 import random
+import time
 from pathlib import Path
 
 import numpy as np
@@ -21,6 +22,7 @@ from common import (
     load_config,
     resolve_torch_device,
     set_seed,
+    log,
 )
 
 
@@ -158,7 +160,7 @@ def run_extraction(args: argparse.Namespace) -> Path:
     device = resolve_torch_device(args.device)
 
     set_seed(seed)
-
+    log(f"[setup] starting extraction config={args.config} seed={seed} device={device} batch_size={batch_size} num_workers={num_workers}")
     data_args = dict(config)
     data_args["seed"] = seed
     if args.data_path is not None:
@@ -188,10 +190,10 @@ def run_extraction(args: argparse.Namespace) -> Path:
     backbone.eval()
 
     model_device = next(backbone.parameters()).device
-    print(f"[setup] device={device} model_device={model_device} cuda_available={torch.cuda.is_available()}", flush=True)
-    print(f"[setup] backbone=ViT_Frozen vit={backbone.vit.__class__.__name__}", flush=True)
-    print(f"[setup] requested_num_workers={requested_num_workers} effective_num_workers={num_workers}", flush=True)
-    print(f"[setup] data_path={data_args.get('data_path')}", flush=True)
+    log(f"[setup] device={device} model_device={model_device} cuda_available={torch.cuda.is_available()}")
+    log(f"[setup] backbone=ViT_Frozen vit={backbone.vit.__class__.__name__}")
+    log(f"[setup] requested_num_workers={requested_num_workers} effective_num_workers={num_workers}")
+    log(f"[setup] data_path={data_args.get('data_path')}")
 
     output_root = Path(args.output_root)
     run_dir = output_root / build_run_name(data_args, args.descriptor)
@@ -202,16 +204,17 @@ def run_extraction(args: argparse.Namespace) -> Path:
     max_tasks = data_manager.nb_tasks if args.max_tasks is None else min(args.max_tasks, data_manager.nb_tasks)
     task_specs = []
 
+    overall_start = time.time()
+    task_durations: list[float] = []
+
     for task_id in range(max_tasks):
+        task_start = time.time()
         start_class, end_class = get_task_bounds(data_manager._increments, task_id)
         task_name = get_task_name(task_id, start_class, end_class)
         task_dir = run_dir / task_name
         task_dir.mkdir(parents=True, exist_ok=True)
 
-        print(
-            f"[task {task_id + 1}/{max_tasks}] {task_name} classes={start_class}-{end_class - 1}",
-            flush=True,
-        )
+        log(f"[task {task_id + 1}/{max_tasks}] {task_name} classes={start_class}-{end_class - 1}")
 
         class_indices = np.arange(start_class, end_class)
         train_dataset = data_manager.get_dataset(class_indices, source="train", mode="train")
@@ -252,10 +255,16 @@ def run_extraction(args: argparse.Namespace) -> Path:
             "test_count": int(test_payload["embeddings"].shape[0]),
         })
 
-        print(
+        log(
             f"[extract] {task_name}: train={train_payload['embeddings'].shape} "
-            f"test={test_payload['embeddings'].shape}",
-            flush=True)
+            f"test={test_payload['embeddings'].shape}")
+
+        # timing info for task
+        task_time = time.time() - task_start
+        task_durations.append(task_time)
+        avg = sum(task_durations) / len(task_durations)
+        remaining = avg * (max_tasks - (task_id + 1))
+        log(f"[timing] task {task_id + 1}/{max_tasks} took {task_time:.1f}s; avg {avg:.1f}s; est remaining {remaining/60:.1f}min")
 
     metadata = {
         "dataset": data_args["dataset"],
@@ -283,7 +292,8 @@ def run_extraction(args: argparse.Namespace) -> Path:
     with open(run_dir / "metadata.json", "w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2)
 
-    print(f"[done] saved embeddings to {run_dir}")
+    total_elapsed = time.time() - overall_start
+    log(f"[done] saved embeddings to {run_dir} total_elapsed={total_elapsed:.1f}s")
     return run_dir
 
 

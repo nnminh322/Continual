@@ -6,6 +6,7 @@ import random
 import sys
 import types
 from pathlib import Path
+import time
 
 import numpy as np
 
@@ -109,3 +110,11 @@ def build_run_name(config: dict, descriptor: str) -> str:
     init_cls = int(config["init_cls"])
     increment = int(config["increment"])
     return f"{dataset}__init{init_cls}__inc{increment}__{descriptor}"
+
+
+def now_str() -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def log(msg: str) -> None:
+    print(f"[{now_str()}] {msg}", flush=True)
