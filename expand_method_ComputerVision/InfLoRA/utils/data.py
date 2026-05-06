@@ -9,6 +9,12 @@ from PIL import Image
 from shutil import move, rmtree
 import torch
 from pathlib import Path
+import time
+
+try:
+    YAML_LOADER = yaml.CSafeLoader
+except AttributeError:
+    YAML_LOADER = yaml.SafeLoader
 
 DOMAINNET_ROOT_NAMES = ("DomainNet", "domainnet")
 DOMAINNET_DOMAIN_NAMES = ("clipart", "infograph", "painting", "quickdraw", "real", "sketch")
@@ -355,9 +361,43 @@ class iDomainNet(iData):
         class_order = np.arange(345).tolist()
         self.class_order = class_order
         self.domain_names = ["clipart", "infograph", "painting", "quickdraw", "real", "sketch", ]
+        self._resolved_domainnet_root = None
+
+    def _get_domainnet_root(self):
+        if self._resolved_domainnet_root is not None:
+            return self._resolved_domainnet_root
+
+        data_root = self.args.get('data_path') if self.args is not None else None
+        if not data_root:
+            return None
+
+        for candidate_root in _iter_domainnet_dir_hints(data_root):
+            if candidate_root.exists() and _looks_like_domainnet_dir(candidate_root):
+                self._resolved_domainnet_root = str(candidate_root)
+                return self._resolved_domainnet_root
+
+        return None
+
+    def _fast_resolve_from_root(self, path):
+        root = self._get_domainnet_root()
+        if root is None:
+            return None
+
+        norm_path = str(path).replace('\\', '/').lstrip('/')
+        for prefix in ('data/DomainNet/', 'data/domainnet/', 'DomainNet/', 'domainnet/'):
+            if norm_path.startswith(prefix):
+                tail = norm_path[len(prefix):]
+                return str(Path(root) / tail)
+
+        return None
 
     def _resolve_image_path(self, path):
         path = str(path).replace('\\', '/')
+
+        fast_path = self._fast_resolve_from_root(path)
+        if fast_path is not None:
+            return fast_path
+
         candidates = _domainnet_path_variants(path)
 
         for candidate in candidates:
@@ -378,6 +418,60 @@ class iDomainNet(iData):
 
         return path
 
+    def _resolve_paths_bulk(self, paths, split_name):
+        total = len(paths)
+        start = time.time()
+        resolved = []
+
+        for idx, path in enumerate(paths, start=1):
+            resolved.append(self._resolve_image_path(path))
+
+            if idx == 1 or idx % 200000 == 0 or idx == total:
+                elapsed = time.time() - start
+                rate = idx / max(elapsed, 1e-9)
+                remaining = max(total - idx, 0) / max(rate, 1e-9)
+                print(
+                    f"[iDomainNet] resolving {split_name}: {idx}/{total} ({(100.0 * idx / max(total, 1)):.1f}%) "
+                    f"rate={rate:.0f}/s eta={remaining/60:.1f}m")
+
+        return np.array(resolved)
+
+    def _verify_paths(self, paths, split_name):
+        verify_mode = str((self.args or {}).get('domainnet_verify', 'sample')).lower().strip()
+        if verify_mode == 'none':
+            print(f"[iDomainNet] verify {split_name}: skipped (domainnet_verify=none)")
+            return
+
+        n = len(paths)
+        if n == 0:
+            return
+
+        if verify_mode == 'full':
+            idxes = range(n)
+            mode_info = f"full ({n} samples)"
+        else:
+            sample_size = min(2048, n)
+            idxes = np.linspace(0, n - 1, num=sample_size, dtype=np.int64)
+            mode_info = f"sample ({sample_size}/{n})"
+
+        start = time.time()
+        for checked, idx in enumerate(idxes, start=1):
+            path = paths[int(idx)]
+            if not os.path.exists(path):
+                data_root = self.args.get('data_path') if self.args is not None else None
+                raise FileNotFoundError(
+                    f"DomainNet {split_name} sample not found after path resolution: {path}. "
+                    f"Effective data_path={data_root!r}. "
+                    f"Set DOMAINNET_ROOT env var or pass --data_path to the directory containing the domain folders "
+                    f"(clipart, infograph, painting, quickdraw, real, sketch).")
+
+            if checked == 1 or checked % 500 == 0 or checked == len(idxes):
+                elapsed = time.time() - start
+                rate = checked / max(elapsed, 1e-9)
+                print(
+                    f"[iDomainNet] verify {split_name} {mode_info}: {checked}/{len(idxes)} "
+                    f"rate={rate:.0f}/s")
+
     def download_data(self):
         # Auto-detect DomainNet root if the configured data_path doesn't exist as-is.
         # This handles Kaggle mounts where the path in the config is a relative placeholder.
@@ -389,39 +483,37 @@ class iDomainNet(iData):
                 print(f"[iDomainNet] auto-detected DomainNet root: {detected}")
                 if self.args is not None:
                     self.args['data_path'] = detected
+                    self._resolved_domainnet_root = None
             else:
                 print(f"[iDomainNet] WARNING: could not auto-detect DomainNet root from {current_root!r}. "
                       f"Proceeding with path resolution; set DOMAINNET_ROOT or pass --data_path to fix this.")
+
+        effective_root = self._get_domainnet_root()
+        print(f"[iDomainNet] effective data_path={self.args.get('data_path') if self.args else None!r}")
+        if effective_root is not None:
+            print(f"[iDomainNet] using fast root mapping from {effective_root}")
 
         # load splits from config file
         train_split = os.path.join(os.path.dirname(__file__), '..', 'dataloaders', 'splits', 'domainnet_train.yaml')
         test_split = os.path.join(os.path.dirname(__file__), '..', 'dataloaders', 'splits', 'domainnet_test.yaml')
 
-        train_data_config = yaml.load(open(train_split, 'r'), Loader=yaml.Loader)
-        test_data_config = yaml.load(open(test_split, 'r'), Loader=yaml.Loader)
+        t0 = time.time()
+        with open(train_split, 'r') as handle:
+            train_data_config = yaml.load(handle, Loader=YAML_LOADER)
+        print(f"[iDomainNet] loaded train split in {time.time() - t0:.1f}s")
 
-        self.train_data = np.array([self._resolve_image_path(path) for path in train_data_config['data']])
+        t1 = time.time()
+        with open(test_split, 'r') as handle:
+            test_data_config = yaml.load(handle, Loader=YAML_LOADER)
+        print(f"[iDomainNet] loaded test split in {time.time() - t1:.1f}s")
+
+        self.train_data = self._resolve_paths_bulk(train_data_config['data'], split_name='train')
         self.train_targets = np.array(train_data_config['targets'])
-        self.test_data = np.array([self._resolve_image_path(path) for path in test_data_config['data']])
+        self.test_data = self._resolve_paths_bulk(test_data_config['data'], split_name='test')
         self.test_targets = np.array(test_data_config['targets'])
 
-        missing_train = next((path for path in self.train_data if not os.path.exists(path)), None)
-        if missing_train is not None:
-            data_root = self.args.get('data_path') if self.args is not None else None
-            raise FileNotFoundError(
-                f"DomainNet train sample not found after path resolution: {missing_train}. "
-                f"Effective data_path={data_root!r}. "
-                f"Set DOMAINNET_ROOT env var or pass --data_path to the directory containing the domain folders "
-                f"(clipart, infograph, painting, quickdraw, real, sketch).")
-
-        missing_test = next((path for path in self.test_data if not os.path.exists(path)), None)
-        if missing_test is not None:
-            data_root = self.args.get('data_path') if self.args is not None else None
-            raise FileNotFoundError(
-                f"DomainNet test sample not found after path resolution: {missing_test}. "
-                f"Effective data_path={data_root!r}. "
-                f"Set DOMAINNET_ROOT env var or pass --data_path to the directory containing the domain folders "
-                f"(clipart, infograph, painting, quickdraw, real, sketch).")
+        self._verify_paths(self.train_data, split_name='train')
+        self._verify_paths(self.test_data, split_name='test')
 
 
 def jpg_image_to_array(image_path):
@@ -458,10 +550,30 @@ def resolve_domainnet_root(candidate_root=None):
         if not split_path.exists():
             return []
 
+        # Parse only the first few entries in the "data:" YAML list without loading the full file.
+        probes = []
+        in_data_block = False
         with open(split_path, 'r') as handle:
-            split_config = yaml.load(handle, Loader=yaml.Loader) or {}
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not in_data_block:
+                    if line == 'data:' or line.startswith('data:'):
+                        in_data_block = True
+                    continue
 
-        return [str(path).replace('\\', '/') for path in split_config.get('data', [])[:limit]]
+                if line.startswith('targets:'):
+                    break
+
+                if not line.startswith('- '):
+                    continue
+
+                value = line[2:].strip().strip('"').strip("'")
+                if value:
+                    probes.append(value.replace('\\', '/'))
+                if len(probes) >= limit:
+                    break
+
+        return probes
 
     def iter_candidate_roots():
         direct_roots = [

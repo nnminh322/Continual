@@ -54,6 +54,8 @@ def parse_args() -> argparse.Namespace:
                         help="Emit a heartbeat progress log every N batches")
     parser.add_argument("--save_uncompressed", action="store_true",
                         help="Use np.savez (faster write, larger files) instead of np.savez_compressed")
+    parser.add_argument("--domainnet_verify", default="sample", choices=["none", "sample", "full"],
+                        help="How strictly to verify resolved DomainNet file paths during DataManager setup")
     parser.add_argument("--seed", type=int, default=None,
                         help="Override the first config seed for deterministic extraction")
     parser.add_argument("--max_tasks", type=int, default=None,
@@ -251,10 +253,20 @@ def run_extraction(args: argparse.Namespace) -> Path:
     data_args["seed"] = seed
     if args.data_path is not None:
         data_args["data_path"] = args.data_path
+    data_args["domainnet_verify"] = getattr(args, "domainnet_verify", "sample")
     if data_args["dataset"].lower() == "domainnet":
-        resolved_data_path = data_utils.resolve_domainnet_root(data_args.get("data_path"))
-        if resolved_data_path is not None:
-            data_args["data_path"] = resolved_data_path
+        # Skip expensive auto-resolution when a valid path already exists.
+        candidate_root = data_args.get("data_path")
+        candidate_path = Path(candidate_root).expanduser() if candidate_root else None
+        if candidate_path is not None and candidate_path.exists():
+            data_args["data_path"] = str(candidate_path)
+            log(f"[setup] using provided DomainNet path directly: {data_args['data_path']}")
+        else:
+            resolve_t0 = time.time()
+            resolved_data_path = data_utils.resolve_domainnet_root(candidate_root)
+            if resolved_data_path is not None:
+                data_args["data_path"] = resolved_data_path
+            log(f"[setup] resolve_domainnet_root done in {time.time() - resolve_t0:.1f}s -> {data_args.get('data_path')}")
     log("[setup] building DataManager (this can be slow on large datasets)...")
     dm_t0 = time.time()
     try:

@@ -72,6 +72,8 @@ def parse_args() -> argparse.Namespace:
                         help="Emit extraction heartbeat every N batches.")
     parser.add_argument("--save_uncompressed", action="store_true",
                         help="Store npz without compression for faster writes.")
+    parser.add_argument("--domainnet_verify", default="sample", choices=["none", "sample", "full"],
+                        help="How strictly to verify DomainNet file paths during DataManager setup.")
     parser.add_argument("--routing_device", default="auto",
                         help="Routing compute device: auto, cpu, cuda, cuda:0, ...")
     parser.add_argument("--embed_dtype", default="float32", choices=["float32", "float64"],
@@ -128,6 +130,7 @@ def build_extract_args(experiment_name: str, args: argparse.Namespace) -> Simple
         prefetch_factor=args.prefetch_factor,
         progress_log_every=args.progress_log_every,
         save_uncompressed=args.save_uncompressed,
+        domainnet_verify=args.domainnet_verify,
         seed=args.seed,
         max_tasks=args.max_tasks,
         limit_per_split=args.limit_per_split,
