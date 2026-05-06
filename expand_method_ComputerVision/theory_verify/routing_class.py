@@ -363,6 +363,47 @@ def build_routers(selection: str, device: str) -> OrderedDict[str, object]:
     return OrderedDict(items)
 
 
+def compute_forgetting_summary(steps: list[dict]) -> dict:
+    if not steps:
+        return {
+            "final_per_task_accuracy": {},
+            "best_per_task_accuracy": {},
+            "per_task_forgetting": {},
+            "avg_forgetting_prev_tasks": 0.0,
+            "max_forgetting_prev_tasks": 0.0,
+            "tracked_task_count": 0,
+            "forgetting_task_count": 0,
+        }
+
+    task_order = list(steps[-1]["seen_tasks"])
+    history = OrderedDict((task_name, []) for task_name in task_order)
+    for step in steps:
+        for task_name, acc in step["per_task"].items():
+            history.setdefault(task_name, []).append(float(acc))
+
+    final_per_task = OrderedDict((task_name, scores[-1]) for task_name, scores in history.items() if scores)
+    best_per_task = OrderedDict((task_name, max(scores)) for task_name, scores in history.items() if scores)
+    per_task_forgetting = OrderedDict(
+        (task_name, best_per_task[task_name] - final_per_task[task_name])
+        for task_name in final_per_task
+    )
+
+    previous_tasks = task_order[:-1]
+    forgetting_values = [per_task_forgetting[task_name] for task_name in previous_tasks]
+    avg_forgetting = float(np.mean(forgetting_values)) if forgetting_values else 0.0
+    max_forgetting = float(np.max(forgetting_values)) if forgetting_values else 0.0
+
+    return {
+        "final_per_task_accuracy": final_per_task,
+        "best_per_task_accuracy": best_per_task,
+        "per_task_forgetting": per_task_forgetting,
+        "avg_forgetting_prev_tasks": avg_forgetting,
+        "max_forgetting_prev_tasks": max_forgetting,
+        "tracked_task_count": len(task_order),
+        "forgetting_task_count": len(previous_tasks),
+    }
+
+
 def run_incremental_eval(
     emb_dir: Path,
     task_specs: list[dict],
@@ -461,15 +502,18 @@ def run_routing(args: argparse.Namespace) -> Path:
     for router_name, steps in results.items():
         final = steps[-1]
         avg_macro = float(np.mean([step["macro_accuracy"] for step in steps]))
+        forgetting = compute_forgetting_summary(steps)
         summary[router_name] = {
             "final_macro_accuracy": final["macro_accuracy"],
             "final_micro_accuracy": final["micro_accuracy"],
             "avg_macro_accuracy": avg_macro,
             "step_macro_accuracies": [float(step["macro_accuracy"]) for step in steps],
+            **forgetting,
         }
         print(
             f"{router_name:24s} final_macro={final['macro_accuracy'] * 100:6.2f}% "
-            f"final_micro={final['micro_accuracy'] * 100:6.2f}% avg_macro={avg_macro * 100:6.2f}%")
+            f"final_micro={final['micro_accuracy'] * 100:6.2f}% avg_macro={avg_macro * 100:6.2f}% "
+            f"avg_forgetting={forgetting['avg_forgetting_prev_tasks'] * 100:6.2f}%")
 
     report = {
         "embedding_dir": str(emb_dir),

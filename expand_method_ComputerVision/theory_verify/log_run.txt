@@ -1,0 +1,70 @@
+[2026-05-06 11:30:32] [stage 1/1] officehome_sprompt_clip: preparing embeddings
+100%|███████████████████████████████████████| 351M/351M [00:04<00:00, 79.6MiB/s]
+[2026-05-06 11:30:42] [setup] benchmark=officehome_sprompt_clip root=/kaggle/working/Continual/OfficeHomeDataset_10072016
+[2026-05-06 11:30:42] [setup] backbone=ViT-B/16 descriptor=cls class_count=65
+[2026-05-06 11:30:42] [setup] task_order=['Art', 'Clipart', 'Product', 'Real_World']
+[2026-05-06 11:30:42] [setup] device=cuda:0 multi_gpu=True
+[2026-05-06 11:30:42] [task 1/4] domain=Art train=1942 test=485
+Art:train:   0%|                  | 0/16 [00:16<?, ?batch/s, fps=32.2, seen=128][2026-05-06 11:30:59] [heartbeat] Art:train: 128/1942 (6.6%) avg_fps=7.7 eta=3.9m wait=12.617s step=3.974s
+Art:test:   0%|                   | 0/4 [00:05<?, ?batch/s, fps=488.0, seen=128][2026-05-06 11:31:09] [heartbeat] Art:test: 128/485 (26.4%) avg_fps=24.0 eta=0.2m wait=5.072s step=0.262s
+[2026-05-06 11:31:10] [timing] task Art saved in 0.5m
+[2026-05-06 11:31:11] [task 2/4] domain=Clipart train=3489 test=876
+Clipart:train:   0%|             | 0/28 [00:06<?, ?batch/s, fps=426.6, seen=128][2026-05-06 11:31:17] [heartbeat] Clipart:train: 128/3489 (3.7%) avg_fps=18.6 eta=3.0m wait=6.577s step=0.300s
+Clipart:train:  68%|██ | 19/28 [00:13<00:03,  2.71batch/s, fps=623.1, seen=2560][2026-05-06 11:31:24] [heartbeat] Clipart:train: 2560/3489 (73.4%) avg_fps=192.2 eta=0.1m wait=0.000s step=0.205s
+Clipart:test:   0%|               | 0/7 [00:03<?, ?batch/s, fps=402.0, seen=128][2026-05-06 11:31:30] [heartbeat] Clipart:test: 128/876 (14.6%) avg_fps=32.1 eta=0.4m wait=3.670s step=0.318s
+[2026-05-06 11:31:34] [timing] task Clipart saved in 0.4m
+[2026-05-06 11:31:34] [task 3/4] domain=Product train=3550 test=889
+Product:train:   0%|             | 0/28 [00:06<?, ?batch/s, fps=451.0, seen=128][2026-05-06 11:31:41] [heartbeat] Product:train: 128/3550 (3.6%) avg_fps=18.8 eta=3.0m wait=6.511s step=0.284s
+Product:train:  68%|██ | 19/28 [00:13<00:03,  2.62batch/s, fps=623.1, seen=2560][2026-05-06 11:31:47] [heartbeat] Product:train: 2560/3550 (72.1%) avg_fps=191.6 eta=0.1m wait=0.000s step=0.205s
+Product:test:   0%|               | 0/7 [00:04<?, ?batch/s, fps=492.9, seen=128][2026-05-06 11:31:54] [heartbeat] Product:test: 128/889 (14.4%) avg_fps=30.0 eta=0.4m wait=4.000s step=0.260s
+[2026-05-06 11:31:58] [timing] task Product saved in 0.4m
+[2026-05-06 11:31:58] [task 4/4] domain=Real_World train=3484 test=873
+Real_World:train:   0%|          | 0/28 [00:30<?, ?batch/s, fps=482.6, seen=128][2026-05-06 11:32:29] [heartbeat] Real_World:train: 128/3484 (3.7%) avg_fps=4.2 eta=13.4m wait=30.392s step=0.265s
+Real_World:train:  68%|▋| 19/28 [01:03<00:19,  2.12s/batch, fps=581.8, seen=2560[2026-05-06 11:33:01] [heartbeat] Real_World:train: 2560/3484 (73.5%) avg_fps=40.4 eta=0.4m wait=0.001s step=0.220s
+Real_World:test:   0%|            | 0/7 [00:19<?, ?batch/s, fps=512.7, seen=128][2026-05-06 11:33:29] [heartbeat] Real_World:test: 128/873 (14.7%) avg_fps=6.7 eta=1.9m wait=18.923s step=0.250s
+[2026-05-06 11:33:36] [timing] task Real_World saved in 1.6m
+[2026-05-06 11:33:36] [done] wrote Office-Home CLIP embeddings to /kaggle/working/Continual/expand_method_ComputerVision/theory_verify/embeddings/officehome__spromptclip__vit-b-16__cls__art-clipart-product-realworld total_elapsed=2.9m
+[2026-05-06 11:33:36] [stage 1/1] officehome_sprompt_clip: running routing evaluation
+=== Routing Evaluation: officehome__spromptclip__vit-b-16__cls__art-clipart-product-realworld ===
+dataset=officehome descriptor=cls tasks=4
+routers=['NearestCentroid', 'CosineNearestCentroid', 'OnlineZCAL2', 'PooledMahalanobis_RIDGE', 'PooledMahalanobis_OAS']
+routing_device=cuda:0 embed_dtype=float32
+Routing steps:   0%|                                    | 0/4 [00:00<?, ?task/s][2026-05-06 11:33:36] [step 1/4] add task_00_art train=(1942, 512)
+    NearestCentroid          macro=100.00% micro=100.00% [task_00_art:100.0%]
+    CosineNearestCentroid    macro=100.00% micro=100.00% [task_00_art:100.0%]
+    OnlineZCAL2              macro=100.00% micro=100.00% [task_00_art:100.0%]
+    PooledMahalanobis_RIDGE  macro=100.00% micro=100.00% [task_00_art:100.0%]
+    PooledMahalanobis_OAS    macro=100.00% micro=100.00% [task_00_art:100.0%]
+[2026-05-06 11:33:36] [timing] finished step 1/4 in 0.4s; avg 0.4s; est remaining 0.0min
+Routing steps:  25%|███████                     | 1/4 [00:00<00:01,  2.44task/s][2026-05-06 11:33:36] [step 2/4] add task_01_clipart train=(3489, 512)
+    NearestCentroid          macro= 94.62% micro= 95.15% [task_00_art:92.8% | task_01_clipart:96.5%]
+    CosineNearestCentroid    macro= 94.33% micro= 95.66% [task_00_art:89.7% | task_01_clipart:99.0%]
+    OnlineZCAL2              macro= 97.22% micro= 97.72% [task_00_art:95.5% | task_01_clipart:99.0%]
+    PooledMahalanobis_RIDGE  macro= 97.07% micro= 97.65% [task_00_art:95.1% | task_01_clipart:99.1%]
+    PooledMahalanobis_OAS    macro= 97.22% micro= 97.72% [task_00_art:95.5% | task_01_clipart:99.0%]
+[2026-05-06 11:33:37] [timing] finished step 2/4 in 0.4s; avg 0.4s; est remaining 0.0min
+Routing steps:  50%|██████████████              | 2/4 [00:00<00:00,  2.58task/s][2026-05-06 11:33:37] [step 3/4] add task_02_product train=(3550, 512)
+    NearestCentroid          macro= 91.60% micro= 92.27% [task_00_art:87.8% | task_01_clipart:93.7% | task_02_product:93.3%]
+    CosineNearestCentroid    macro= 91.23% micro= 92.22% [task_00_art:85.6% | task_01_clipart:95.3% | task_02_product:92.8%]
+    OnlineZCAL2              macro= 96.80% micro= 97.51% [task_00_art:92.8% | task_01_clipart:98.7% | task_02_product:98.9%]
+    PooledMahalanobis_RIDGE  macro= 96.56% micro= 97.38% [task_00_art:92.0% | task_01_clipart:98.6% | task_02_product:99.1%]
+    PooledMahalanobis_OAS    macro= 96.80% micro= 97.51% [task_00_art:92.8% | task_01_clipart:98.7% | task_02_product:98.9%]
+[2026-05-06 11:33:37] [timing] finished step 3/4 in 0.3s; avg 0.4s; est remaining 0.0min
+Routing steps:  75%|█████████████████████       | 3/4 [00:01<00:00,  2.74task/s][2026-05-06 11:33:37] [step 4/4] add task_03_realworld train=(3484, 512)
+    NearestCentroid          macro= 77.39% micro= 78.32% [task_00_art:70.5% | task_01_clipart:92.7% | task_02_product:88.9% | task_03_realworld:57.5%]
+    CosineNearestCentroid    macro= 77.59% micro= 78.64% [task_00_art:69.7% | task_01_clipart:94.6% | task_02_product:88.5% | task_03_realworld:57.5%]
+    OnlineZCAL2              macro= 87.80% micro= 89.18% [task_00_art:77.1% | task_01_clipart:97.6% | task_02_product:95.3% | task_03_realworld:81.2%]
+    PooledMahalanobis_RIDGE  macro= 87.91% micro= 89.27% [task_00_art:77.3% | task_01_clipart:97.6% | task_02_product:95.8% | task_03_realworld:80.9%]
+    PooledMahalanobis_OAS    macro= 87.80% micro= 89.18% [task_00_art:77.1% | task_01_clipart:97.6% | task_02_product:95.3% | task_03_realworld:81.2%]
+[2026-05-06 11:33:37] [timing] finished step 4/4 in 0.4s; avg 0.4s; est remaining 0.0min
+Routing steps: 100%|████████████████████████████| 4/4 [00:01<00:00,  2.70task/s]
+
+=== Final Summary ===
+NearestCentroid          final_macro= 77.39% final_micro= 78.32% avg_macro= 90.90%
+CosineNearestCentroid    final_macro= 77.59% final_micro= 78.64% avg_macro= 90.79%
+OnlineZCAL2              final_macro= 87.80% final_micro= 89.18% avg_macro= 95.46%
+PooledMahalanobis_RIDGE  final_macro= 87.91% final_micro= 89.27% avg_macro= 95.38%
+PooledMahalanobis_OAS    final_macro= 87.80% final_micro= 89.18% avg_macro= 95.46%
+[done] wrote report to /kaggle/working/Continual/expand_method_ComputerVision/theory_verify/results/routing__officehome__spromptclip__vit-b-16__cls__art-clipart-product-realworld.json
+[2026-05-06 11:33:37] [timing] experiment officehome_sprompt_clip done in 3.1m; est remaining 0.0m
+[2026-05-06 11:33:37] [done] wrote hypothesis report to /kaggle/working/Continual/expand_method_ComputerVision/theory_verify/results/hypothesis__officehome_sprompt_clip__cls.json total_elapsed=3.1m
