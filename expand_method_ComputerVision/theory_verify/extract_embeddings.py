@@ -139,8 +139,7 @@ def save_split(task_dir: Path, split: str, payload: dict, metadata: dict) -> Non
     )
 
 
-def main() -> None:
-    args = parse_args()
+def run_extraction(args: argparse.Namespace) -> Path:
     ensure_inflora_imports()
 
     DataManager = importlib.import_module("utils.data_manager").DataManager
@@ -266,6 +265,11 @@ def main() -> None:
         json.dump(metadata, handle, indent=2)
 
     print(f"[done] saved embeddings to {run_dir}")
+    return run_dir
+
+
+def main() -> None:
+    run_extraction(parse_args())
 
 
 if __name__ == "__main__":

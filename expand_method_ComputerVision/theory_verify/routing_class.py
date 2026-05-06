@@ -278,8 +278,7 @@ def run_incremental_eval(emb_dir: Path, task_specs: list[dict], routers: Ordered
     return results
 
 
-def main() -> None:
-    args = parse_args()
+def run_routing(args: argparse.Namespace) -> Path:
     emb_dir = Path(args.emb_dir).resolve()
     metadata = load_metadata(emb_dir)
     task_specs = metadata["task_specs"]
@@ -328,6 +327,11 @@ def main() -> None:
     with open(out_path, "w", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2)
     print(f"[done] wrote report to {out_path}")
+    return out_path
+
+
+def main() -> None:
+    run_routing(parse_args())
 
 
 if __name__ == "__main__":

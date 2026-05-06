@@ -18,7 +18,15 @@ import torch.nn.functional as F
 import math
 from typing import List, Optional
 
-from models.vit_inflora import VisionTransformer, PatchEmbed, resolve_pretrained_cfg, build_model_with_cfg, checkpoint_filter_fn
+from models.vit_inflora import (
+    VisionTransformer,
+    PatchEmbed,
+    resolve_pretrained_cfg,
+    build_model_with_cfg,
+    checkpoint_filter_fn,
+    adapt_input_conv,
+    resize_pos_embed,
+)
 from models.srt_router import SRT_Router
 
 
@@ -278,6 +286,82 @@ class VisionTransformerLoRA(nn.Module):
         return self.forward(x, task)
 
 
+@torch.no_grad()
+def _load_weights_lora(model: VisionTransformerLoRA, checkpoint_path: str, prefix: str = ''):
+    """Load official JAX ViT `.npz` weights into the shared LoRA backbone."""
+    import numpy as np
+
+    def _n2p(w, transpose=True):
+        if w.ndim == 4 and w.shape[0] == w.shape[1] == w.shape[2] == 1:
+            w = w.flatten()
+        if transpose:
+            if w.ndim == 4:
+                w = w.transpose([3, 2, 0, 1])
+            elif w.ndim == 3:
+                w = w.transpose([2, 0, 1])
+            elif w.ndim == 2:
+                w = w.transpose([1, 0])
+        return torch.from_numpy(w)
+
+    weights = np.load(checkpoint_path)
+    if not prefix and 'opt/target/embedding/kernel' in weights:
+        prefix = 'opt/target/'
+
+    embed_conv_w = adapt_input_conv(
+        model.patch_embed.proj.weight.shape[1],
+        _n2p(weights[f'{prefix}embedding/kernel']),
+    )
+    model.patch_embed.proj.weight.copy_(embed_conv_w)
+    model.patch_embed.proj.bias.copy_(_n2p(weights[f'{prefix}embedding/bias']))
+    model.cls_token.copy_(_n2p(weights[f'{prefix}cls'], transpose=False))
+
+    pos_embed_w = _n2p(weights[f'{prefix}Transformer/posembed_input/pos_embedding'], transpose=False)
+    if pos_embed_w.shape != model.pos_embed.shape:
+        pos_embed_w = resize_pos_embed(
+            pos_embed_w,
+            model.pos_embed,
+            getattr(model, 'num_tokens', 1),
+            model.patch_embed.grid_size,
+        )
+    model.pos_embed.copy_(pos_embed_w)
+
+    if isinstance(model.norm, nn.LayerNorm):
+        model.norm.weight.copy_(_n2p(weights[f'{prefix}Transformer/encoder_norm/scale']))
+        model.norm.bias.copy_(_n2p(weights[f'{prefix}Transformer/encoder_norm/bias']))
+
+    if (
+        isinstance(model.head, nn.Linear)
+        and f'{prefix}head/bias' in weights
+        and model.head.bias.shape[0] == weights[f'{prefix}head/bias'].shape[-1]
+    ):
+        model.head.weight.copy_(_n2p(weights[f'{prefix}head/kernel']))
+        model.head.bias.copy_(_n2p(weights[f'{prefix}head/bias']))
+
+    for index, block in enumerate(model.blocks):
+        block_prefix = f'{prefix}Transformer/encoderblock_{index}/'
+        mha_prefix = block_prefix + 'MultiHeadDotProductAttention_1/'
+
+        block.norm1.weight.copy_(_n2p(weights[f'{block_prefix}LayerNorm_0/scale']))
+        block.norm1.bias.copy_(_n2p(weights[f'{block_prefix}LayerNorm_0/bias']))
+        block.attn.qkv.weight.copy_(torch.cat([
+            _n2p(weights[f'{mha_prefix}{name}/kernel'], transpose=False).flatten(1).T
+            for name in ('query', 'key', 'value')
+        ]))
+        block.attn.qkv.bias.copy_(torch.cat([
+            _n2p(weights[f'{mha_prefix}{name}/bias'], transpose=False).reshape(-1)
+            for name in ('query', 'key', 'value')
+        ]))
+        block.attn.proj.weight.copy_(_n2p(weights[f'{mha_prefix}out/kernel']).flatten(1))
+        block.attn.proj.bias.copy_(_n2p(weights[f'{mha_prefix}out/bias']))
+
+        block.mlp[0].weight.copy_(_n2p(weights[f'{block_prefix}MlpBlock_3/Dense_0/kernel']))
+        block.mlp[0].bias.copy_(_n2p(weights[f'{block_prefix}MlpBlock_3/Dense_0/bias']))
+        block.mlp[2].weight.copy_(_n2p(weights[f'{block_prefix}MlpBlock_3/Dense_1/kernel']))
+        block.mlp[2].bias.copy_(_n2p(weights[f'{block_prefix}MlpBlock_3/Dense_1/bias']))
+        block.norm2.weight.copy_(_n2p(weights[f'{block_prefix}LayerNorm_2/scale']))
+        block.norm2.bias.copy_(_n2p(weights[f'{block_prefix}LayerNorm_2/bias']))
+
+
 def _create_vit_lora(variant, pretrained=False, **kwargs):
     pretrained_cfg = resolve_pretrained_cfg(variant)
     default_num_classes = pretrained_cfg.num_classes
@@ -296,24 +380,9 @@ def _create_vit_lora(variant, pretrained=False, **kwargs):
 
     # Handle .npz pretrained weights (timm 1.x changed from custom_load='npz' to custom_load=True)
     if pretrained and pretrained_cfg.url and pretrained_cfg.url.endswith('.npz'):
-        import numpy as np
-
-        def load_npz_pretrained(path):
-            npz = np.load(path)
-            # Convert .npz to PyTorch state dict
-            from collections import OrderedDict
-            sd = OrderedDict()
-            for k, v in npz.items():
-                if isinstance(v, np.ndarray):
-                    sd[k] = torch.from_numpy(v)
-            return sd
-
         def custom_load_pretrained(self, pretrained_loc):
-            state_dict = load_npz_pretrained(pretrained_loc)
-            if checkpoint_filter_fn:
-                state_dict = checkpoint_filter_fn(state_dict, model)
-            load_result = self.load_state_dict(state_dict, strict=False)
-            print(f'[sinet_srt_inflora] Loaded .npz pretrained weights. Missing: {load_result.missing_keys}')
+            _load_weights_lora(self, pretrained_loc)
+            print('[sinet_srt_inflora] Loaded .npz pretrained weights into shared ViT backbone; LoRA weights remain task-initialized.')
 
         model.load_pretrained = custom_load_pretrained.__get__(model, type(model))
         from timm.models._builder import load_pretrained
