@@ -8,8 +8,11 @@ import shutil
 import time
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn as nn
+from PIL import Image
+from torch.utils.data import Dataset
 
 from common import (
     SOYO_ROOT,
@@ -256,6 +259,127 @@ class FrozenSoyoClipExtractor(nn.Module):
         return features.unsqueeze(1)
 
 
+class Core50LazyDataset(Dataset):
+    def __init__(self, core50, raw_indices: np.ndarray, labels: np.ndarray, trsf):
+        self.core50 = core50
+        self.raw_indices = np.asarray(raw_indices, dtype=np.int64)
+        self.labels = np.asarray(labels, dtype=np.int64)
+        self.trsf = trsf
+
+    def __len__(self) -> int:
+        return int(self.raw_indices.shape[0])
+
+    def __getitem__(self, idx: int):
+        raw_index = int(self.raw_indices[idx])
+        if self.core50.preload:
+            image_np = self.core50.x[raw_index]
+            if image_np.dtype != np.uint8:
+                image_np = image_np.astype(np.uint8, copy=False)
+            image = Image.fromarray(image_np)
+        else:
+            image_path = os.path.join(self.core50.root, self.core50.paths[raw_index])
+            with Image.open(image_path) as handle:
+                image = handle.convert("RGB")
+
+        image = self.trsf(image)
+        label = int(self.labels[idx])
+        return idx, image, label
+
+
+class Core50LazyDataManager:
+    def __init__(self, args: dict):
+        self.args = args
+
+        data_module = importlib.import_module("utils.data")
+        core50_module = importlib.import_module("utils.datautils.core50data")
+
+        idata = data_module.iCore50(args)
+        self._core50 = core50_module.CORE50(root=args["data_path"], scenario="ni")
+
+        self.use_path = False
+        self._train_trsf = idata.train_trsf
+        self._test_trsf = idata.test_trsf
+        self._common_trsf = idata.common_trsf
+        self._class_order = list(idata.class_order)
+
+        init_cls = int(args["init_cls"])
+        increment = int(args["increment"])
+        self._increments = [init_cls]
+        while sum(self._increments) + increment < len(self._class_order):
+            self._increments.append(increment)
+        offset = len(self._class_order) - sum(self._increments)
+        if offset > 0:
+            self._increments.append(offset)
+
+        scen = self._core50.scenario
+        run = self._core50.run
+        self._train_refs = []
+        for task_id in range(len(self._increments)):
+            start_class, _ = get_task_bounds(self._increments, task_id)
+            raw_indices = np.asarray(self._core50.LUP[scen][run][task_id], dtype=np.int64)
+            raw_labels = np.asarray(self._core50.labels[scen][run][task_id], dtype=np.int64)
+            self._train_refs.append((raw_indices, raw_labels + start_class))
+
+        self._test_raw_indices = np.asarray(self._core50.LUP[scen][run][-1], dtype=np.int64)
+        self._test_raw_labels = np.asarray(self._core50.labels[scen][run][-1], dtype=np.int64)
+
+        log(
+            f"[core50] lazy manager enabled: preload={self._core50.preload} "
+            f"train_tasks={len(self._train_refs)} shared_test={self._test_raw_indices.shape[0]}")
+
+    @property
+    def nb_tasks(self) -> int:
+        return len(self._increments)
+
+    def get_task_size(self, task: int) -> int:
+        return self._increments[task]
+
+    def _build_transform(self, mode: str):
+        transforms = importlib.import_module("torchvision.transforms")
+
+        if mode == "train":
+            return transforms.Compose([*self._train_trsf, *self._common_trsf])
+        if mode == "flip":
+            return transforms.Compose([*self._test_trsf, transforms.RandomHorizontalFlip(p=1.0), *self._common_trsf])
+        if mode == "test":
+            return transforms.Compose([*self._test_trsf, *self._common_trsf])
+        raise ValueError(f"Unknown mode {mode}.")
+
+    def get_dataset(self, indices, source, mode, appendent=None, ret_data=False):
+        if appendent is not None and len(appendent) != 0:
+            raise NotImplementedError("appendent is not supported for lazy CORe50 extraction")
+
+        class_indices = np.asarray(indices, dtype=np.int64)
+        trsf = self._build_transform(mode)
+
+        if source == "train":
+            raw_index_chunks = []
+            label_chunks = []
+            for raw_indices, labels in self._train_refs:
+                mask = np.isin(labels, class_indices)
+                if np.any(mask):
+                    raw_index_chunks.append(raw_indices[mask])
+                    label_chunks.append(labels[mask])
+        elif source == "test":
+            mask = np.isin(self._test_raw_labels, class_indices)
+            raw_index_chunks = [self._test_raw_indices[mask]] if np.any(mask) else []
+            label_chunks = [self._test_raw_labels[mask]] if np.any(mask) else []
+        else:
+            raise ValueError(f"Unknown data source {source}.")
+
+        if raw_index_chunks:
+            raw_indices = np.concatenate(raw_index_chunks, axis=0)
+            labels = np.concatenate(label_chunks, axis=0)
+        else:
+            raw_indices = np.empty((0,), dtype=np.int64)
+            labels = np.empty((0,), dtype=np.int64)
+
+        dataset = Core50LazyDataset(self._core50, raw_indices, labels, trsf)
+        if ret_data:
+            return raw_indices, labels, dataset
+        return dataset
+
+
 def run_extraction(args: argparse.Namespace) -> Path:
     if args.descriptor != "cls":
         raise ValueError("SOYO CLIP extraction only supports descriptor=cls because SOYO exposes pooled image embeddings.")
@@ -304,14 +428,17 @@ def run_extraction(args: argparse.Namespace) -> Path:
         f"seed={seed} device={device} batch_size={batch_size} num_workers={num_workers}")
 
     dm_t0 = time.time()
-    data_manager = DataManager(
-        data_args["dataset"],
-        data_args["shuffle"],
-        seed,
-        data_args["init_cls"],
-        data_args["increment"],
-        data_args,
-    )
+    if str(data_args["dataset"]).lower() == "core50":
+        data_manager = Core50LazyDataManager(data_args)
+    else:
+        data_manager = DataManager(
+            data_args["dataset"],
+            data_args["shuffle"],
+            seed,
+            data_args["init_cls"],
+            data_args["increment"],
+            data_args,
+        )
     data_args["class_order"] = data_manager._class_order
     log(f"[setup] DataManager ready in {time.time() - dm_t0:.1f}s with nb_tasks={data_manager.nb_tasks}")
 
@@ -332,9 +459,12 @@ def run_extraction(args: argparse.Namespace) -> Path:
 
     output_root = Path(args.output_root)
     run_dir = output_root / build_soyo_clip_run_name(data_args, args.descriptor)
+    run_metadata_path = run_dir / "metadata.json"
     if run_dir.exists():
-        if not args.force:
+        if not args.force and run_metadata_path.exists():
             raise FileExistsError(f"{run_dir} already exists. Use --force to overwrite.")
+        if not run_metadata_path.exists():
+            log(f"[setup] removing incomplete run directory {run_dir}")
         shutil.rmtree(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
 
