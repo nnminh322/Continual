@@ -19,11 +19,24 @@ except ImportError:
 THIS_DIR = Path(__file__).resolve().parent
 EXPAND_CV_ROOT = THIS_DIR.parent
 INFLORA_ROOT = EXPAND_CV_ROOT / "InfLoRA"
+SPROMPTS_ROOT = EXPAND_CV_ROOT / "S-Prompts"
 WORKSPACE_ROOT = EXPAND_CV_ROOT.parent
 
 
 def _noop(*_args, **_kwargs):
     return None
+
+
+def _purge_workspace_modules(prefixes: tuple[str, ...]) -> None:
+    workspace_root = str(EXPAND_CV_ROOT)
+    for name, module in list(sys.modules.items()):
+        if not any(name == prefix or name.startswith(f"{prefix}.") for prefix in prefixes):
+            continue
+
+        module_file = getattr(module, "__file__", None)
+        module_path = str(module_file) if module_file else ""
+        if not module_path or workspace_root in module_path:
+            sys.modules.pop(name, None)
 
 
 def ensure_inflora_imports() -> None:
@@ -35,11 +48,23 @@ def ensure_inflora_imports() -> None:
             stub.set_trace = _noop
             sys.modules["ipdb"] = stub
 
+    _purge_workspace_modules(("models", "utils", "methods"))
+
     inflora_path = str(INFLORA_ROOT)
     if inflora_path not in sys.path:
         sys.path.insert(0, inflora_path)
 
     os.chdir(INFLORA_ROOT)
+
+
+def ensure_sprompts_imports() -> None:
+    _purge_workspace_modules(("models", "utils", "methods"))
+
+    sprompts_path = str(SPROMPTS_ROOT)
+    if sprompts_path not in sys.path:
+        sys.path.insert(0, sprompts_path)
+
+    os.chdir(SPROMPTS_ROOT)
 
 
 def load_config(config_path: str) -> tuple[dict, Path]:

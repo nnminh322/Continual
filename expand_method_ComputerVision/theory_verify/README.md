@@ -1,17 +1,20 @@
 # Theory Verify
 
-This folder contains an offline, zero-rehearsal routing sanity check for the CV SRT setting.
+This folder contains offline, zero-rehearsal routing sanity checks for the CV SRT setting.
 
 Protocol:
 - Reuse the original InfLoRA task order from `DataManager`.
 - For each task, extract frozen vision embeddings from the current task train split and current task test split.
 - Re-run continual routing offline: at step `t`, fit each router only on train embeddings from tasks `0..t`, then evaluate on all test tasks seen so far.
-- The current benchmark of interest is DomainNet, because it provides a natural domain-incremental task geometry instead of artificial class blocks.
+- Two extraction backends now exist:
+  - `InfLoRA`: the original ViT-based path already used for DomainNet.
+  - `S-Prompts CLIP`: a new frozen CLIP ViT-B/16 path for true domain-incremental Office-Home.
 
 Hypothesis check:
-- Keep the same InfLoRA repo and the same frozen SRT extraction path.
-- Evaluate whether frozen SRT routing remains coherent when the benchmark is a natural domain-incremental one.
-- The main target is `domainnet_natural`.
+- Keep the same offline SRT routing logic.
+- Swap only the benchmark and frozen backbone when needed.
+- Primary target for the new CLIP track is `officehome_sprompt_clip`.
+- The older InfLoRA track remains available as `domainnet_natural`.
 
 Main one-command hypothesis wrapper:
 
@@ -35,12 +38,33 @@ python expand_method_ComputerVision/theory_verify/verify_benchmark_hypothesis.py
   --reuse_embeddings
 ```
 
+Office-Home with the frozen CLIP backbone copied from S-Prompts:
+
+```bash
+python expand_method_ComputerVision/theory_verify/verify_benchmark_hypothesis.py \
+  --experiment officehome_sprompt_clip \
+  --descriptor cls \
+  --task_order Art,Clipart,Product,Real_World \
+  --reuse_embeddings
+```
+
+If `--data_path` is omitted, the code probes common local and Kaggle-style locations for Office-Home roots such as `OfficeHome`, `Office-Home`, or `OfficeHomeDataset_10072016`.
+The path can point either to the dataset root itself or to a parent directory containing it.
+
 Extractor:
 
 ```bash
 python expand_method_ComputerVision/theory_verify/extract_embeddings.py \
   --config expand_method_ComputerVision/InfLoRA/configs/domainnet_srt_inflora.json \
   --descriptor cls
+```
+
+Standalone Office-Home CLIP extractor:
+
+```bash
+python expand_method_ComputerVision/theory_verify/extract_embeddings_sprompt_clip.py \
+  --descriptor cls \
+  --task_order Art,Clipart,Product,Real_World
 ```
 
 Use `--data_path` whenever DomainNet is mounted outside the path stored in the config, or rely on the automatic fallback to common Kaggle/local roots. The value should be the parent directory of `data/DomainNet`, not the image folder itself.
@@ -70,6 +94,7 @@ Debug options:
 - `--routers nearest,online_zca,maha_ridge`: run a subset of routers.
 
 Current intended workflow:
-- Extract DomainNet frozen embeddings with `domainnet_srt_inflora.json`.
-- Run offline routing on the extracted DomainNet directory.
-- Use `verify_benchmark_hypothesis.py --experiment domainnet_natural` as the default entrypoint for this branch.
+- Extract DomainNet frozen embeddings with `domainnet_srt_inflora.json` when you want the original InfLoRA comparison.
+- Extract Office-Home frozen CLIP embeddings with `extract_embeddings_sprompt_clip.py` when you want the new CLIP/DIL sanity check.
+- Run offline routing on the extracted directory with `routing_class.py`.
+- Use `verify_benchmark_hypothesis.py --experiment officehome_sprompt_clip` for the new CLIP-first benchmark path.

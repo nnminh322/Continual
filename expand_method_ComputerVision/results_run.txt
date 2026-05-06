@@ -1,0 +1,280 @@
+[2026-05-06 09:00:39] [stage 1/1] domainnet_natural: preparing embeddings
+[2026-05-06 09:00:49] [setup] fast_mode enabled: cudnn.benchmark=True, tf32=True, deterministic=False
+[2026-05-06 09:00:49] [setup] starting extraction config=/kaggle/working/Continual/expand_method_ComputerVision/InfLoRA/configs/domainnet_srt_inflora.json seed=0 device=cuda:0 batch_size=256 num_workers=4
+[2026-05-06 09:00:49] [setup] using provided DomainNet path directly: /kaggle/input/datasets/mei1963/domainnet/DomainNet
+[2026-05-06 09:00:49] [setup] building DataManager (this can be slow on large datasets)...
+[iDomainNet] effective data_path='/kaggle/input/datasets/mei1963/domainnet/DomainNet'
+[iDomainNet] using fast root mapping from /kaggle/input/datasets/mei1963/domainnet/DomainNet
+[iDomainNet] loaded train split in 6.5s
+[iDomainNet] loaded test split in 1.6s
+[iDomainNet] resolving train: 1/338804 (0.0%) rate=13662/s eta=0.4m
+[iDomainNet] resolving train: 200000/338804 (59.0%) rate=118473/s eta=0.0m
+[iDomainNet] resolving train: 338804/338804 (100.0%) rate=120498/s eta=0.0m
+[iDomainNet] resolving test: 1/84702 (0.0%) rate=13358/s eta=0.1m
+[iDomainNet] resolving test: 84702/84702 (100.0%) rate=121812/s eta=0.0m
+[iDomainNet] verify train sample (2048/338804): 1/2048 rate=146/s
+[iDomainNet] verify train sample (2048/338804): 500/2048 rate=229/s
+[iDomainNet] verify train sample (2048/338804): 1000/2048 rate=243/s
+[iDomainNet] verify train sample (2048/338804): 1500/2048 rate=252/s
+[iDomainNet] verify train sample (2048/338804): 2000/2048 rate=260/s
+[iDomainNet] verify train sample (2048/338804): 2048/2048 rate=258/s
+[iDomainNet] verify test sample (2048/84702): 1/2048 rate=400/s
+[iDomainNet] verify test sample (2048/84702): 500/2048 rate=268/s
+[iDomainNet] verify test sample (2048/84702): 1000/2048 rate=274/s
+[iDomainNet] verify test sample (2048/84702): 1500/2048 rate=286/s
+[iDomainNet] verify test sample (2048/84702): 2000/2048 rate=289/s
+[iDomainNet] verify test sample (2048/84702): 2048/2048 rate=290/s
+[2026-05-06 09:01:20] [setup] DataManager ready in 30.6s with nb_tasks=5
+[sinet_srt_inflora] Loaded .npz pretrained weights into shared ViT backbone; LoRA weights remain task-initialized.
+[2026-05-06 09:01:31] [setup] backbone loaded in 11.3s
+[2026-05-06 09:01:31] [setup] multi_gpu=on DataParallel device_ids=[0, 1] primary=0
+[2026-05-06 09:01:31] [setup] device=cuda:0 model_device=cuda:0 cuda_available=True
+[2026-05-06 09:01:31] [setup] backbone=ViT_Frozen vit=VisionTransformerLoRA
+[2026-05-06 09:01:31] [setup] requested_num_workers=8 effective_num_workers=4
+[2026-05-06 09:01:31] [setup] data_path=/kaggle/input/datasets/mei1963/domainnet/DomainNet
+[2026-05-06 09:01:31] [setup] extraction setup finished in 41.9s; scheduled_tasks=5
+[2026-05-06 09:01:31] [task 1/5] task_00_c000-068 classes=0-68
+task_00_c000-068 train:   0%|                        | 0/265 [00:00<?, ?batch/s]/kaggle/working/Continual/expand_method_ComputerVision/theory_verify/extract_embeddings.py:177: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast():
+task_00_c000-068 train:   0%|    | 0/265 [00:35<?, ?batch/s, fps=54.0, seen=256][2026-05-06 09:02:06] [heartbeat] task_00_c000-068 train: 256/67628 (0.4%) avg_fps=7.3 eta=153.7m wait=30.286s step=4.744s
+task_00_c000-068 train:   3%| | 9/265 [00:41<05:55,  1.39s/batch, fps=338.8, see[2026-05-06 09:02:13] [heartbeat] task_00_c000-068 train: 2560/67628 (3.8%) avg_fps=61.0 eta=17.8m wait=0.001s step=0.756s
+task_00_c000-068 train:   7%| | 19/265 [00:50<03:21,  1.22batch/s, fps=331.2, se[2026-05-06 09:02:21] [heartbeat] task_00_c000-068 train: 5120/67628 (7.6%) avg_fps=102.2 eta=10.2m wait=0.001s step=0.773s
+task_00_c000-068 train:  11%| | 29/265 [00:57<03:02,  1.29batch/s, fps=331.9, se[2026-05-06 09:02:29] [heartbeat] task_00_c000-068 train: 7680/67628 (11.4%) avg_fps=132.9 eta=7.5m wait=0.001s step=0.771s
+task_00_c000-068 train:  15%|▏| 39/265 [01:05<02:59,  1.26batch/s, fps=327.1, se[2026-05-06 09:02:37] [heartbeat] task_00_c000-068 train: 10240/67628 (15.1%) avg_fps=155.9 eta=6.1m wait=0.001s step=0.783s
+task_00_c000-068 train:  18%|▏| 49/265 [01:14<03:25,  1.05batch/s, fps=325.4, se[2026-05-06 09:02:45] [heartbeat] task_00_c000-068 train: 12800/67628 (18.9%) avg_fps=172.8 eta=5.3m wait=0.001s step=0.787s
+task_00_c000-068 train:  22%|▏| 59/265 [01:23<03:10,  1.08batch/s, fps=321.9, se[2026-05-06 09:02:55] [heartbeat] task_00_c000-068 train: 15360/67628 (22.7%) avg_fps=183.8 eta=4.7m wait=0.001s step=0.795s
+task_00_c000-068 train:  26%|▎| 69/265 [01:33<03:38,  1.12s/batch, fps=315.8, se[2026-05-06 09:03:05] [heartbeat] task_00_c000-068 train: 17920/67628 (26.5%) avg_fps=190.7 eta=4.3m wait=0.000s step=0.811s
+task_00_c000-068 train:  30%|▎| 79/265 [01:43<02:56,  1.05batch/s, fps=308.8, se[2026-05-06 09:03:15] [heartbeat] task_00_c000-068 train: 20480/67628 (30.3%) avg_fps=197.4 eta=4.0m wait=0.001s step=0.829s
+task_00_c000-068 train:  34%|▎| 89/265 [01:53<02:56,  1.00s/batch, fps=306.2, se[2026-05-06 09:03:25] [heartbeat] task_00_c000-068 train: 23040/67628 (34.1%) avg_fps=202.5 eta=3.7m wait=0.001s step=0.836s
+task_00_c000-068 train:  37%|▎| 99/265 [02:03<02:36,  1.06batch/s, fps=298.7, se[2026-05-06 09:03:34] [heartbeat] task_00_c000-068 train: 25600/67628 (37.9%) avg_fps=207.7 eta=3.4m wait=0.001s step=0.857s
+task_00_c000-068 train:  41%|▍| 109/265 [02:12<02:22,  1.09batch/s, fps=296.4, s[2026-05-06 09:03:44] [heartbeat] task_00_c000-068 train: 28160/67628 (41.6%) avg_fps=212.0 eta=3.1m wait=0.001s step=0.864s
+task_00_c000-068 train:  45%|▍| 119/265 [02:22<02:24,  1.01batch/s, fps=290.9, s[2026-05-06 09:03:54] [heartbeat] task_00_c000-068 train: 30720/67628 (45.4%) avg_fps=215.5 eta=2.9m wait=0.001s step=0.880s
+task_00_c000-068 train:  49%|▍| 129/265 [02:33<02:32,  1.12s/batch, fps=285.2, s[2026-05-06 09:04:04] [heartbeat] task_00_c000-068 train: 33280/67628 (49.2%) avg_fps=217.4 eta=2.6m wait=0.001s step=0.897s
+task_00_c000-068 train:  52%|▌| 139/265 [02:42<02:02,  1.03batch/s, fps=282.6, s[2026-05-06 09:04:14] [heartbeat] task_00_c000-068 train: 35840/67628 (53.0%) avg_fps=220.5 eta=2.4m wait=0.001s step=0.906s
+task_00_c000-068 train:  56%|▌| 149/265 [02:52<01:58,  1.03s/batch, fps=292.2, s[2026-05-06 09:04:23] [heartbeat] task_00_c000-068 train: 38400/67628 (56.8%) avg_fps=222.8 eta=2.2m wait=0.001s step=0.876s
+task_00_c000-068 train:  60%|▌| 159/265 [03:01<01:36,  1.10batch/s, fps=287.4, s[2026-05-06 09:04:33] [heartbeat] task_00_c000-068 train: 40960/67628 (60.6%) avg_fps=225.6 eta=2.0m wait=0.001s step=0.891s
+task_00_c000-068 train:  64%|▋| 169/265 [03:11<01:38,  1.02s/batch, fps=301.5, s[2026-05-06 09:04:42] [heartbeat] task_00_c000-068 train: 43520/67628 (64.4%) avg_fps=227.5 eta=1.8m wait=0.001s step=0.849s
+task_00_c000-068 train:  68%|▋| 179/265 [03:20<01:17,  1.11batch/s, fps=300.4, s[2026-05-06 09:04:52] [heartbeat] task_00_c000-068 train: 46080/67628 (68.1%) avg_fps=229.8 eta=1.6m wait=0.001s step=0.852s
+task_00_c000-068 train:  71%|▋| 189/265 [03:30<01:16,  1.01s/batch, fps=303.8, s[2026-05-06 09:05:01] [heartbeat] task_00_c000-068 train: 48640/67628 (71.9%) avg_fps=231.3 eta=1.4m wait=0.001s step=0.843s
+task_00_c000-068 train:  75%|▊| 199/265 [03:39<01:00,  1.09batch/s, fps=295.1, s[2026-05-06 09:05:11] [heartbeat] task_00_c000-068 train: 51200/67628 (75.7%) avg_fps=233.3 eta=1.2m wait=0.001s step=0.868s
+task_00_c000-068 train:  79%|▊| 209/265 [03:49<00:54,  1.03batch/s, fps=293.6, s[2026-05-06 09:05:20] [heartbeat] task_00_c000-068 train: 53760/67628 (79.5%) avg_fps=234.6 eta=1.0m wait=0.001s step=0.872s
+task_00_c000-068 train:  83%|▊| 219/265 [03:58<00:43,  1.06batch/s, fps=292.2, s[2026-05-06 09:05:29] [heartbeat] task_00_c000-068 train: 56320/67628 (83.3%) avg_fps=236.2 eta=0.8m wait=0.001s step=0.876s
+task_00_c000-068 train:  86%|▊| 229/265 [04:07<00:34,  1.05batch/s, fps=293.5, s[2026-05-06 09:05:39] [heartbeat] task_00_c000-068 train: 58880/67628 (87.1%) avg_fps=237.5 eta=0.6m wait=0.001s step=0.872s
+task_00_c000-068 train:  90%|▉| 239/265 [04:17<00:25,  1.03batch/s, fps=300.4, s[2026-05-06 09:05:49] [heartbeat] task_00_c000-068 train: 61440/67628 (90.8%) avg_fps=238.4 eta=0.4m wait=0.001s step=0.852s
+task_00_c000-068 train:  94%|▉| 249/265 [04:27<00:17,  1.09s/batch, fps=304.2, s[2026-05-06 09:05:59] [heartbeat] task_00_c000-068 train: 64000/67628 (94.6%) avg_fps=239.2 eta=0.3m wait=0.000s step=0.842s
+task_00_c000-068 train:  98%|▉| 259/265 [04:36<00:05,  1.05batch/s, fps=289.2, s[2026-05-06 09:06:08] [heartbeat] task_00_c000-068 train: 66560/67628 (98.4%) avg_fps=240.3 eta=0.1m wait=0.001s step=0.885s
+task_00_c000-068 test:   0%|     | 0/67 [00:34<?, ?batch/s, fps=278.5, seen=256][2026-05-06 09:06:47] [heartbeat] task_00_c000-068 test: 256/17009 (1.5%) avg_fps=7.4 eta=37.8m wait=33.763s step=0.919s
+task_00_c000-068 test:  13%|▏| 9/67 [00:42<01:30,  1.57s/batch, fps=298.8, seen=[2026-05-06 09:06:55] [heartbeat] task_00_c000-068 test: 2560/17009 (15.1%) avg_fps=59.8 eta=4.0m wait=0.001s step=0.857s
+task_00_c000-068 test:  28%|▎| 19/67 [00:52<00:45,  1.07batch/s, fps=279.0, seen[2026-05-06 09:07:04] [heartbeat] task_00_c000-068 test: 5120/17009 (30.1%) avg_fps=98.0 eta=2.0m wait=0.001s step=0.918s
+task_00_c000-068 test:  43%|▍| 29/67 [01:01<00:34,  1.10batch/s, fps=286.4, seen[2026-05-06 09:07:13] [heartbeat] task_00_c000-068 test: 7680/17009 (45.2%) avg_fps=125.4 eta=1.2m wait=0.001s step=0.894s
+task_00_c000-068 test:  58%|▌| 39/67 [01:11<00:29,  1.06s/batch, fps=290.0, seen[2026-05-06 09:07:24] [heartbeat] task_00_c000-068 test: 10240/17009 (60.2%) avg_fps=142.3 eta=0.8m wait=0.001s step=0.883s
+task_00_c000-068 test:  73%|▋| 49/67 [01:22<00:19,  1.08s/batch, fps=297.1, seen[2026-05-06 09:07:34] [heartbeat] task_00_c000-068 test: 12800/17009 (75.3%) avg_fps=155.3 eta=0.5m wait=0.061s step=0.862s
+task_00_c000-068 test:  88%|▉| 59/67 [01:33<00:09,  1.15s/batch, fps=304.5, seen[2026-05-06 09:07:45] [heartbeat] task_00_c000-068 test: 15360/17009 (90.3%) avg_fps=165.0 eta=0.2m wait=0.000s step=0.841s
+[2026-05-06 09:08:05] [save] task_00_c000-068 persisted in 13.1s compression=on
+[2026-05-06 09:08:05] [extract] task_00_c000-068: train=(67628, 768) test=(17009, 768)
+[2026-05-06 09:08:05] [timing] task 1/5 took 393.8s; avg 393.8s; est remaining 26.3min
+[2026-05-06 09:08:05] [task 2/5] task_01_c069-137 classes=69-137
+task_01_c069-137 train:   0%|   | 0/256 [00:29<?, ?batch/s, fps=267.0, seen=256][2026-05-06 09:08:35] [heartbeat] task_01_c069-137 train: 256/65335 (0.4%) avg_fps=8.6 eta=126.6m wait=28.917s step=0.959s
+task_01_c069-137 train:   4%| | 9/256 [00:37<05:46,  1.40s/batch, fps=299.6, see[2026-05-06 09:08:43] [heartbeat] task_01_c069-137 train: 2560/65335 (3.9%) avg_fps=67.4 eta=15.5m wait=0.001s step=0.855s
+task_01_c069-137 train:   7%| | 19/256 [00:46<03:29,  1.13batch/s, fps=299.1, se[2026-05-06 09:08:52] [heartbeat] task_01_c069-137 train: 5120/65335 (7.8%) avg_fps=109.8 eta=9.1m wait=0.002s step=0.856s
+task_01_c069-137 train:  11%| | 29/256 [00:55<03:23,  1.12batch/s, fps=286.1, se[2026-05-06 09:09:00] [heartbeat] task_01_c069-137 train: 7680/65335 (11.8%) avg_fps=138.4 eta=6.9m wait=0.001s step=0.895s
+task_01_c069-137 train:  15%|▏| 39/256 [01:04<03:13,  1.12batch/s, fps=287.7, se[2026-05-06 09:09:09] [heartbeat] task_01_c069-137 train: 10240/65335 (15.7%) avg_fps=159.2 eta=5.8m wait=0.001s step=0.890s
+task_01_c069-137 train:  19%|▏| 49/256 [01:13<03:05,  1.12batch/s, fps=286.8, se[2026-05-06 09:09:18] [heartbeat] task_01_c069-137 train: 12800/65335 (19.6%) avg_fps=174.6 eta=5.0m wait=0.002s step=0.893s
+task_01_c069-137 train:  23%|▏| 59/256 [01:22<02:51,  1.15batch/s, fps=292.5, se[2026-05-06 09:09:27] [heartbeat] task_01_c069-137 train: 15360/65335 (23.5%) avg_fps=187.2 eta=4.4m wait=0.001s step=0.875s
+task_01_c069-137 train:  27%|▎| 69/256 [01:31<03:03,  1.02batch/s, fps=302.0, se[2026-05-06 09:09:36] [heartbeat] task_01_c069-137 train: 17920/65335 (27.4%) avg_fps=196.9 eta=4.0m wait=0.001s step=0.848s
+task_01_c069-137 train:  31%|▎| 79/256 [01:40<02:48,  1.05batch/s, fps=296.0, se[2026-05-06 09:09:46] [heartbeat] task_01_c069-137 train: 20480/65335 (31.3%) avg_fps=203.8 eta=3.7m wait=0.001s step=0.865s
+task_01_c069-137 train:  35%|▎| 89/256 [01:50<02:54,  1.05s/batch, fps=306.8, se[2026-05-06 09:09:55] [heartbeat] task_01_c069-137 train: 23040/65335 (35.3%) avg_fps=209.2 eta=3.4m wait=0.001s step=0.834s
+task_01_c069-137 train:  39%|▍| 99/256 [01:59<02:32,  1.03batch/s, fps=307.3, se[2026-05-06 09:10:05] [heartbeat] task_01_c069-137 train: 25600/65335 (39.2%) avg_fps=213.8 eta=3.1m wait=0.001s step=0.833s
+task_01_c069-137 train:  43%|▍| 109/256 [02:10<02:52,  1.17s/batch, fps=241.0, s[2026-05-06 09:10:15] [heartbeat] task_01_c069-137 train: 28160/65335 (43.1%) avg_fps=216.1 eta=2.9m wait=0.001s step=1.062s
+task_01_c069-137 train:  46%|▍| 119/256 [02:19<02:07,  1.08batch/s, fps=293.3, s[2026-05-06 09:10:25] [heartbeat] task_01_c069-137 train: 30720/65335 (47.0%) avg_fps=219.9 eta=2.6m wait=0.001s step=0.873s
+task_01_c069-137 train:  50%|▌| 129/256 [02:29<02:12,  1.04s/batch, fps=290.6, s[2026-05-06 09:10:35] [heartbeat] task_01_c069-137 train: 33280/65335 (50.9%) avg_fps=222.2 eta=2.4m wait=0.001s step=0.881s
+task_01_c069-137 train:  54%|▌| 139/256 [02:39<01:51,  1.05batch/s, fps=294.1, s[2026-05-06 09:10:44] [heartbeat] task_01_c069-137 train: 35840/65335 (54.9%) avg_fps=224.9 eta=2.2m wait=0.001s step=0.870s
+task_01_c069-137 train:  58%|▌| 149/256 [02:49<01:49,  1.02s/batch, fps=301.6, s[2026-05-06 09:10:54] [heartbeat] task_01_c069-137 train: 38400/65335 (58.8%) avg_fps=226.8 eta=2.0m wait=0.001s step=0.849s
+task_01_c069-137 train:  62%|▌| 159/256 [02:58<01:30,  1.07batch/s, fps=305.2, s[2026-05-06 09:11:04] [heartbeat] task_01_c069-137 train: 40960/65335 (62.7%) avg_fps=229.3 eta=1.8m wait=0.001s step=0.839s
+task_01_c069-137 train:  66%|▋| 169/256 [03:08<01:30,  1.04s/batch, fps=308.1, s[2026-05-06 09:11:13] [heartbeat] task_01_c069-137 train: 43520/65335 (66.6%) avg_fps=231.1 eta=1.6m wait=0.001s step=0.831s
+task_01_c069-137 train:  70%|▋| 179/256 [03:18<01:14,  1.03batch/s, fps=304.6, s[2026-05-06 09:11:23] [heartbeat] task_01_c069-137 train: 46080/65335 (70.5%) avg_fps=232.5 eta=1.4m wait=0.001s step=0.840s
+task_01_c069-137 train:  74%|▋| 189/256 [03:28<01:17,  1.16s/batch, fps=305.4, s[2026-05-06 09:11:33] [heartbeat] task_01_c069-137 train: 48640/65335 (74.4%) avg_fps=233.4 eta=1.2m wait=0.001s step=0.838s
+task_01_c069-137 train:  78%|▊| 199/256 [03:38<00:55,  1.04batch/s, fps=298.9, s[2026-05-06 09:11:43] [heartbeat] task_01_c069-137 train: 51200/65335 (78.4%) avg_fps=234.8 eta=1.0m wait=0.001s step=0.856s
+task_01_c069-137 train:  82%|▊| 209/256 [03:48<00:54,  1.16s/batch, fps=294.4, s[2026-05-06 09:11:54] [heartbeat] task_01_c069-137 train: 53760/65335 (82.3%) avg_fps=235.3 eta=0.8m wait=0.001s step=0.870s
+task_01_c069-137 train:  86%|▊| 219/256 [03:58<00:35,  1.04batch/s, fps=293.9, s[2026-05-06 09:12:03] [heartbeat] task_01_c069-137 train: 56320/65335 (86.2%) avg_fps=236.4 eta=0.6m wait=0.001s step=0.871s
+task_01_c069-137 train:  89%|▉| 229/256 [04:09<00:30,  1.12s/batch, fps=301.4, s[2026-05-06 09:12:14] [heartbeat] task_01_c069-137 train: 58880/65335 (90.1%) avg_fps=236.0 eta=0.5m wait=0.000s step=0.849s
+task_01_c069-137 train:  93%|▉| 239/256 [04:19<00:17,  1.00s/batch, fps=301.1, s[2026-05-06 09:12:24] [heartbeat] task_01_c069-137 train: 61440/65335 (94.0%) avg_fps=236.8 eta=0.3m wait=0.000s step=0.850s
+task_01_c069-137 train:  97%|▉| 249/256 [04:30<00:08,  1.17s/batch, fps=304.0, s[2026-05-06 09:12:35] [heartbeat] task_01_c069-137 train: 64000/65335 (98.0%) avg_fps=236.7 eta=0.1m wait=0.000s step=0.842s
+task_01_c069-137 test:   0%|     | 0/64 [00:35<?, ?batch/s, fps=255.2, seen=256][2026-05-06 09:13:16] [heartbeat] task_01_c069-137 test: 256/16374 (1.6%) avg_fps=7.3 eta=37.0m wait=34.281s step=1.003s
+task_01_c069-137 test:  14%|▏| 9/64 [00:42<01:21,  1.48s/batch, fps=300.2, seen=[2026-05-06 09:13:23] [heartbeat] task_01_c069-137 test: 2560/16374 (15.6%) avg_fps=59.7 eta=3.9m wait=0.001s step=0.853s
+task_01_c069-137 test:  30%|▎| 19/64 [00:51<00:41,  1.08batch/s, fps=292.3, seen[2026-05-06 09:13:32] [heartbeat] task_01_c069-137 test: 5120/16374 (31.3%) avg_fps=98.6 eta=1.9m wait=0.001s step=0.876s
+task_01_c069-137 test:  45%|▍| 29/64 [01:00<00:31,  1.12batch/s, fps=287.1, seen[2026-05-06 09:13:41] [heartbeat] task_01_c069-137 test: 7680/16374 (46.9%) avg_fps=126.3 eta=1.1m wait=0.001s step=0.892s
+task_01_c069-137 test:  61%|▌| 39/64 [01:11<00:25,  1.03s/batch, fps=290.2, seen[2026-05-06 09:13:52] [heartbeat] task_01_c069-137 test: 10240/16374 (62.5%) avg_fps=143.2 eta=0.7m wait=0.000s step=0.882s
+task_01_c069-137 test:  77%|▊| 49/64 [01:22<00:18,  1.22s/batch, fps=302.2, seen[2026-05-06 09:14:03] [heartbeat] task_01_c069-137 test: 12800/16374 (78.2%) avg_fps=154.7 eta=0.4m wait=0.001s step=0.847s
+task_01_c069-137 test:  92%|▉| 59/64 [01:33<00:05,  1.07s/batch, fps=307.9, seen[2026-05-06 09:14:14] [heartbeat] task_01_c069-137 test: 15360/16374 (93.8%) avg_fps=163.7 eta=0.1m wait=0.140s step=0.831s
+[2026-05-06 09:14:31] [save] task_01_c069-137 persisted in 12.5s compression=on
+[2026-05-06 09:14:31] [extract] task_01_c069-137: train=(65335, 768) test=(16374, 768)
+[2026-05-06 09:14:31] [timing] task 2/5 took 386.1s; avg 390.0s; est remaining 19.5min
+[2026-05-06 09:14:31] [task 3/5] task_02_c138-206 classes=138-206
+task_02_c138-206 train:   0%|   | 0/276 [00:32<?, ?batch/s, fps=273.4, seen=256][2026-05-06 09:15:04] [heartbeat] task_02_c138-206 train: 256/70512 (0.4%) avg_fps=7.9 eta=148.3m wait=31.483s step=0.936s
+task_02_c138-206 train:   3%| | 9/276 [00:39<06:15,  1.41s/batch, fps=306.2, see[2026-05-06 09:15:11] [heartbeat] task_02_c138-206 train: 2560/70512 (3.6%) avg_fps=64.0 eta=17.7m wait=0.003s step=0.836s
+task_02_c138-206 train:   7%| | 19/276 [00:48<03:47,  1.13batch/s, fps=297.9, se[2026-05-06 09:15:20] [heartbeat] task_02_c138-206 train: 5120/70512 (7.3%) avg_fps=105.2 eta=10.4m wait=0.001s step=0.859s
+task_02_c138-206 train:  11%| | 29/276 [00:57<03:59,  1.03batch/s, fps=292.7, se[2026-05-06 09:15:29] [heartbeat] task_02_c138-206 train: 7680/70512 (10.9%) avg_fps=133.0 eta=7.9m wait=0.001s step=0.875s
+task_02_c138-206 train:  14%|▏| 39/276 [01:06<03:33,  1.11batch/s, fps=286.0, se[2026-05-06 09:15:38] [heartbeat] task_02_c138-206 train: 10240/70512 (14.5%) avg_fps=153.5 eta=6.5m wait=0.001s step=0.895s
+task_02_c138-206 train:  18%|▏| 49/276 [01:15<03:22,  1.12batch/s, fps=290.4, se[2026-05-06 09:15:47] [heartbeat] task_02_c138-206 train: 12800/70512 (18.2%) avg_fps=169.3 eta=5.7m wait=0.001s step=0.882s
+task_02_c138-206 train:  21%|▏| 59/276 [01:25<03:33,  1.02batch/s, fps=301.6, se[2026-05-06 09:15:56] [heartbeat] task_02_c138-206 train: 15360/70512 (21.8%) avg_fps=180.5 eta=5.1m wait=0.001s step=0.849s
+task_02_c138-206 train:  25%|▎| 69/276 [01:35<03:47,  1.10s/batch, fps=306.0, se[2026-05-06 09:16:07] [heartbeat] task_02_c138-206 train: 17920/70512 (25.4%) avg_fps=187.2 eta=4.7m wait=0.074s step=0.837s
+task_02_c138-206 train:  29%|▎| 79/276 [01:45<03:14,  1.01batch/s, fps=310.6, se[2026-05-06 09:16:17] [heartbeat] task_02_c138-206 train: 20480/70512 (29.0%) avg_fps=193.5 eta=4.3m wait=0.001s step=0.824s
+task_02_c138-206 train:  32%|▎| 89/276 [01:56<03:27,  1.11s/batch, fps=309.9, se[2026-05-06 09:16:28] [heartbeat] task_02_c138-206 train: 23040/70512 (32.7%) avg_fps=197.1 eta=4.0m wait=0.275s step=0.826s
+task_02_c138-206 train:  36%|▎| 99/276 [02:06<03:00,  1.02s/batch, fps=304.5, se[2026-05-06 09:16:38] [heartbeat] task_02_c138-206 train: 25600/70512 (36.3%) avg_fps=201.9 eta=3.7m wait=0.001s step=0.841s
+task_02_c138-206 train:  39%|▍| 109/276 [02:17<03:09,  1.14s/batch, fps=291.8, s[2026-05-06 09:16:49] [heartbeat] task_02_c138-206 train: 28160/70512 (39.9%) avg_fps=204.5 eta=3.5m wait=0.161s step=0.877s
+task_02_c138-206 train:  43%|▍| 119/276 [02:27<02:34,  1.02batch/s, fps=294.0, s[2026-05-06 09:16:59] [heartbeat] task_02_c138-206 train: 30720/70512 (43.6%) avg_fps=207.9 eta=3.2m wait=0.001s step=0.871s
+task_02_c138-206 train:  47%|▍| 129/276 [02:37<02:20,  1.05batch/s, fps=289.3, s[2026-05-06 09:17:09] [heartbeat] task_02_c138-206 train: 33280/70512 (47.2%) avg_fps=210.7 eta=2.9m wait=0.451s step=0.885s
+task_02_c138-206 train:  50%|▌| 139/276 [02:47<02:19,  1.02s/batch, fps=300.0, s[2026-05-06 09:17:19] [heartbeat] task_02_c138-206 train: 35840/70512 (50.8%) avg_fps=213.8 eta=2.7m wait=0.001s step=0.853s
+task_02_c138-206 train:  54%|▌| 149/276 [02:58<01:57,  1.09batch/s, fps=287.0, s[2026-05-06 09:17:29] [heartbeat] task_02_c138-206 train: 38400/70512 (54.5%) avg_fps=215.6 eta=2.5m wait=0.894s step=0.892s
+task_02_c138-206 train:  58%|▌| 159/276 [03:07<02:01,  1.04s/batch, fps=300.5, s[2026-05-06 09:17:39] [heartbeat] task_02_c138-206 train: 40960/70512 (58.1%) avg_fps=217.9 eta=2.3m wait=0.001s step=0.852s
+task_02_c138-206 train:  61%|▌| 169/276 [03:18<01:45,  1.01batch/s, fps=304.6, s[2026-05-06 09:17:50] [heartbeat] task_02_c138-206 train: 43520/70512 (61.7%) avg_fps=218.9 eta=2.1m wait=0.706s step=0.840s
+task_02_c138-206 train:  65%|▋| 179/276 [03:28<01:42,  1.05s/batch, fps=299.6, s[2026-05-06 09:18:00] [heartbeat] task_02_c138-206 train: 46080/70512 (65.4%) avg_fps=220.8 eta=1.8m wait=0.000s step=0.855s
+task_02_c138-206 train:  68%|▋| 189/276 [03:38<01:21,  1.07batch/s, fps=295.6, s[2026-05-06 09:18:10] [heartbeat] task_02_c138-206 train: 48640/70512 (69.0%) avg_fps=222.2 eta=1.6m wait=0.515s step=0.866s
+task_02_c138-206 train:  72%|▋| 199/276 [03:48<01:17,  1.01s/batch, fps=297.6, s[2026-05-06 09:18:20] [heartbeat] task_02_c138-206 train: 51200/70512 (72.6%) avg_fps=223.8 eta=1.4m wait=0.001s step=0.860s
+task_02_c138-206 train:  76%|▊| 209/276 [03:59<01:03,  1.06batch/s, fps=302.0, s[2026-05-06 09:18:31] [heartbeat] task_02_c138-206 train: 53760/70512 (76.2%) avg_fps=224.2 eta=1.2m wait=1.233s step=0.848s
+task_02_c138-206 train:  79%|▊| 219/276 [04:09<00:58,  1.02s/batch, fps=303.2, s[2026-05-06 09:18:41] [heartbeat] task_02_c138-206 train: 56320/70512 (79.9%) avg_fps=225.7 eta=1.0m wait=0.001s step=0.844s
+task_02_c138-206 train:  83%|▊| 229/276 [04:19<00:43,  1.07batch/s, fps=297.1, s[2026-05-06 09:18:51] [heartbeat] task_02_c138-206 train: 58880/70512 (83.5%) avg_fps=226.6 eta=0.9m wait=0.624s step=0.862s
+task_02_c138-206 train:  87%|▊| 239/276 [04:29<00:37,  1.01s/batch, fps=302.9, s[2026-05-06 09:19:01] [heartbeat] task_02_c138-206 train: 61440/70512 (87.1%) avg_fps=228.0 eta=0.7m wait=0.000s step=0.845s
+task_02_c138-206 train:  90%|▉| 249/276 [04:39<00:25,  1.07batch/s, fps=299.7, s[2026-05-06 09:19:11] [heartbeat] task_02_c138-206 train: 64000/70512 (90.8%) avg_fps=228.9 eta=0.5m wait=0.528s step=0.854s
+task_02_c138-206 train:  94%|▉| 259/276 [04:49<00:17,  1.01s/batch, fps=299.6, s[2026-05-06 09:19:21] [heartbeat] task_02_c138-206 train: 66560/70512 (94.4%) avg_fps=230.0 eta=0.3m wait=0.001s step=0.854s
+task_02_c138-206 train:  97%|▉| 269/276 [04:59<00:06,  1.00batch/s, fps=300.9, s[2026-05-06 09:19:31] [heartbeat] task_02_c138-206 train: 69120/70512 (98.0%) avg_fps=230.6 eta=0.1m wait=0.398s step=0.851s
+task_02_c138-206 test:   0%|     | 0/70 [00:36<?, ?batch/s, fps=280.3, seen=256][2026-05-06 09:20:12] [heartbeat] task_02_c138-206 test: 256/17747 (1.4%) avg_fps=7.0 eta=41.5m wait=35.529s step=0.913s
+task_02_c138-206 test:  13%|▏| 9/70 [00:44<01:33,  1.54s/batch, fps=301.1, seen=[2026-05-06 09:20:20] [heartbeat] task_02_c138-206 test: 2560/17747 (14.4%) avg_fps=57.4 eta=4.4m wait=0.001s step=0.850s
+task_02_c138-206 test:  27%|▎| 19/70 [00:53<00:48,  1.05batch/s, fps=291.9, seen[2026-05-06 09:20:29] [heartbeat] task_02_c138-206 test: 5120/17747 (28.8%) avg_fps=95.2 eta=2.2m wait=0.001s step=0.877s
+task_02_c138-206 test:  41%|▍| 29/70 [01:03<00:37,  1.09batch/s, fps=287.2, seen[2026-05-06 09:20:39] [heartbeat] task_02_c138-206 test: 7680/17747 (43.3%) avg_fps=121.5 eta=1.4m wait=0.001s step=0.892s
+task_02_c138-206 test:  56%|▌| 39/70 [01:13<00:31,  1.03s/batch, fps=287.9, seen[2026-05-06 09:20:50] [heartbeat] task_02_c138-206 test: 10240/17747 (57.7%) avg_fps=138.7 eta=0.9m wait=0.000s step=0.889s
+task_02_c138-206 test:  70%|▋| 49/70 [01:25<00:27,  1.32s/batch, fps=302.6, seen[2026-05-06 09:21:02] [heartbeat] task_02_c138-206 test: 12800/17747 (72.1%) avg_fps=149.0 eta=0.6m wait=0.000s step=0.846s
+task_02_c138-206 test:  84%|▊| 59/70 [01:37<00:11,  1.09s/batch, fps=301.8, seen[2026-05-06 09:21:13] [heartbeat] task_02_c138-206 test: 15360/17747 (86.5%) avg_fps=157.8 eta=0.3m wait=0.000s step=0.848s
+task_02_c138-206 test:  99%|▉| 69/70 [01:47<00:00,  1.04batch/s, fps=267.6, seen[2026-05-06 09:21:23] [heartbeat] task_02_c138-206 test: 17747/17747 (100.0%) avg_fps=165.2 eta=0.0m wait=0.000s step=0.310s
+[2026-05-06 09:21:37] [save] task_02_c138-206 persisted in 13.5s compression=on
+[2026-05-06 09:21:37] [extract] task_02_c138-206: train=(70512, 768) test=(17747, 768)
+[2026-05-06 09:21:37] [timing] task 3/5 took 425.8s; avg 401.9s; est remaining 13.4min
+[2026-05-06 09:21:37] [task 4/5] task_03_c207-275 classes=207-275
+task_03_c207-275 train:   0%|   | 0/268 [00:32<?, ?batch/s, fps=238.0, seen=256][2026-05-06 09:22:09] [heartbeat] task_03_c207-275 train: 256/68362 (0.4%) avg_fps=8.0 eta=142.7m wait=31.118s step=1.076s
+task_03_c207-275 train:   3%| | 9/268 [00:39<06:05,  1.41s/batch, fps=304.0, see[2026-05-06 09:22:17] [heartbeat] task_03_c207-275 train: 2560/68362 (3.7%) avg_fps=64.3 eta=17.0m wait=0.001s step=0.842s
+task_03_c207-275 train:   7%| | 19/268 [00:48<04:03,  1.02batch/s, fps=294.2, se[2026-05-06 09:22:26] [heartbeat] task_03_c207-275 train: 5120/68362 (7.5%) avg_fps=104.7 eta=10.1m wait=0.001s step=0.870s
+task_03_c207-275 train:  11%| | 29/268 [00:57<03:33,  1.12batch/s, fps=289.8, se[2026-05-06 09:22:35] [heartbeat] task_03_c207-275 train: 7680/68362 (11.2%) avg_fps=132.8 eta=7.6m wait=0.001s step=0.883s
+task_03_c207-275 train:  15%|▏| 39/268 [01:06<03:28,  1.10batch/s, fps=283.4, se[2026-05-06 09:22:44] [heartbeat] task_03_c207-275 train: 10240/68362 (15.0%) avg_fps=153.1 eta=6.3m wait=0.001s step=0.903s
+task_03_c207-275 train:  18%|▏| 49/268 [01:15<03:17,  1.11batch/s, fps=293.9, se[2026-05-06 09:22:53] [heartbeat] task_03_c207-275 train: 12800/68362 (18.7%) avg_fps=168.8 eta=5.5m wait=0.001s step=0.871s
+task_03_c207-275 train:  22%|▏| 59/268 [01:25<03:16,  1.07batch/s, fps=290.3, se[2026-05-06 09:23:02] [heartbeat] task_03_c207-275 train: 15360/68362 (22.5%) avg_fps=180.0 eta=4.9m wait=0.001s step=0.882s
+task_03_c207-275 train:  26%|▎| 69/268 [01:35<03:46,  1.14s/batch, fps=308.0, se[2026-05-06 09:23:13] [heartbeat] task_03_c207-275 train: 17920/68362 (26.2%) avg_fps=187.2 eta=4.5m wait=0.001s step=0.831s
+task_03_c207-275 train:  29%|▎| 79/268 [01:45<03:03,  1.03batch/s, fps=303.9, se[2026-05-06 09:23:23] [heartbeat] task_03_c207-275 train: 20480/68362 (30.0%) avg_fps=193.8 eta=4.1m wait=0.001s step=0.842s
+task_03_c207-275 train:  33%|▎| 89/268 [01:56<03:25,  1.15s/batch, fps=303.2, se[2026-05-06 09:23:33] [heartbeat] task_03_c207-275 train: 23040/68362 (33.7%) avg_fps=198.3 eta=3.8m wait=0.001s step=0.844s
+task_03_c207-275 train:  37%|▎| 99/268 [02:05<02:45,  1.02batch/s, fps=296.3, se[2026-05-06 09:23:43] [heartbeat] task_03_c207-275 train: 25600/68362 (37.4%) avg_fps=203.3 eta=3.5m wait=0.001s step=0.864s
+task_03_c207-275 train:  41%|▍| 109/268 [02:16<03:06,  1.17s/batch, fps=291.4, s[2026-05-06 09:23:54] [heartbeat] task_03_c207-275 train: 28160/68362 (41.2%) avg_fps=205.8 eta=3.3m wait=0.001s step=0.879s
+task_03_c207-275 train:  44%|▍| 119/268 [02:26<02:24,  1.03batch/s, fps=290.8, s[2026-05-06 09:24:04] [heartbeat] task_03_c207-275 train: 30720/68362 (44.9%) avg_fps=209.3 eta=3.0m wait=0.001s step=0.880s
+task_03_c207-275 train:  48%|▍| 129/268 [02:37<02:31,  1.09s/batch, fps=296.0, s[2026-05-06 09:24:14] [heartbeat] task_03_c207-275 train: 33280/68362 (48.7%) avg_fps=211.8 eta=2.8m wait=0.001s step=0.865s
+task_03_c207-275 train:  52%|▌| 139/268 [02:47<02:05,  1.03batch/s, fps=301.4, s[2026-05-06 09:24:24] [heartbeat] task_03_c207-275 train: 35840/68362 (52.4%) avg_fps=214.6 eta=2.5m wait=0.001s step=0.849s
+task_03_c207-275 train:  56%|▌| 149/268 [02:57<02:18,  1.16s/batch, fps=306.6, s[2026-05-06 09:24:35] [heartbeat] task_03_c207-275 train: 38400/68362 (56.2%) avg_fps=215.8 eta=2.3m wait=0.001s step=0.835s
+task_03_c207-275 train:  59%|▌| 159/268 [03:08<01:50,  1.01s/batch, fps=300.3, s[2026-05-06 09:24:45] [heartbeat] task_03_c207-275 train: 40960/68362 (59.9%) avg_fps=217.7 eta=2.1m wait=0.000s step=0.853s
+task_03_c207-275 train:  63%|▋| 169/268 [03:18<01:42,  1.04s/batch, fps=302.5, s[2026-05-06 09:24:55] [heartbeat] task_03_c207-275 train: 43520/68362 (63.7%) avg_fps=219.4 eta=1.9m wait=0.001s step=0.846s
+task_03_c207-275 train:  67%|▋| 179/268 [03:28<01:31,  1.02s/batch, fps=297.5, s[2026-05-06 09:25:05] [heartbeat] task_03_c207-275 train: 46080/68362 (67.4%) avg_fps=221.0 eta=1.7m wait=0.001s step=0.861s
+task_03_c207-275 train:  71%|▋| 189/268 [03:39<01:30,  1.14s/batch, fps=293.2, s[2026-05-06 09:25:16] [heartbeat] task_03_c207-275 train: 48640/68362 (71.2%) avg_fps=222.1 eta=1.5m wait=0.001s step=0.873s
+task_03_c207-275 train:  74%|▋| 199/268 [03:48<01:06,  1.03batch/s, fps=298.4, s[2026-05-06 09:25:26] [heartbeat] task_03_c207-275 train: 51200/68362 (74.9%) avg_fps=223.9 eta=1.3m wait=0.001s step=0.858s
+task_03_c207-275 train:  78%|▊| 209/268 [03:58<01:02,  1.06s/batch, fps=301.8, s[2026-05-06 09:25:36] [heartbeat] task_03_c207-275 train: 53760/68362 (78.6%) avg_fps=225.1 eta=1.1m wait=0.001s step=0.848s
+task_03_c207-275 train:  82%|▊| 219/268 [04:09<00:53,  1.08s/batch, fps=300.1, s[2026-05-06 09:25:46] [heartbeat] task_03_c207-275 train: 56320/68362 (82.4%) avg_fps=225.7 eta=0.9m wait=0.001s step=0.853s
+task_03_c207-275 train:  85%|▊| 229/268 [04:22<00:53,  1.37s/batch, fps=302.2, s[2026-05-06 09:25:59] [heartbeat] task_03_c207-275 train: 58880/68362 (86.1%) avg_fps=224.6 eta=0.7m wait=0.001s step=0.847s
+task_03_c207-275 train:  89%|▉| 239/268 [04:32<00:30,  1.06s/batch, fps=296.6, s[2026-05-06 09:26:10] [heartbeat] task_03_c207-275 train: 61440/68362 (89.9%) avg_fps=225.2 eta=0.5m wait=0.001s step=0.863s
+task_03_c207-275 train:  93%|▉| 249/268 [04:45<00:25,  1.35s/batch, fps=298.6, s[2026-05-06 09:26:22] [heartbeat] task_03_c207-275 train: 64000/68362 (93.6%) avg_fps=224.2 eta=0.3m wait=0.000s step=0.857s
+task_03_c207-275 train:  97%|▉| 259/268 [04:55<00:09,  1.01s/batch, fps=294.8, s[2026-05-06 09:26:33] [heartbeat] task_03_c207-275 train: 66560/68362 (97.4%) avg_fps=225.1 eta=0.1m wait=0.000s step=0.868s
+task_03_c207-275 test:   0%|     | 0/66 [00:37<?, ?batch/s, fps=250.4, seen=256][2026-05-06 09:27:17] [heartbeat] task_03_c207-275 test: 256/16831 (1.5%) avg_fps=6.9 eta=40.1m wait=36.131s step=1.022s
+task_03_c207-275 test:  14%|▏| 9/66 [00:44<01:26,  1.51s/batch, fps=295.6, seen=[2026-05-06 09:27:25] [heartbeat] task_03_c207-275 test: 2560/16831 (15.2%) avg_fps=57.0 eta=4.2m wait=0.001s step=0.866s
+task_03_c207-275 test:  29%|▎| 19/66 [00:54<00:47,  1.02s/batch, fps=270.3, seen[2026-05-06 09:27:35] [heartbeat] task_03_c207-275 test: 5120/16831 (30.4%) avg_fps=93.7 eta=2.1m wait=0.003s step=0.947s
+task_03_c207-275 test:  44%|▍| 29/66 [01:03<00:33,  1.11batch/s, fps=287.3, seen[2026-05-06 09:27:44] [heartbeat] task_03_c207-275 test: 7680/16831 (45.6%) avg_fps=120.9 eta=1.3m wait=0.001s step=0.891s
+task_03_c207-275 test:  59%|▌| 39/66 [01:14<00:29,  1.08s/batch, fps=290.3, seen[2026-05-06 09:27:55] [heartbeat] task_03_c207-275 test: 10240/16831 (60.8%) avg_fps=137.6 eta=0.8m wait=0.000s step=0.882s
+task_03_c207-275 test:  74%|▋| 49/66 [01:25<00:20,  1.18s/batch, fps=300.7, seen[2026-05-06 09:28:06] [heartbeat] task_03_c207-275 test: 12800/16831 (76.1%) avg_fps=149.5 eta=0.4m wait=0.001s step=0.851s
+task_03_c207-275 test:  89%|▉| 59/66 [01:36<00:07,  1.09s/batch, fps=301.7, seen[2026-05-06 09:28:17] [heartbeat] task_03_c207-275 test: 15360/16831 (91.3%) avg_fps=159.0 eta=0.2m wait=0.000s step=0.848s
+[2026-05-06 09:28:37] [save] task_03_c207-275 persisted in 12.8s compression=on
+[2026-05-06 09:28:37] [extract] task_03_c207-275: train=(68362, 768) test=(16831, 768)
+[2026-05-06 09:28:37] [timing] task 4/5 took 420.2s; avg 406.5s; est remaining 6.8min
+[2026-05-06 09:28:37] [task 5/5] task_04_c276-344 classes=276-344
+task_04_c276-344 train:   0%|   | 0/262 [00:35<?, ?batch/s, fps=239.7, seen=256][2026-05-06 09:29:12] [heartbeat] task_04_c276-344 train: 256/66967 (0.4%) avg_fps=7.3 eta=152.3m wait=34.001s step=1.068s
+task_04_c276-344 train:   3%| | 9/262 [00:42<06:09,  1.46s/batch, fps=302.0, see[2026-05-06 09:29:20] [heartbeat] task_04_c276-344 train: 2560/66967 (3.8%) avg_fps=60.0 eta=17.9m wait=0.001s step=0.848s
+task_04_c276-344 train:   7%| | 19/262 [00:51<03:34,  1.13batch/s, fps=294.4, se[2026-05-06 09:29:28] [heartbeat] task_04_c276-344 train: 5120/66967 (7.6%) avg_fps=99.7 eta=10.3m wait=0.001s step=0.870s
+task_04_c276-344 train:  11%| | 29/262 [01:00<03:50,  1.01batch/s, fps=289.6, se[2026-05-06 09:29:38] [heartbeat] task_04_c276-344 train: 7680/66967 (11.5%) avg_fps=126.7 eta=7.8m wait=0.000s step=0.884s
+task_04_c276-344 train:  15%|▏| 39/262 [01:09<03:21,  1.11batch/s, fps=284.0, se[2026-05-06 09:29:47] [heartbeat] task_04_c276-344 train: 10240/66967 (15.3%) avg_fps=147.1 eta=6.4m wait=0.001s step=0.902s
+task_04_c276-344 train:  19%|▏| 49/262 [01:18<03:09,  1.12batch/s, fps=294.3, se[2026-05-06 09:29:56] [heartbeat] task_04_c276-344 train: 12800/66967 (19.1%) avg_fps=163.0 eta=5.5m wait=0.001s step=0.870s
+task_04_c276-344 train:  23%|▏| 59/262 [01:27<03:08,  1.08batch/s, fps=302.6, se[2026-05-06 09:30:05] [heartbeat] task_04_c276-344 train: 15360/66967 (22.9%) avg_fps=175.3 eta=4.9m wait=0.001s step=0.846s
+task_04_c276-344 train:  26%|▎| 69/262 [01:37<03:21,  1.04s/batch, fps=302.7, se[2026-05-06 09:30:15] [heartbeat] task_04_c276-344 train: 17920/66967 (26.8%) avg_fps=183.2 eta=4.5m wait=0.001s step=0.846s
+task_04_c276-344 train:  30%|▎| 79/262 [01:47<03:01,  1.01batch/s, fps=309.6, se[2026-05-06 09:30:25] [heartbeat] task_04_c276-344 train: 20480/66967 (30.6%) avg_fps=189.7 eta=4.1m wait=0.001s step=0.827s
+task_04_c276-344 train:  34%|▎| 89/262 [01:58<03:20,  1.16s/batch, fps=304.3, se[2026-05-06 09:30:36] [heartbeat] task_04_c276-344 train: 23040/66967 (34.4%) avg_fps=194.2 eta=3.8m wait=0.001s step=0.841s
+task_04_c276-344 train:  38%|▍| 99/262 [02:08<02:49,  1.04s/batch, fps=301.0, se[2026-05-06 09:30:46] [heartbeat] task_04_c276-344 train: 25600/66967 (38.2%) avg_fps=199.0 eta=3.5m wait=0.001s step=0.850s
+task_04_c276-344 train:  42%|▍| 109/262 [02:19<03:01,  1.19s/batch, fps=293.2, s[2026-05-06 09:30:56] [heartbeat] task_04_c276-344 train: 28160/66967 (42.1%) avg_fps=202.1 eta=3.2m wait=0.001s step=0.873s
+task_04_c276-344 train:  45%|▍| 119/262 [02:30<02:34,  1.08s/batch, fps=291.7, s[2026-05-06 09:31:07] [heartbeat] task_04_c276-344 train: 30720/66967 (45.9%) avg_fps=204.6 eta=3.0m wait=0.001s step=0.878s
+task_04_c276-344 train:  49%|▍| 129/262 [02:41<02:37,  1.19s/batch, fps=297.6, s[2026-05-06 09:31:18] [heartbeat] task_04_c276-344 train: 33280/66967 (49.7%) avg_fps=206.5 eta=2.7m wait=0.001s step=0.860s
+task_04_c276-344 train:  53%|▌| 139/262 [02:51<02:03,  1.01s/batch, fps=298.3, s[2026-05-06 09:31:28] [heartbeat] task_04_c276-344 train: 35840/66967 (53.5%) avg_fps=209.2 eta=2.5m wait=0.001s step=0.858s
+task_04_c276-344 train:  57%|▌| 149/262 [03:01<02:09,  1.14s/batch, fps=304.6, s[2026-05-06 09:31:39] [heartbeat] task_04_c276-344 train: 38400/66967 (57.3%) avg_fps=211.1 eta=2.3m wait=0.001s step=0.840s
+task_04_c276-344 train:  61%|▌| 159/262 [03:12<01:44,  1.01s/batch, fps=305.1, s[2026-05-06 09:31:49] [heartbeat] task_04_c276-344 train: 40960/66967 (61.2%) avg_fps=213.3 eta=2.0m wait=0.001s step=0.839s
+task_04_c276-344 train:  65%|▋| 169/262 [03:22<01:41,  1.10s/batch, fps=300.3, s[2026-05-06 09:32:00] [heartbeat] task_04_c276-344 train: 43520/66967 (65.0%) avg_fps=214.8 eta=1.8m wait=0.001s step=0.852s
+task_04_c276-344 train:  68%|▋| 179/262 [03:32<01:23,  1.01s/batch, fps=295.6, s[2026-05-06 09:32:10] [heartbeat] task_04_c276-344 train: 46080/66967 (68.8%) avg_fps=216.6 eta=1.6m wait=0.001s step=0.866s
+task_04_c276-344 train:  72%|▋| 189/262 [03:43<01:21,  1.12s/batch, fps=291.6, s[2026-05-06 09:32:20] [heartbeat] task_04_c276-344 train: 48640/66967 (72.6%) avg_fps=218.0 eta=1.4m wait=0.001s step=0.878s
+task_04_c276-344 train:  76%|▊| 199/262 [03:53<01:03,  1.01s/batch, fps=298.3, s[2026-05-06 09:32:30] [heartbeat] task_04_c276-344 train: 51200/66967 (76.5%) avg_fps=219.4 eta=1.2m wait=0.001s step=0.858s
+task_04_c276-344 train:  80%|▊| 209/262 [04:03<00:59,  1.12s/batch, fps=301.2, s[2026-05-06 09:32:41] [heartbeat] task_04_c276-344 train: 53760/66967 (80.3%) avg_fps=220.4 eta=1.0m wait=0.001s step=0.850s
+task_04_c276-344 train:  84%|▊| 219/262 [04:13<00:43,  1.00s/batch, fps=302.2, s[2026-05-06 09:32:51] [heartbeat] task_04_c276-344 train: 56320/66967 (84.1%) avg_fps=221.9 eta=0.8m wait=0.001s step=0.847s
+task_04_c276-344 train:  87%|▊| 229/262 [04:24<00:38,  1.15s/batch, fps=303.5, s[2026-05-06 09:33:02] [heartbeat] task_04_c276-344 train: 58880/66967 (87.9%) avg_fps=222.6 eta=0.6m wait=0.001s step=0.844s
+task_04_c276-344 train:  91%|▉| 239/262 [04:34<00:23,  1.00s/batch, fps=302.2, s[2026-05-06 09:33:12] [heartbeat] task_04_c276-344 train: 61440/66967 (91.7%) avg_fps=223.6 eta=0.4m wait=0.000s step=0.847s
+task_04_c276-344 train:  95%|▉| 249/262 [04:45<00:14,  1.12s/batch, fps=299.9, s[2026-05-06 09:33:23] [heartbeat] task_04_c276-344 train: 64000/66967 (95.6%) avg_fps=224.2 eta=0.2m wait=0.001s step=0.854s
+task_04_c276-344 train:  99%|▉| 259/262 [04:55<00:02,  1.03batch/s, fps=294.7, s[2026-05-06 09:33:32] [heartbeat] task_04_c276-344 train: 66560/66967 (99.4%) avg_fps=225.6 eta=0.0m wait=0.000s step=0.869s
+task_04_c276-344 test:   0%|     | 0/66 [00:35<?, ?batch/s, fps=270.9, seen=256][2026-05-06 09:34:10] [heartbeat] task_04_c276-344 test: 256/16741 (1.5%) avg_fps=7.1 eta=38.5m wait=34.967s step=0.945s
+task_04_c276-344 test:  14%|▏| 9/66 [00:44<01:27,  1.53s/batch, fps=294.5, seen=[2026-05-06 09:34:18] [heartbeat] task_04_c276-344 test: 2560/16741 (15.3%) avg_fps=58.1 eta=4.1m wait=0.001s step=0.869s
+task_04_c276-344 test:  29%|▎| 19/66 [00:52<00:42,  1.11batch/s, fps=289.2, seen[2026-05-06 09:34:27] [heartbeat] task_04_c276-344 test: 5120/16741 (30.6%) avg_fps=96.8 eta=2.0m wait=0.001s step=0.885s
+task_04_c276-344 test:  44%|▍| 29/66 [01:02<00:39,  1.07s/batch, fps=285.7, seen[2026-05-06 09:34:36] [heartbeat] task_04_c276-344 test: 7680/16741 (45.9%) avg_fps=122.9 eta=1.2m wait=0.001s step=0.896s
+task_04_c276-344 test:  59%|▌| 39/66 [01:13<00:29,  1.10s/batch, fps=294.5, seen[2026-05-06 09:34:48] [heartbeat] task_04_c276-344 test: 10240/16741 (61.2%) avg_fps=138.8 eta=0.8m wait=0.000s step=0.869s
+task_04_c276-344 test:  74%|▋| 49/66 [01:26<00:24,  1.42s/batch, fps=305.8, seen[2026-05-06 09:35:00] [heartbeat] task_04_c276-344 test: 12800/16741 (76.5%) avg_fps=148.6 eta=0.4m wait=0.000s step=0.837s
+task_04_c276-344 test:  89%|▉| 59/66 [01:36<00:07,  1.06s/batch, fps=306.6, seen[2026-05-06 09:35:11] [heartbeat] task_04_c276-344 test: 15360/16741 (91.8%) avg_fps=158.7 eta=0.1m wait=0.000s step=0.835s
+[2026-05-06 09:35:29] [save] task_04_c276-344 persisted in 12.6s compression=on
+[2026-05-06 09:35:29] [extract] task_04_c276-344: train=(66967, 768) test=(16741, 768)
+[2026-05-06 09:35:29] [timing] task 5/5 took 412.6s; avg 407.7s; est remaining 0.0min
+[2026-05-06 09:35:29] [done] saved embeddings to /kaggle/working/Continual/expand_method_ComputerVision/theory_verify/embeddings/domainnet__init69__inc69__cls total_elapsed=2038.5s
+[2026-05-06 09:35:30] [stage 1/1] domainnet_natural: running routing evaluation
+=== Routing Evaluation: domainnet__init69__inc69__cls ===
+dataset=domainnet descriptor=cls tasks=5
+routers=['NearestCentroid', 'CosineNearestCentroid', 'OnlineZCAL2', 'PooledMahalanobis_RIDGE', 'PooledMahalanobis_OAS']
+routing_device=cuda:0 embed_dtype=float32
+Routing steps:   0%|                                    | 0/5 [00:00<?, ?task/s][2026-05-06 09:35:31] [step 1/5] add task_00_c000-068 train=(67628, 768)
+    NearestCentroid          macro=100.00% micro=100.00% [task_00_c000-068:100.0%]
+    CosineNearestCentroid    macro=100.00% micro=100.00% [task_00_c000-068:100.0%]
+    OnlineZCAL2              macro=100.00% micro=100.00% [task_00_c000-068:100.0%]
+    PooledMahalanobis_RIDGE  macro=100.00% micro=100.00% [task_00_c000-068:100.0%]
+    PooledMahalanobis_OAS    macro=100.00% micro=100.00% [task_00_c000-068:100.0%]
+[2026-05-06 09:35:34] [timing] finished step 1/5 in 4.7s; avg 4.7s; est remaining 0.3min
+Routing steps:  20%|█████▌                      | 1/5 [00:04<00:19,  4.75s/task][2026-05-06 09:35:36] [step 2/5] add task_01_c069-137 train=(65335, 768)
+    NearestCentroid          macro= 64.43% micro= 64.50% [task_00_c000-068:68.2% | task_01_c069-137:60.7%]
+    CosineNearestCentroid    macro= 65.11% micro= 65.17% [task_00_c000-068:68.1% | task_01_c069-137:62.1%]
+    OnlineZCAL2              macro= 77.27% micro= 77.25% [task_00_c000-068:76.5% | task_01_c069-137:78.0%]
+    PooledMahalanobis_RIDGE  macro= 77.32% micro= 77.30% [task_00_c000-068:76.6% | task_01_c069-137:78.0%]
+    PooledMahalanobis_OAS    macro= 76.29% micro= 76.28% [task_00_c000-068:75.5% | task_01_c069-137:77.1%]
+[2026-05-06 09:35:39] [timing] finished step 2/5 in 4.5s; avg 4.6s; est remaining 0.2min
+Routing steps:  40%|███████████▏                | 2/5 [00:09<00:13,  4.62s/task][2026-05-06 09:35:40] [step 3/5] add task_02_c138-206 train=(70512, 768)
+    NearestCentroid          macro= 51.39% micro= 51.36% [task_00_c000-068:56.1% | task_01_c069-137:49.9% | task_02_c138-206:48.2%]
+    CosineNearestCentroid    macro= 51.52% micro= 51.48% [task_00_c000-068:55.9% | task_01_c069-137:50.7% | task_02_c138-206:48.0%]
+    OnlineZCAL2              macro= 67.01% micro= 67.03% [task_00_c000-068:65.0% | task_01_c069-137:67.3% | task_02_c138-206:68.7%]
+    PooledMahalanobis_RIDGE  macro= 66.99% micro= 67.01% [task_00_c000-068:65.0% | task_01_c069-137:67.3% | task_02_c138-206:68.7%]
+    PooledMahalanobis_OAS    macro= 65.79% micro= 65.81% [task_00_c000-068:63.8% | task_01_c069-137:66.0% | task_02_c138-206:67.5%]
+[2026-05-06 09:35:44] [timing] finished step 3/5 in 5.2s; avg 4.8s; est remaining 0.2min
+Routing steps:  60%|████████████████▊           | 3/5 [00:14<00:09,  4.89s/task][2026-05-06 09:35:45] [step 4/5] add task_03_c207-275 train=(68362, 768)
+    NearestCentroid          macro= 44.62% micro= 44.54% [task_00_c000-068:47.8% | task_01_c069-137:45.7% | task_02_c138-206:38.6% | task_03_c207-275:46.5%]
+    CosineNearestCentroid    macro= 44.65% micro= 44.57% [task_00_c000-068:48.5% | task_01_c069-137:46.7% | task_02_c138-206:38.6% | task_03_c207-275:44.8%]
+    OnlineZCAL2              macro= 60.18% micro= 60.18% [task_00_c000-068:57.6% | task_01_c069-137:61.2% | task_02_c138-206:61.3% | task_03_c207-275:60.7%]
+    PooledMahalanobis_RIDGE  macro= 60.18% micro= 60.19% [task_00_c000-068:57.6% | task_01_c069-137:61.2% | task_02_c138-206:61.3% | task_03_c207-275:60.7%]
+    PooledMahalanobis_OAS    macro= 59.15% micro= 59.15% [task_00_c000-068:56.9% | task_01_c069-137:60.1% | task_02_c138-206:60.0% | task_03_c207-275:59.6%]
+[2026-05-06 09:35:50] [timing] finished step 4/5 in 5.6s; avg 5.0s; est remaining 0.1min
+Routing steps:  80%|██████████████████████▍     | 4/5 [00:20<00:05,  5.18s/task][2026-05-06 09:35:51] [step 5/5] add task_04_c276-344 train=(66967, 768)
+    NearestCentroid          macro= 38.36% micro= 38.30% [task_00_c000-068:38.9% | task_01_c069-137:37.2% | task_02_c138-206:32.9% | task_03_c207-275:37.7% | task_04_c276-344:45.1%]
+    CosineNearestCentroid    macro= 39.07% micro= 39.02% [task_00_c000-068:41.2% | task_01_c069-137:38.8% | task_02_c138-206:34.2% | task_03_c207-275:37.8% | task_04_c276-344:43.3%]
+    OnlineZCAL2              macro= 55.18% micro= 55.18% [task_00_c000-068:52.7% | task_01_c069-137:55.7% | task_02_c138-206:55.9% | task_03_c207-275:55.8% | task_04_c276-344:55.7%]
+    PooledMahalanobis_RIDGE  macro= 55.18% micro= 55.18% [task_00_c000-068:52.7% | task_01_c069-137:55.8% | task_02_c138-206:55.9% | task_03_c207-275:55.8% | task_04_c276-344:55.6%]
+    PooledMahalanobis_OAS    macro= 54.29% micro= 54.29% [task_00_c000-068:52.3% | task_01_c069-137:54.6% | task_02_c138-206:54.8% | task_03_c207-275:55.0% | task_04_c276-344:54.8%]
+[2026-05-06 09:35:56] [timing] finished step 5/5 in 5.9s; avg 5.2s; est remaining 0.0min
+Routing steps: 100%|████████████████████████████| 5/5 [00:26<00:00,  5.21s/task]
+
+=== Final Summary ===
+NearestCentroid          final_macro= 38.36% final_micro= 38.30% avg_macro= 59.76%
+CosineNearestCentroid    final_macro= 39.07% final_micro= 39.02% avg_macro= 60.07%
+OnlineZCAL2              final_macro= 55.18% final_micro= 55.18% avg_macro= 71.93%
+PooledMahalanobis_RIDGE  final_macro= 55.18% final_micro= 55.18% avg_macro= 71.93%
+PooledMahalanobis_OAS    final_macro= 54.29% final_micro= 54.29% avg_macro= 71.10%
+[done] wrote report to /kaggle/working/Continual/expand_method_ComputerVision/theory_verify/results/routing__domainnet__init69__inc69__cls.json
+[2026-05-06 09:35:56] [timing] experiment domainnet_natural done in 35.3m; est remaining 0.0m
+[2026-05-06 09:35:56] [done] wrote hypothesis report to /kaggle/working/Continual/expand_method_ComputerVision/theory_verify/results/hypothesis__domainnet_natural__cls.json total_elapsed=35.3m
