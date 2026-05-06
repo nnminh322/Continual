@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from common import INFLORA_ROOT, THIS_DIR, build_run_name, load_config
+from common import INFLORA_ROOT, THIS_DIR, build_run_name, load_config, log
 from extract_embeddings import run_extraction
 from routing_class import run_routing
 
@@ -61,6 +62,20 @@ def parse_args() -> argparse.Namespace:
                         help="Optional batch size override shared by all runs.")
     parser.add_argument("--num_workers", type=int, default=None,
                         help="Optional num_workers override shared by all runs.")
+    parser.add_argument("--use_amp", action="store_true",
+                        help="Enable mixed precision during extraction (autocast on CUDA).")
+    parser.add_argument("--fast_mode", action="store_true",
+                        help="Favor speed over strict determinism during extraction.")
+    parser.add_argument("--prefetch_factor", type=int, default=4,
+                        help="DataLoader prefetch factor used in extraction.")
+    parser.add_argument("--progress_log_every", type=int, default=20,
+                        help="Emit extraction heartbeat every N batches.")
+    parser.add_argument("--save_uncompressed", action="store_true",
+                        help="Store npz without compression for faster writes.")
+    parser.add_argument("--routing_device", default="auto",
+                        help="Routing compute device: auto, cpu, cuda, cuda:0, ...")
+    parser.add_argument("--embed_dtype", default="float32", choices=["float32", "float64"],
+                        help="Embedding dtype used in routing computations.")
     parser.add_argument("--seed", type=int, default=None,
                         help="Optional seed override shared by all runs.")
     parser.add_argument("--max_tasks", type=int, default=None,
@@ -108,6 +123,11 @@ def build_extract_args(experiment_name: str, args: argparse.Namespace) -> Simple
         device=args.device,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
+        use_amp=args.use_amp,
+        fast_mode=args.fast_mode,
+        prefetch_factor=args.prefetch_factor,
+        progress_log_every=args.progress_log_every,
+        save_uncompressed=args.save_uncompressed,
         seed=args.seed,
         max_tasks=args.max_tasks,
         limit_per_split=args.limit_per_split,
@@ -121,6 +141,8 @@ def build_routing_args(emb_dir: Path, args: argparse.Namespace) -> SimpleNamespa
         out_dir=args.results_root,
         max_tasks=args.max_tasks,
         routers=args.routers,
+        device=args.routing_device,
+        embed_dtype=args.embed_dtype,
         force=args.force,
     )
 
@@ -134,7 +156,7 @@ def maybe_reuse_embedding_dir(experiment_name: str, args: argparse.Namespace) ->
     run_dir = Path(args.output_root) / build_run_name(config, args.descriptor)
     metadata_path = run_dir / "metadata.json"
     if metadata_path.exists():
-        print(f"[reuse] using existing embeddings at {run_dir}")
+        log(f"[reuse] using existing embeddings at {run_dir}")
         return run_dir
     return None
 
@@ -167,6 +189,7 @@ def build_comparison(experiment_reports: dict[str, dict]) -> dict:
 
 def main() -> None:
     args = parse_args()
+    total_start = time.time()
     experiments = selected_experiments(args.experiment)
     results_root = Path(args.results_root)
     results_root.mkdir(parents=True, exist_ok=True)
@@ -174,14 +197,20 @@ def main() -> None:
     experiment_reports = {}
     report_paths = {}
 
-    for experiment_name in experiments:
-        print(f"[stage] {experiment_name}: preparing embeddings", flush=True)
+    for exp_idx, experiment_name in enumerate(experiments, start=1):
+        exp_start = time.time()
+        log(f"[stage {exp_idx}/{len(experiments)}] {experiment_name}: preparing embeddings")
         reused_dir = maybe_reuse_embedding_dir(experiment_name, args)
         emb_dir = reused_dir if reused_dir is not None else run_extraction(build_extract_args(experiment_name, args))
-        print(f"[stage] {experiment_name}: running routing evaluation", flush=True)
+        log(f"[stage {exp_idx}/{len(experiments)}] {experiment_name}: running routing evaluation")
         report_path = run_routing(build_routing_args(emb_dir, args))
         report_paths[experiment_name] = str(report_path)
         experiment_reports[experiment_name] = load_summary(report_path)
+
+        exp_elapsed = time.time() - exp_start
+        avg = (time.time() - total_start) / exp_idx
+        remaining = avg * (len(experiments) - exp_idx)
+        log(f"[timing] experiment {experiment_name} done in {exp_elapsed/60:.1f}m; est remaining {remaining/60:.1f}m")
 
     combined_report = {
         "hypothesis": "SRT routing should behave more cleanly on natural domain-incremental tasks than on artificial class-block tasks.",
@@ -203,7 +232,7 @@ def main() -> None:
     with open(summary_path, "w", encoding="utf-8") as handle:
         json.dump(combined_report, handle, indent=2)
 
-    print(f"[done] wrote hypothesis report to {summary_path}")
+    log(f"[done] wrote hypothesis report to {summary_path} total_elapsed={(time.time() - total_start)/60:.1f}m")
 
 
 if __name__ == "__main__":
