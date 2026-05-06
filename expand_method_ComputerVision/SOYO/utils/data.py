@@ -55,7 +55,7 @@ class iGanFake(object):
                     test_dataset.append((os.path.join(root_, cls, '0_real', imgname), 0 + 2 * id))
                 for imgname in os.listdir(os.path.join(root_, cls, '1_fake')):
                     test_dataset.append((os.path.join(root_, cls, '1_fake', imgname), 1 + 2 * id))
-        
+
         # print(len(train_dataset)) # 16068
         # print(train_dataset[0])
         # print(len(test_dataset))  # 5353
@@ -101,17 +101,21 @@ class iCore50(iData):
             labellist += i*50 ### note that the DIL is represented to CIL by S-prompt
             imglist = imglist.astype(np.uint8)
             dataset_list.append([imglist, labellist])
+        print('[core50] concatenating train batches...', flush=True)
         train_x = np.concatenate(np.array(dataset_list, dtype=object)[:, 0])
         train_y = np.concatenate(np.array(dataset_list, dtype=object)[:, 1])
         # print(train_x.shape) # (119894, 128, 128, 3)
         # print(train_y.shape) # (119894,)
         self.train_data = train_x
         self.train_targets = train_y
+        print(f'[core50] train ready: data={self.train_data.shape} labels={self.train_targets.shape}', flush=True)
 
+        print('[core50] loading shared test set...', flush=True)
         test_x, test_y = datagen.get_test_set()
         test_x = test_x.astype(np.uint8)
         self.test_data = test_x
         self.test_targets = test_y
+        print(f'[core50] test ready: data={self.test_data.shape} labels={self.test_targets.shape}', flush=True)
 
 
 class iDomainNet(iData):
@@ -140,7 +144,7 @@ class iDomainNet(iData):
         self.image_list_root = self.args["data_path"]
 
         image_list_paths = [os.path.join(self.image_list_root, d + "_" + "train" + ".txt") for d in self.domain_names]
-        
+
         imgs = []
         print('#'*50)
         print('loading domainnet train data')
@@ -149,18 +153,18 @@ class iDomainNet(iData):
             imgs += [(val.split()[0], int(val.split()[1]) + taskid * 345) for val in image_list]
             print(taskid, self.domain_names[taskid], len([(val.split()[0], int(val.split()[1]) + taskid * 345) for val in image_list]))
         train_x, train_y = [], []
-        
+
         for item in imgs:
             train_x.append(os.path.join(self.image_list_root, item[0]))
             train_y.append(item[1])
         self.train_data = np.array(train_x)
         self.train_targets = np.array(train_y)
         print('len of train data', len(self.train_data), len(np.unique(self.train_targets))) # 409832+1
-        
+
         print('#'*30)
 
         image_list_paths = [os.path.join(self.image_list_root, d + "_" + "test" + ".txt") for d in self.domain_names]
-        
+
         imgs = []
         print('loading domainnet test data')
         for taskid, image_list_path in enumerate(image_list_paths):

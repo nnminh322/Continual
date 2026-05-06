@@ -353,6 +353,9 @@ def run_extraction(args: argparse.Namespace) -> Path:
         task_dir.mkdir(parents=True, exist_ok=True)
 
         class_indices = torch.arange(start_class, end_class).cpu().numpy()
+        log(
+            f"[task {task_id + 1}/{max_tasks}] materializing datasets for {task_name} "
+            f"classes={start_class}-{end_class - 1}")
         train_dataset = data_manager.get_dataset(class_indices, source="train", mode="train")
         test_dataset = data_manager.get_dataset(class_indices, source="test", mode="test")
 
