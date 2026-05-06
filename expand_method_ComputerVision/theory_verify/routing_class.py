@@ -7,6 +7,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
+from tqdm.auto import tqdm
 
 from common import THIS_DIR
 
@@ -239,7 +240,7 @@ def build_routers(selection: str) -> OrderedDict[str, object]:
 def run_incremental_eval(emb_dir: Path, task_specs: list[dict], routers: OrderedDict[str, object]) -> dict:
     results = {name: [] for name in routers}
 
-    for step_idx, task_spec in enumerate(task_specs):
+    for step_idx, task_spec in enumerate(tqdm(task_specs, desc="Routing steps", unit="task", dynamic_ncols=True), start=0):
         train_embs = load_split(emb_dir, task_spec["task_name"], "train")
         print(f"[step {step_idx + 1}/{len(task_specs)}] add {task_spec['task_name']} train={train_embs.shape}")
 

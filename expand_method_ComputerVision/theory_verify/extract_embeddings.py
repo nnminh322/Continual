@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 from common import (
     THIS_DIR,
@@ -90,7 +91,7 @@ def build_loader(dataset, batch_size: int, num_workers: int, seed: int):
     return DataLoader(**loader_kwargs)
 
 
-def extract_split_embeddings(loader, backbone, descriptor: str, device: str, limit_per_split: int | None):
+def extract_split_embeddings(loader, backbone, descriptor: str, device: str, limit_per_split: int | None, desc: str):
     embeddings = []
     labels = []
     sample_indices = []
@@ -98,7 +99,8 @@ def extract_split_embeddings(loader, backbone, descriptor: str, device: str, lim
 
     backbone.eval()
     with torch.no_grad():
-        for batch_indices, images, batch_labels in loader:
+        progress = tqdm(loader, desc=desc, unit="batch", dynamic_ncols=True, leave=False)
+        for batch_indices, images, batch_labels in progress:
             if limit_per_split is not None and seen >= limit_per_split:
                 break
 
@@ -118,6 +120,8 @@ def extract_split_embeddings(loader, backbone, descriptor: str, device: str, lim
             labels.append(batch_labels.cpu().numpy().astype(np.int64))
             sample_indices.append(batch_indices.cpu().numpy().astype(np.int64))
             seen += take
+            if limit_per_split is not None:
+                progress.set_postfix(seen=seen, limit=limit_per_split)
 
     if not embeddings:
         raise RuntimeError("No embeddings were extracted for the requested split.")
@@ -183,8 +187,11 @@ def run_extraction(args: argparse.Namespace) -> Path:
     backbone = ViT_Frozen(data_args).to(device)
     backbone.eval()
 
-    print(f"[setup] device={device} requested_num_workers={requested_num_workers} effective_num_workers={num_workers}")
-    print(f"[setup] data_path={data_args.get('data_path')}")
+    model_device = next(backbone.parameters()).device
+    print(f"[setup] device={device} model_device={model_device} cuda_available={torch.cuda.is_available()}", flush=True)
+    print(f"[setup] backbone=ViT_Frozen vit={backbone.vit.__class__.__name__}", flush=True)
+    print(f"[setup] requested_num_workers={requested_num_workers} effective_num_workers={num_workers}", flush=True)
+    print(f"[setup] data_path={data_args.get('data_path')}", flush=True)
 
     output_root = Path(args.output_root)
     run_dir = output_root / build_run_name(data_args, args.descriptor)
@@ -201,6 +208,11 @@ def run_extraction(args: argparse.Namespace) -> Path:
         task_dir = run_dir / task_name
         task_dir.mkdir(parents=True, exist_ok=True)
 
+        print(
+            f"[task {task_id + 1}/{max_tasks}] {task_name} classes={start_class}-{end_class - 1}",
+            flush=True,
+        )
+
         class_indices = np.arange(start_class, end_class)
         train_dataset = data_manager.get_dataset(class_indices, source="train", mode="train")
         test_dataset = data_manager.get_dataset(class_indices, source="test", mode="test")
@@ -209,9 +221,9 @@ def run_extraction(args: argparse.Namespace) -> Path:
         test_loader = build_loader(test_dataset, batch_size, num_workers, seed + task_id * 17 + 1)
 
         train_payload = extract_split_embeddings(
-            train_loader, backbone, args.descriptor, device, args.limit_per_split)
+            train_loader, backbone, args.descriptor, device, args.limit_per_split, desc=f"{task_name} train")
         test_payload = extract_split_embeddings(
-            test_loader, backbone, args.descriptor, device, args.limit_per_split)
+            test_loader, backbone, args.descriptor, device, args.limit_per_split, desc=f"{task_name} test")
 
         split_common = {
             "dataset": data_args["dataset"],
@@ -242,7 +254,8 @@ def run_extraction(args: argparse.Namespace) -> Path:
 
         print(
             f"[extract] {task_name}: train={train_payload['embeddings'].shape} "
-            f"test={test_payload['embeddings'].shape}")
+            f"test={test_payload['embeddings'].shape}",
+            flush=True)
 
     metadata = {
         "dataset": data_args["dataset"],

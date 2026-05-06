@@ -175,8 +175,10 @@ def main() -> None:
     report_paths = {}
 
     for experiment_name in experiments:
+        print(f"[stage] {experiment_name}: preparing embeddings", flush=True)
         reused_dir = maybe_reuse_embedding_dir(experiment_name, args)
         emb_dir = reused_dir if reused_dir is not None else run_extraction(build_extract_args(experiment_name, args))
+        print(f"[stage] {experiment_name}: running routing evaluation", flush=True)
         report_path = run_routing(build_routing_args(emb_dir, args))
         report_paths[experiment_name] = str(report_path)
         experiment_reports[experiment_name] = load_summary(report_path)
