@@ -144,6 +144,7 @@ def run_extraction(args: argparse.Namespace) -> Path:
 
     DataManager = importlib.import_module("utils.data_manager").DataManager
     ViT_Frozen = importlib.import_module("models.sinet_srt_inflora").ViT_Frozen
+    data_utils = importlib.import_module("utils.data")
 
     config, config_path = load_config(args.config)
     seed = int(args.seed if args.seed is not None else config["seed"][0])
@@ -158,6 +159,13 @@ def run_extraction(args: argparse.Namespace) -> Path:
     data_args["seed"] = seed
     if args.data_path is not None:
         data_args["data_path"] = args.data_path
+    if data_args["dataset"].lower() == "domainnet":
+        resolved_data_path = data_utils.resolve_domainnet_root(data_args.get("data_path"))
+        if resolved_data_path is None:
+            raise FileNotFoundError(
+                "Could not resolve a DomainNet root. Pass --data_path to the mounted DomainNet directory "
+                "or set DOMAINNET_ROOT. Common Kaggle/repo locations were checked automatically.")
+        data_args["data_path"] = resolved_data_path
     try:
         data_manager = DataManager(
             data_args["dataset"],

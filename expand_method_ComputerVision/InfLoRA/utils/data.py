@@ -8,6 +8,7 @@ import yaml
 from PIL import Image
 from shutil import move, rmtree
 import torch
+from pathlib import Path
 
 class iData(object):
     train_trsf = []
@@ -364,4 +365,34 @@ def jpg_image_to_array(image_path):
         im_arr = np.fromstring(image.tobytes(), dtype=np.uint8)
         im_arr = im_arr.reshape((image.size[1], image.size[0], 3))
     return im_arr
+
+
+def resolve_domainnet_root(candidate_root=None):
+    def first_existing(paths):
+        for path in paths:
+            if path is None:
+                continue
+            resolved = Path(path).expanduser()
+            if resolved.exists():
+                return str(resolved.resolve())
+        return None
+
+    if candidate_root:
+        resolved = first_existing([candidate_root])
+        if resolved is not None:
+            return resolved
+
+    env_root = os.environ.get('DOMAINNET_ROOT')
+    common_roots = [
+        env_root,
+        Path.cwd() / 'data' / 'DomainNet',
+        Path.cwd() / 'data' / 'domainnet',
+        Path.cwd() / 'DomainNet',
+        Path.cwd() / 'domainnet',
+        Path('/kaggle/input/DomainNet'),
+        Path('/kaggle/input/domainnet'),
+        Path('/kaggle/input/DomainNet/DomainNet'),
+        Path('/kaggle/input/domainnet/DomainNet'),
+    ]
+    return first_existing(common_roots)
 

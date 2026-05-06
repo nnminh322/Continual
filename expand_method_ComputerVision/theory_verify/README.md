@@ -19,11 +19,12 @@ Main one-command hypothesis wrapper:
 python expand_method_ComputerVision/theory_verify/verify_benchmark_hypothesis.py \
   --experiment domainnet_natural \
   --descriptor cls \
-  --data_path /actual/domainnet/root \
+  --data_path /path/to/DomainNet \
   --reuse_embeddings
 ```
 
 This writes the DomainNet routing report and a hypothesis summary under `expand_method_ComputerVision/theory_verify/results/`.
+If `--data_path` is omitted, the code will also try common Kaggle and local `DomainNet` mount locations automatically.
 
 If you explicitly want the old artificial control comparison, you can still run:
 
@@ -31,7 +32,7 @@ If you explicitly want the old artificial control comparison, you can still run:
 python expand_method_ComputerVision/theory_verify/verify_benchmark_hypothesis.py \
   --experiment both \
   --descriptor cls \
-  --data_path /actual/domainnet/root \
+  --data_path /path/to/DomainNet \
   --reuse_embeddings
 ```
 
@@ -40,11 +41,11 @@ Extractor:
 ```bash
 python expand_method_ComputerVision/theory_verify/extract_embeddings.py \
   --config expand_method_ComputerVision/InfLoRA/configs/domainnet_srt_inflora.json \
-  --data_path /actual/domainnet/root \
+  --data_path /path/to/DomainNet \
   --descriptor cls
 ```
 
-Use `--data_path` whenever DomainNet is mounted outside the path stored in the config.
+Use `--data_path` whenever DomainNet is mounted outside the path stored in the config, or rely on the automatic fallback to common Kaggle/local roots.
 
 Useful descriptor ablations:
 - `cls`: matches the current runtime path.
