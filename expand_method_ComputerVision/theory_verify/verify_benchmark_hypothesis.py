@@ -64,6 +64,8 @@ def parse_args() -> argparse.Namespace:
                         help="Optional num_workers override shared by all runs.")
     parser.add_argument("--use_amp", action="store_true",
                         help="Enable mixed precision during extraction (autocast on CUDA).")
+    parser.add_argument("--multi_gpu", default="auto", choices=["auto", "off", "on"],
+                        help="Use DataParallel across visible GPUs during extraction.")
     parser.add_argument("--fast_mode", action="store_true",
                         help="Favor speed over strict determinism during extraction.")
     parser.add_argument("--prefetch_factor", type=int, default=4,
@@ -126,6 +128,7 @@ def build_extract_args(experiment_name: str, args: argparse.Namespace) -> Simple
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         use_amp=args.use_amp,
+        multi_gpu=args.multi_gpu,
         fast_mode=args.fast_mode,
         prefetch_factor=args.prefetch_factor,
         progress_log_every=args.progress_log_every,

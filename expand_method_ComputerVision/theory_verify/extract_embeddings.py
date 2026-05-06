@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
@@ -46,6 +47,8 @@ def parse_args() -> argparse.Namespace:
                         help="Optional override for config num_workers")
     parser.add_argument("--use_amp", action="store_true",
                         help="Use mixed precision (autocast) on CUDA to speed inference")
+    parser.add_argument("--multi_gpu", default="auto", choices=["auto", "off", "on"],
+                        help="Use DataParallel across visible GPUs for extraction")
     parser.add_argument("--fast_mode", action="store_true",
                         help="Favor speed over strict determinism (enables cuDNN benchmark and TF32 on CUDA)")
     parser.add_argument("--prefetch_factor", type=int, default=4,
@@ -65,6 +68,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--force", action="store_true",
                         help="Overwrite an existing run directory")
     return parser.parse_args()
+
+
+class FrozenViTFeatureExtractor(nn.Module):
+    def __init__(self, vit_module: nn.Module):
+        super().__init__()
+        self.vit = vit_module
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.vit.forward_features(x, task=-1)
+
+
+def should_enable_multi_gpu(mode: str, device: str) -> bool:
+    if not torch.cuda.is_available() or not str(device).startswith("cuda"):
+        return False
+    gpu_count = torch.cuda.device_count()
+    if mode == "on":
+        return gpu_count > 1
+    if mode == "off":
+        return False
+    return gpu_count > 1
 
 
 def build_descriptor(hidden, descriptor):
@@ -112,7 +135,7 @@ def build_loader(dataset, batch_size: int, num_workers: int, seed: int, prefetch
 
 def extract_split_embeddings(
     loader,
-    backbone,
+    feature_model,
     descriptor: str,
     device: str,
     limit_per_split: int | None,
@@ -135,7 +158,7 @@ def extract_split_embeddings(
         int(dataset_size) if dataset_size is not None else limit_per_split
     )
 
-    backbone.eval()
+    feature_model.eval()
     split_start = time.time()
     last_batch_end = split_start
 
@@ -152,9 +175,9 @@ def extract_split_embeddings(
             # optionally use mixed precision on CUDA for faster inference
             if use_amp and torch.cuda.is_available() and str(device).startswith("cuda"):
                 with torch.cuda.amp.autocast():
-                    hidden = backbone.vit.forward_features(images, task=-1)
+                    hidden = feature_model(images)
             else:
-                hidden = backbone.vit.forward_features(images, task=-1)
+                hidden = feature_model(images)
 
             feats = build_descriptor(hidden, descriptor)
 
@@ -292,6 +315,16 @@ def run_extraction(args: argparse.Namespace) -> Path:
     backbone.eval()
     log(f"[setup] backbone loaded in {time.time() - model_t0:.1f}s")
 
+    feature_model: nn.Module = FrozenViTFeatureExtractor(backbone.vit).to(device)
+    multi_gpu_active = should_enable_multi_gpu(getattr(args, "multi_gpu", "auto"), device)
+    if multi_gpu_active:
+        gpu_count = torch.cuda.device_count()
+        device_ids = list(range(gpu_count))
+        feature_model = nn.DataParallel(feature_model, device_ids=device_ids)
+        log(f"[setup] multi_gpu=on DataParallel device_ids={device_ids} primary={device_ids[0]}")
+    else:
+        log(f"[setup] multi_gpu=off mode={getattr(args, 'multi_gpu', 'auto')} visible_gpus={torch.cuda.device_count()}")
+
     model_device = next(backbone.parameters()).device
     log(f"[setup] device={device} model_device={model_device} cuda_available={torch.cuda.is_available()}")
     log(f"[setup] backbone=ViT_Frozen vit={backbone.vit.__class__.__name__}")
@@ -341,7 +374,7 @@ def run_extraction(args: argparse.Namespace) -> Path:
 
         train_payload = extract_split_embeddings(
             train_loader,
-            backbone,
+            feature_model,
             args.descriptor,
             device,
             args.limit_per_split,
@@ -351,7 +384,7 @@ def run_extraction(args: argparse.Namespace) -> Path:
         )
         test_payload = extract_split_embeddings(
             test_loader,
-            backbone,
+            feature_model,
             args.descriptor,
             device,
             args.limit_per_split,
