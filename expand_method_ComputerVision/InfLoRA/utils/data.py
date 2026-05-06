@@ -377,6 +377,26 @@ def resolve_domainnet_root(candidate_root=None):
                 return str(resolved.resolve())
         return None
 
+    def probe_variants(probe):
+        probe = str(probe).replace('\\', '/').lstrip('/')
+        variants = []
+
+        def add(variant):
+            if variant and variant not in variants:
+                variants.append(variant)
+
+        add(probe)
+        if probe.startswith('data/DomainNet/'):
+            add(probe[len('data/DomainNet/'):])
+        if probe.startswith('data/'):
+            add(probe[len('data/'):])
+        if probe.startswith('DomainNet/'):
+            add(probe[len('DomainNet/'):])
+        if probe.startswith('domainnet/'):
+            add(probe[len('domainnet/'):])
+
+        return variants
+
     def load_probe_paths(limit=8):
         split_path = Path(__file__).resolve().parent / '..' / 'dataloaders' / 'splits' / 'domainnet_train.yaml'
         split_path = split_path.resolve()
@@ -427,7 +447,7 @@ def resolve_domainnet_root(candidate_root=None):
             continue
         seen.add(root_key)
 
-        if any((root / probe).exists() for probe in probe_paths[:8]):
+        if any((root / probe_variant).exists() for probe in probe_paths[:8] for probe_variant in probe_variants(probe)):
             return str(root.resolve())
 
     return None
