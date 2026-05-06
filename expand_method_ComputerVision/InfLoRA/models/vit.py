@@ -17,6 +17,7 @@ import math
 import logging
 from functools import partial
 from collections import OrderedDict
+import warnings
 
 import torch
 import torch.nn as nn
@@ -24,11 +25,30 @@ import torch.nn.functional as F
 import torch.utils.checkpoint
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, IMAGENET_INCEPTION_MEAN, IMAGENET_INCEPTION_STD
-from timm.models.helpers import build_model_with_cfg, resolve_pretrained_cfg, named_apply, adapt_input_conv, checkpoint_seq
-from timm.models.layers import PatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
-from timm.models.registry import register_model
+try:
+    from timm.layers import PatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
+    from timm.models import register_model as timm_register_model
+    from timm.models._builder import build_model_with_cfg, resolve_pretrained_cfg
+    from timm.models._manipulate import named_apply, adapt_input_conv, checkpoint_seq
+except ImportError:
+    from timm.models.helpers import build_model_with_cfg, resolve_pretrained_cfg, named_apply, adapt_input_conv, checkpoint_seq
+    from timm.models.layers import PatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
+    from timm.models.registry import register_model as timm_register_model
 
 _logger = logging.getLogger(__name__)
+
+
+def register_model_safely(fn):
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=rf"Overwriting {fn.__name__} in registry.*",
+            category=UserWarning,
+        )
+        return timm_register_model(fn)
+
+
+register_model = register_model_safely
 
 
 def _cfg(url='', **kwargs):
@@ -185,19 +205,19 @@ class Attention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
         self.attn_gradients = None
         self.attention_map = None
-        
+
     def save_attn_gradients(self, attn_gradients):
         self.attn_gradients = attn_gradients
-        
+
     def get_attn_gradients(self):
         return self.attn_gradients
-    
+
     def save_attention_map(self, attention_map):
         self.attention_map = attention_map
-        
+
     def get_attention_map(self):
         return self.attention_map
-    
+
     def forward(self, x, register_hook=False, prompt=None):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
@@ -213,10 +233,10 @@ class Attention(nn.Module):
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
-                
+
         if register_hook:
             self.save_attention_map(attn)
-            attn.register_hook(self.save_attn_gradients)        
+            attn.register_hook(self.save_attn_gradients)
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)

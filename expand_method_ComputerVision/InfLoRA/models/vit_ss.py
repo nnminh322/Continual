@@ -23,6 +23,7 @@ from copy import deepcopy
 from functools import partial
 from collections import OrderedDict
 from typing import Optional
+import warnings
 
 import torch
 import torch.nn as nn
@@ -30,15 +31,34 @@ import torch.nn.functional as F
 import torch.utils.checkpoint
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, IMAGENET_INCEPTION_MEAN, IMAGENET_INCEPTION_STD
-from timm.models.helpers import build_model_with_cfg, resolve_pretrained_cfg, named_apply, adapt_input_conv, \
-    checkpoint_seq
-from timm.models.layers import PatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
-from timm.models.registry import register_model
+try:
+    from timm.layers import PatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
+    from timm.models import register_model as timm_register_model
+    from timm.models._builder import build_model_with_cfg, resolve_pretrained_cfg
+    from timm.models._manipulate import named_apply, adapt_input_conv, checkpoint_seq
+except ImportError:
+    from timm.models.helpers import build_model_with_cfg, resolve_pretrained_cfg, named_apply, adapt_input_conv, \
+        checkpoint_seq
+    from timm.models.layers import PatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
+    from timm.models.registry import register_model as timm_register_model
 
 from prompts.hide_prompt import EPrompt
 from attention import PreT_Attention
 
 _logger = logging.getLogger(__name__)
+
+
+def register_model_safely(fn):
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=rf"Overwriting {fn.__name__} in registry.*",
+            category=UserWarning,
+        )
+        return timm_register_model(fn)
+
+
+register_model = register_model_safely
 
 
 def _cfg(url='', **kwargs):

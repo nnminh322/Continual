@@ -161,11 +161,8 @@ def run_extraction(args: argparse.Namespace) -> Path:
         data_args["data_path"] = args.data_path
     if data_args["dataset"].lower() == "domainnet":
         resolved_data_path = data_utils.resolve_domainnet_root(data_args.get("data_path"))
-        if resolved_data_path is None:
-            raise FileNotFoundError(
-                "Could not resolve a DomainNet root. Pass --data_path to the mounted DomainNet directory "
-                "or set DOMAINNET_ROOT. Common Kaggle/repo locations were checked automatically.")
-        data_args["data_path"] = resolved_data_path
+        if resolved_data_path is not None:
+            data_args["data_path"] = resolved_data_path
     try:
         data_manager = DataManager(
             data_args["dataset"],
@@ -179,7 +176,8 @@ def run_extraction(args: argparse.Namespace) -> Path:
         raise FileNotFoundError(
             f"{exc}\n"
             f"The DomainNet dataset is not mounted where the config expects it. "
-            f"Pass --data_path to the actual root or mount the dataset at the configured path.") from exc
+            f"Resolved data_path was {data_args.get('data_path')!r}. "
+            f"Pass --data_path to the actual root, or set DOMAINNET_ROOT to the parent directory that contains DomainNet/domainnet/data/DomainNet.") from exc
     data_args["class_order"] = data_manager._class_order
 
     backbone = ViT_Frozen(data_args).to(device)

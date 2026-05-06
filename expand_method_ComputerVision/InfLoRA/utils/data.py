@@ -10,6 +10,64 @@ from shutil import move, rmtree
 import torch
 from pathlib import Path
 
+DOMAINNET_ROOT_NAMES = ("DomainNet", "domainnet")
+DOMAINNET_DOMAIN_NAMES = ("clipart", "infograph", "painting", "quickdraw", "real", "sketch")
+
+
+def _domainnet_path_variants(path):
+    path = str(path).replace('\\', '/').lstrip('/')
+    variants = []
+
+    def add(variant):
+        variant = str(variant).replace('\\', '/').lstrip('/')
+        if variant and variant not in variants:
+            variants.append(variant)
+
+    add(path)
+
+    if path.startswith('data/DomainNet/'):
+        tail = path[len('data/DomainNet/'):]
+        add(f'DomainNet/{tail}')
+        add(f'domainnet/{tail}')
+        add(f'data/domainnet/{tail}')
+        add(tail)
+    elif path.startswith('data/domainnet/'):
+        tail = path[len('data/domainnet/'):]
+        add(f'domainnet/{tail}')
+        add(f'DomainNet/{tail}')
+        add(f'data/DomainNet/{tail}')
+        add(tail)
+    elif path.startswith('DomainNet/'):
+        tail = path[len('DomainNet/'):]
+        add(f'domainnet/{tail}')
+        add(tail)
+    elif path.startswith('domainnet/'):
+        tail = path[len('domainnet/'):]
+        add(f'DomainNet/{tail}')
+        add(tail)
+    elif path.startswith('data/'):
+        add(path[len('data/'):])
+
+    return variants
+
+
+def _looks_like_domainnet_dir(path):
+    path = Path(path).expanduser()
+    if not path.exists() or not path.is_dir():
+        return False
+
+    present_domains = sum(1 for domain_name in DOMAINNET_DOMAIN_NAMES if (path / domain_name).is_dir())
+    return present_domains >= 2
+
+
+def _iter_domainnet_dir_hints(root):
+    root = Path(root).expanduser()
+    yield root
+    yield root / 'data'
+    for root_name in DOMAINNET_ROOT_NAMES:
+        yield root / root_name
+        yield root / 'data' / root_name
+
 class iData(object):
     train_trsf = []
     test_trsf = []
@@ -300,19 +358,7 @@ class iDomainNet(iData):
 
     def _resolve_image_path(self, path):
         path = str(path).replace('\\', '/')
-
-        candidates = []
-
-        def add_candidate(candidate):
-            candidate = str(candidate).replace('\\', '/')
-            if candidate and candidate not in candidates:
-                candidates.append(candidate)
-
-        add_candidate(path)
-        if path.startswith('data/'):
-            add_candidate(path[len('data/'):])
-        if path.startswith('data/DomainNet/'):
-            add_candidate(path[len('data/DomainNet/'):])
+        candidates = _domainnet_path_variants(path)
 
         for candidate in candidates:
             if os.path.isabs(candidate) and os.path.exists(candidate):
@@ -322,10 +368,13 @@ class iDomainNet(iData):
 
         data_root = self.args.get('data_path') if self.args is not None else None
         if data_root:
-            for candidate_tail in candidates:
-                candidate = os.path.join(data_root, candidate_tail)
-                if os.path.exists(candidate):
-                    return candidate
+            for candidate_root in _iter_domainnet_dir_hints(data_root):
+                if not candidate_root.exists():
+                    continue
+                for candidate_tail in candidates:
+                    candidate = candidate_root / candidate_tail
+                    if candidate.exists():
+                        return str(candidate)
 
         return path
 
@@ -376,26 +425,6 @@ def resolve_domainnet_root(candidate_root=None):
             if resolved.exists():
                 return str(resolved.resolve())
         return None
-
-    def probe_variants(probe):
-        probe = str(probe).replace('\\', '/').lstrip('/')
-        variants = []
-
-        def add(variant):
-            if variant and variant not in variants:
-                variants.append(variant)
-
-        add(probe)
-        if probe.startswith('data/DomainNet/'):
-            add(probe[len('data/DomainNet/'):])
-        if probe.startswith('data/'):
-            add(probe[len('data/'):])
-        if probe.startswith('DomainNet/'):
-            add(probe[len('DomainNet/'):])
-        if probe.startswith('domainnet/'):
-            add(probe[len('domainnet/'):])
-
-        return variants
 
     def derive_root_from_match(match_path, probe_variant):
         root = Path(match_path).expanduser()
@@ -453,7 +482,11 @@ def resolve_domainnet_root(candidate_root=None):
             continue
         seen.add(root_key)
 
-        if any((root / probe_variant).exists() for probe in probe_paths[:8] for probe_variant in probe_variants(probe)):
+        for candidate_dir in _iter_domainnet_dir_hints(root):
+            if _looks_like_domainnet_dir(candidate_dir):
+                return str(candidate_dir.resolve())
+
+        if any((root / probe_variant).exists() for probe in probe_paths[:8] for probe_variant in _domainnet_path_variants(probe)):
             return str(root.resolve())
 
     recursive_bases = [
@@ -474,8 +507,12 @@ def resolve_domainnet_root(candidate_root=None):
         if not base.exists() or not base.is_dir():
             continue
 
+        for candidate_dir in _iter_domainnet_dir_hints(base):
+            if _looks_like_domainnet_dir(candidate_dir):
+                return str(candidate_dir.resolve())
+
         for probe in probe_paths[:4]:
-            for probe_variant in probe_variants(probe):
+            for probe_variant in _domainnet_path_variants(probe):
                 try:
                     match_path = next(base.rglob(probe_variant), None)
                 except (OSError, RuntimeError):
@@ -485,6 +522,9 @@ def resolve_domainnet_root(candidate_root=None):
                     continue
 
                 root = derive_root_from_match(match_path, probe_variant)
+                for candidate_dir in _iter_domainnet_dir_hints(root):
+                    if _looks_like_domainnet_dir(candidate_dir):
+                        return str(candidate_dir.resolve())
                 if root.exists():
                     return str(root.resolve())
 
